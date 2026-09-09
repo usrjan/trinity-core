@@ -385,7 +385,12 @@ class NeuronRepository
 			mkdir($logDir, 0775, true);
 		}
 
-		$user = $_SESSION['user_login'] ?? 'system';
+		// Получаем имя пользователя из сессии безопасно
+		$user = 'system';
+		if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['user_login'])) {
+			$user = $_SESSION['user_login'];
+		}
+		
 		$logFile = $logDir . '/admin.log';
 		
 		$entry = sprintf(

@@ -101,8 +101,9 @@ class AuthController
 		}
 
 		// Генерируем CSRF-токен для формы, если его нет
-		if (empty($_SESSION['csrf_token'])) {
-			$this->guard->generateCsrfToken();
+		$csrfToken = $this->guard->getCsrfToken();
+		if ($csrfToken === null) {
+			$csrfToken = $this->guard->generateCsrfToken();
 		}
 
 		// Flash-сообщение об ошибке (показывается один раз)
@@ -112,7 +113,7 @@ class AuthController
 		// Рендерим форму
 		$html = $this->twig->render('login.html.twig', [
 			'error'      => $error,
-			'csrf_token' => $_SESSION['csrf_token'] ?? '',
+			'csrf_token' => $csrfToken,
 		]);
 
 		return new Response($html);
@@ -280,8 +281,9 @@ class AuthController
 		}
 
 		// Генерируем CSRF-токен если нет
-		if (empty($_SESSION['csrf_token'])) {
-			$this->guard->generateCsrfToken();
+		$csrfToken = $this->guard->getCsrfToken();
+		if ($csrfToken === null) {
+			$csrfToken = $this->guard->generateCsrfToken();
 		}
 
 		// Flash-сообщение об ошибке
@@ -291,7 +293,7 @@ class AuthController
 		// Рендерим форму
 		$html = $this->twig->render('register.html.twig', [
 			'error'      => $error,
-			'csrf_token' => $_SESSION['csrf_token'] ?? '',
+			'csrf_token' => $csrfToken,
 		]);
 
 		return new Response($html);

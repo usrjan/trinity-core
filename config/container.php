@@ -106,8 +106,12 @@ return [
 			'strict_variables' => false,
 		]);
 
-		// CSRF-токен как глобальная переменная
-		$twig->addGlobal('csrf_token', $_SESSION['csrf_token'] ?? '');
+		// CSRF-токен как глобальная переменная (безопасный доступ)
+		$csrfToken = '';
+		if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['csrf_token'])) {
+			$csrfToken = $_SESSION['csrf_token'];
+		}
+		$twig->addGlobal('csrf_token', $csrfToken);
 
 		return $twig;
 	},

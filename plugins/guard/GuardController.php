@@ -330,7 +330,11 @@ class GuardController
 	public function generateCsrfToken(): string
 	{
 		$token = bin2hex(random_bytes(32));
-		$_SESSION['csrf_token'] = $token;
+		
+		// Записываем в сессию только если она активна
+		if (session_status() === PHP_SESSION_ACTIVE) {
+			$_SESSION['csrf_token'] = $token;
+		}
 
 		// Записываем в cookie, доступный для JavaScript (не HttpOnly)
 		setcookie(
@@ -357,11 +361,27 @@ class GuardController
 	 */
 	public function validateCsrfToken(string $token): bool
 	{
+		if (session_status() !== PHP_SESSION_ACTIVE) {
+			return false;
+		}
 		$storedToken = $_SESSION['csrf_token'] ?? null;
 		if ($storedToken === null || $token === null) {
 			return false;
 		}
 		return hash_equals($storedToken, $token);
+	}
+	
+	/**
+	 * Получить CSRF-токен из сессии.
+	 * 
+	 * @return string|null
+	 */
+	public function getCsrfToken(): ?string
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) {
+			return null;
+		}
+		return $_SESSION['csrf_token'] ?? null;
 	}
 
 	// ============================================
@@ -382,11 +402,18 @@ class GuardController
 		}
 
 		$logFile = $logDir . '/security.log';
+		
+		// Безопасно получаем логин из сессии
+		$login = 'unknown';
+		if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['user_login'])) {
+			$login = $_SESSION['user_login'];
+		}
+		
 		$entry = sprintf(
 			"[%s] %s: %s\n  Context: %s\n  IP: %s\n\n",
 			date('Y-m-d H:i:s'),
 			$event,
-			$context['login'] ?? 'unknown',
+			$login,
 			json_encode($context, JSON_UNESCAPED_UNICODE),
 			$context['ip'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown'
 		);
