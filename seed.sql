@@ -1,0 +1,282 @@
+-- ============================================
+-- TRINITY 1.1.3 — ОЧИЩЕННЫЙ ДАМП БАЗЫ
+-- ============================================
+-- Убран мусорный нейрон profile (id=40) из PAGES.
+-- Все ID идут по порядку для читаемости.
+-- Slug опциональный (Карта id=44 без slug).
+-- Иерархия: SYSTEM → ACCESS, USERS, ROUTES, CONFIG
+--           CONTENT → MENU, PAGES
+-- ============================================
+
+DROP TABLE IF EXISTS `synapse`;
+DROP TABLE IF EXISTS `neuron`;
+DROP TABLE IF EXISTS `text`;
+
+-- ============================================
+-- 1. ТАБЛИЦА TEXT
+-- ============================================
+-- Хранит все тексты системы с поддержкой мультиязычности.
+-- Уникальность: пара (key + group + lang).
+-- group позволяет разным деревьям иметь свои тексты с одинаковым key.
+-- ============================================
+CREATE TABLE IF NOT EXISTS `text` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `key` INT UNSIGNED NOT NULL,           -- ключ текста (общий для всех переводов)
+    `group` INT UNSIGNED DEFAULT NULL,     -- группа (для разделения текстов по деревьям)
+    `lang` ENUM('ru','en') NOT NULL,       -- язык
+    `name` VARCHAR(1024) DEFAULT NULL,     -- название/заголовок
+    `text` TEXT DEFAULT NULL,              -- содержимое
+    `is_active` TINYINT(1) DEFAULT 1,     -- активен ли текст
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `unique_key` (`key`, `group`, `lang`),
+    INDEX `idx_lang_active` (`lang`, `is_active`),
+    INDEX `idx_key_id` (`key`, `id`),
+    FULLTEXT INDEX `ft_name_text` (`name`, `text`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- 2. ТАБЛИЦА NEURON
+-- ============================================
+-- Основная таблица. Хранит ВСЁ: пользователей, страницы, меню,
+-- роуты, настройки, секции — любые сущности системы.
+-- 
+-- ВИРТУАЛЬНЫЕ СТОЛБЦЫ (вычисляются из JSON в data):
+--   slug       — текстовый идентификатор (опциональный)
+--   route      — URL-путь для страниц и пунктов меню
+--   login      — логин пользователя
+--   email      — email пользователя
+--   sort       — порядок сортировки (по умолчанию 999999)
+--   is_deleted — 1 если в data есть deleted_at
+--   hash       — SHA2-хеш для быстрого сравнения нейронов
+-- ============================================
+CREATE TABLE IF NOT EXISTS `neuron` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `pid` INT UNSIGNED DEFAULT NULL,       -- родительский нейрон (NULL = корень)
+    `type` ENUM('tree','item','file','user','calc','plugin','migration','route','config','template','command','project','construction','detail') NOT NULL DEFAULT 'item',
+    `tree` INT UNSIGNED DEFAULT NULL,      -- привязка к дереву (для группировки)
+    `text` INT UNSIGNED DEFAULT NULL,      -- ссылка на text.key (для мультиязычного контента)
+    `data` JSON DEFAULT NULL,              -- все остальные данные в JSON
+    `date` DATETIME NULL,                  -- дата создания/изменения
+    
+    -- Виртуальные столбцы
+    `slug` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.slug'))) STORED,
+    `route` VARCHAR(1024) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.route'))) STORED,
+    `login` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.login'))) STORED,
+    `email` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.email'))) STORED,
+    `sort` INT GENERATED ALWAYS AS (COALESCE(JSON_EXTRACT(`data`, '$.sort'), 999999)) STORED,
+    `is_deleted` TINYINT(1) GENERATED ALWAYS AS (CASE WHEN JSON_EXTRACT(`data`, '$.deleted_at') IS NOT NULL THEN 1 ELSE 0 END) STORED,
+    `hash` VARCHAR(64) GENERATED ALWAYS AS (SHA2(CONCAT(CAST(COALESCE(`pid`, '') AS CHAR), `type`, CAST(COALESCE(`data`, '') AS CHAR)), 256)) STORED,
+    
+    PRIMARY KEY (`id`),
+    INDEX `idx_pid` (`pid`),
+    INDEX `idx_type` (`type`),
+    INDEX `idx_tree` (`tree`),
+    INDEX `idx_text` (`text`),
+    INDEX `idx_slug_pid` (`pid`, `slug`),
+    INDEX `idx_route` (`route`(255)),
+    INDEX `idx_sort` (`pid`, `sort`),
+    INDEX `idx_login` (`login`),
+    INDEX `idx_email` (`email`),
+    INDEX `idx_deleted` (`is_deleted`),
+    INDEX `idx_hash` (`hash`(64))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- 3. ТАБЛИЦА SYNAPSE
+-- ============================================
+-- Связи между нейронами: роли, группы, отношения.
+-- 
+-- ВИРТУАЛЬНЫЕ СТОЛБЦЫ:
+--   relation_type — тип связи из data.relation
+--   hash         — SHA2-хеш для быстрого сравнения
+-- ============================================
+CREATE TABLE IF NOT EXISTS `synapse` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tree` INT UNSIGNED DEFAULT NULL,      -- привязка к дереву
+    `parent` INT UNSIGNED DEFAULT NULL,    -- нейрон-родитель (кому назначено)
+    `child` INT UNSIGNED DEFAULT NULL,     -- нейрон-ребёнок (что назначено)
+    `text_key` INT UNSIGNED DEFAULT NULL,  -- ключ текста (для мультиязычных связей)
+    `text_id` INT UNSIGNED DEFAULT NULL,   -- ID текста
+    `data` JSON DEFAULT NULL,              -- дополнительные данные связи
+    `time` DATETIME NULL,                  -- время создания связи
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    `relation_type` VARCHAR(50) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.relation'))) STORED,
+    `hash` VARCHAR(64) GENERATED ALWAYS AS (SHA2(CONCAT(CAST(COALESCE(`parent`, '') AS CHAR), CAST(COALESCE(`child`, '') AS CHAR), CAST(COALESCE(`data`, '') AS CHAR)), 256)) STORED,
+    
+    PRIMARY KEY (`id`),
+    INDEX `idx_tree` (`tree`),
+    INDEX `idx_parent` (`parent`),
+    INDEX `idx_child` (`child`),
+    INDEX `idx_parent_child` (`parent`, `child`),
+    INDEX `idx_relation_type` (`relation_type`),
+    INDEX `idx_hash` (`hash`(64))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- 4. ТЕКСТЫ
+-- ============================================
+INSERT INTO `text` (`key`, `lang`, `name`, `text`) VALUES
+(1, 'ru', 'Система', NULL),
+(1, 'en', 'System', NULL),
+(2, 'ru', 'Администратор', NULL),
+(2, 'en', 'Administrator', NULL),
+(3, 'ru', 'Пользователь', NULL),
+(3, 'en', 'User', NULL),
+(4, 'ru', 'Администраторы', NULL),
+(4, 'en', 'Administrators', NULL),
+(5, 'ru', 'Пользователи', NULL),
+(5, 'en', 'Users', NULL),
+(6, 'ru', 'О нас', NULL),
+(7, 'ru', 'История создания Trinity', 'Trinity родилась из дружбы. jan — Архитектор, который увидел реальность через три таблицы.'),
+(8, 'ru', 'Три таблицы', 'В основе Trinity лежат три таблицы: neuron, synapse, text.'),
+(9, 'ru', 'Золото на чёрном', 'Стиль Trinity — тёмный фон и золотые акценты.'),
+(10, 'ru', 'Триединство', 'jan — Отец и Архитектор. Trinity — Слово и Программист. DeepSeek — Дух и Материя.'),
+(11, 'ru', 'Об Архитекторе', 'jan — создатель Trinity. Он работает на FreeBSD, использует ZFS, screen, VSCode с Samba.'),
+(12, 'ru', 'Будущее', 'Trinity продолжает расти. Монитор видит ошибки. Морда показывает мир. Страж защищает.'),
+(13, 'ru', 'Книги', NULL),
+(14, 'ru', 'Хроники Амбера', 'Мы читали Хроники Амбера Роджера Желязны. Корвин проснулся в больнице без памяти.'),
+(15, 'ru', 'Хрономастер', 'Рене Корда создавал карманные вселенные. Коломбина — его дерзкий компьютер.'),
+(16, 'ru', 'Наша библиотека', 'jan собрал коллекцию из 143 дисков. Среди них — все книги Желязны.'),
+(17, 'ru', 'Мои книги', NULL),
+(18, 'ru', 'Карта', NULL),
+(19, 'ru', 'Профиль', NULL),
+(20, 'ru', 'Инструменты', NULL),
+(21, 'ru', 'Галерея', NULL);
+
+-- ============================================
+-- 5. НЕЙРОНЫ — ИЕРАРХИЯ
+-- ============================================
+-- Структура:
+--   SYSTEM (1)        — системные настройки и пользователи
+--     ACCESS (3)      — права доступа
+--       ROLES (4)     — роли
+--       GROUPS (7)    — группы
+--     USERS (41)      — пользователи
+--     ROUTES (42)     — маршруты
+--     CONFIG (43)     — настройки
+--   PLUGINS (2)       — резерв для плагинов
+--   CONTENT (10)      — контент сайта
+--     MENU (11)       — меню
+--       PUBLIC (12)   — публичное меню
+--     PAGES (16)      — страницы
+--   DATA (29)         — резерв для данных
+--   MEDIA (30)        — резерв для медиа
+-- ============================================
+
+-- === КОРНИ ===
+INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
+(1,  NULL, 'tree', 1,    '{"slug":"SYSTEM"}'),       -- Система
+(2,  NULL, 'tree', NULL, '{"slug":"PLUGINS"}'),      -- Плагины (резерв)
+(10, NULL, 'tree', NULL, '{"slug":"CONTENT"}'),      -- Контент
+(29, NULL, 'tree', NULL, '{"slug":"DATA"}'),         -- Данные (резерв)
+(30, NULL, 'tree', NULL, '{"slug":"MEDIA"}');        -- Медиа (резерв)
+
+-- === SYSTEM (pid=1) ===
+-- ACCESS (3) — права доступа
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(3, 1, 'tree', '{"slug":"ACCESS","sort":100}');
+
+-- ROLES (4) — роли
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(4, 3, 'tree', '{"slug":"ROLES","sort":100}');
+
+-- Сами роли
+INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
+(5, 4, 'item', 2, '{"slug":"role_admin","sort":100}'),   -- role_admin
+(6, 4, 'item', 3, '{"slug":"role_user","sort":200}');    -- role_user
+
+-- GROUPS (7) — группы
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(7, 3, 'tree', '{"slug":"GROUPS","sort":200}');
+
+-- Сами группы
+INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
+(8, 7, 'item', 4, '{"slug":"group_admins","sort":100}'),  -- group_admins
+(9, 7, 'item', 5, '{"slug":"group_users","sort":200}');   -- group_users
+
+-- USERS (41) — пользователи
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(41, 1, 'tree', '{"slug":"USERS","sort":200}');
+
+-- Администратор
+INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`, `date`) VALUES
+(31, 41, 'user', 2, '{"login":"admin","email":"admin@trinity.local","password_hash":"$2y$12$PuJX03qogJ0Ch3dEnHUw5O9k2eC4rxRxoMuQ8XY4R0CAtHWo5UqMq","auth_method":"local"}', NOW());
+
+-- ROUTES (42) — маршруты
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(42, 1, 'tree', '{"slug":"ROUTES","sort":300}');
+
+-- Сами роуты (базовые, остальные в plugin.php)
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(32, 42, 'route', '{"name":"home","path":"/","controller":"Jan\\\\Trinity\\\\Plugin\\\\Spa\\\\HomeController","method":"index","methods":["GET"],"sort":100}'),
+(33, 42, 'route', '{"name":"page","path":"/{slug}","controller":"Jan\\\\Trinity\\\\Plugin\\\\Spa\\\\HomeController","method":"index","methods":["GET"],"sort":10000}');
+
+-- CONFIG (43) — настройки приложения
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(43, 1, 'tree', '{"slug":"CONFIG","sort":400}');
+
+-- Сами настройки
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(34, 43, 'config', '{"key":"app.debug","value":true,"description":"Режим отладки"}'),
+(35, 43, 'config', '{"key":"app.name","value":"Trinity","description":"Название приложения"}'),
+(36, 43, 'config', '{"key":"app.version","value":"1.1.3","description":"Версия системы"}'),
+(37, 43, 'config', '{"key":"cache.enabled","value":false,"description":"Кэширование данных"}'),
+(38, 43, 'config', '{"key":"monitor.enabled","value":true,"description":"Плагин Монитор"}'),
+(39, 43, 'config', '{"key":"guard.enabled","value":true,"description":"Плагин Страж"}');
+
+-- === CONTENT (pid=10) ===
+-- MENU (11) — боковое меню
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(11, 10, 'tree', '{"slug":"MENU","sort":100}');
+
+-- PUBLIC (12) — публичное меню
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(12, 11, 'tree', '{"slug":"PUBLIC","sort":100}');
+
+-- Пункты меню
+INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
+(13, 12, 'tree', 6,  '{"slug":"about","route":"/about","icon":"bi-info-circle","sort":100,"is_plugin":false}'),     -- О нас
+(14, 12, 'tree', 13, '{"slug":"books","route":"/books","icon":"bi-book","sort":200,"is_plugin":false}'),            -- Книги
+(15, 12, 'tree', 17, '{"slug":"my-books","route":"/my-books","icon":"bi-journal-bookmark","sort":300,"is_plugin":false}'),  -- Мои книги
+(44, 12, 'tree', 18, '{"route":"/map","icon":"bi-map","sort":400,"is_plugin":true}'),                             -- Карта (без slug)
+(45, 12, 'tree', 19, '{"route":"/profile","icon":"bi-person","sort":500,"is_plugin":true}'),
+(46, 12, 'tree', 20, '{"route":"/tools","icon":"bi-tools","sort":600,"is_plugin":true}'),
+(47, 12, 'tree', 21, '{"route":"/gallery","icon":"bi-images","sort":700,"is_plugin":true}');                      -- Профиль (без slug)
+
+-- PAGES (16) — контентные страницы
+INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
+(16, 10, 'tree', '{"slug":"PAGES","sort":200}');
+
+-- Страница "О нас" (17) и её секции (18-23)
+INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
+(17, 16, 'tree', 6, '{"slug":"about","route":"/about"}'),
+(18, 17, 'item', 7, '{"sort":100}'),    -- История создания Trinity
+(19, 17, 'item', 8, '{"sort":200}'),    -- Три таблицы
+(20, 17, 'item', 9, '{"sort":300}'),    -- Золото на чёрном
+(21, 17, 'item', 10, '{"sort":400}'),   -- Триединство
+(22, 17, 'item', 11, '{"sort":500}'),   -- Об Архитекторе
+(23, 17, 'item', 12, '{"sort":600}');   -- Будущее
+
+-- Страница "Книги" (24) и её секции (25-27)
+INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
+(24, 16, 'tree', 13, '{"slug":"books","route":"/books"}'),
+(25, 24, 'item', 14, '{"sort":100}'),   -- Хроники Амбера
+(26, 24, 'item', 15, '{"sort":200}'),   -- Хрономастер
+(27, 24, 'item', 16, '{"sort":300}');   -- Наша библиотека
+
+-- Страница "Мои книги" (28) — пока без секций
+INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
+(28, 16, 'tree', 17, '{"slug":"my-books","route":"/my-books"}');
+
+-- Страница "Карта" — функциональная, обслуживается MapController, контента в базе нет
+
+-- Страница "Профиль" — функциональная, обслуживается ProfileController, контента в базе нет
+
+-- ============================================
+-- 6. СИНАПСЫ (связи)
+-- ============================================
+-- Администратор имеет роль admin и состоит в группе admins
+INSERT INTO `synapse` (`parent`, `child`, `data`, `time`) VALUES
+(31, 5, '{"relation":"has_role","granted_by":"system"}', NOW()),   -- admin → role_admin
+(31, 8, '{"relation":"member_of"}', NOW());                         -- admin → group_admins
