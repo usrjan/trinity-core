@@ -23,6 +23,7 @@ use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
+use Jan\Trinity\Core\Services\Logger;
 
 use Jan\Trinity\Core\Controller\HomeController;
 use Jan\Trinity\Plugin\Menu\MenuController;
@@ -40,6 +41,7 @@ use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\NativeSessionStorage;
+use Psr\Log\LogLevel;
 
 return [
 
@@ -62,7 +64,18 @@ return [
 		->constructorParameter('config', \DI\get('db.config')),
 
 	// ============================================
-	// 3. КЭШ (отключаемый)
+	// 3. ЛОГГЕР (PSR-3)
+	// ============================================
+	Logger::class => function () {
+		$basePath = dirname(__DIR__);
+		$logPath = $basePath . '/var/logs';
+		$minLevel = $_ENV['LOG_LEVEL'] ?? LogLevel::DEBUG;
+		
+		return new Logger($logPath, $minLevel);
+	},
+
+	// ============================================
+	// 4. КЭШ (отключаемый)
 	// ============================================
 	Cache::class => function () {
 		$basePath = dirname(__DIR__);
@@ -85,7 +98,7 @@ return [
 	// ============================================
 	// 5. ШАБЛОНИЗАТОР TWIG
 	// ============================================
-	Environment::class => function () {
+	Environment::class => function (\Psr\Container\ContainerInterface $container) {
 		$basePath = dirname(__DIR__);
 		$isDev = ($_ENV['APP_ENV'] ?? 'prod') === 'dev';
 
@@ -112,6 +125,9 @@ return [
 			$csrfToken = $_SESSION['csrf_token'];
 		}
 		$twig->addGlobal('csrf_token', $csrfToken);
+		
+		// Добавляем логгер в Twig для использования в шаблонах (опционально)
+		// $twig->addGlobal('logger', $container->get(Logger::class));
 
 		return $twig;
 	},

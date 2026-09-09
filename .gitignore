@@ -1,57 +1,46 @@
-```php
+# Dependencies
+vendor/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Editors
+.vscode/
+.idea/
+
 # Compiled and build artifacts
-*.pyc
 *.o
 *.obj
-*.class
 *.exe
 *.dll
 *.so
 *.a
 *.out
 
-# Dependencies
-vendor/
-node_modules/
+# Cache directories
 __pycache__/
-.venv/
-venv/
-.env
-.env.local
-.env.*
+*.pyc
+*.pyo
+*.pyd
 
 # Build directories
-dist/
 build/
+dist/
 target/
-.gradle/
+*.class
 
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-*.swo
-
-# Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Coverage
+# Coverage reports
 coverage/
 htmlcov/
 .coverage
 
-# Cache
-.mypy_cache/
-.pytest_cache/
-
-# System
-.DS_Store
-Thumbs.db
-
-# Compressed files
+# Compression files
 *.zip
 *.gz
 *.tar
@@ -74,4 +63,16 @@ Thumbs.db
 *.tar.bz2
 *.tar.xz
 *.tar.zst
-```
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Testing
+.phpunit.result.cache
+.phpunit.xml
+test-results/
+
+# MyPy cache
+.mypy_cache/
+.pytest_cache/
