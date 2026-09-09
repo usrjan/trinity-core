@@ -1,0 +1,21 @@
+{% extends 'base.html.twig' %}
+
+{% block body %}
+<div class="d-flex">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="main-content">
+        <header class="top-bar" id="topBar"></header>
+        <main>
+            {% include 'profile-view.html.twig' %}
+        </main>
+    </div>
+</div>
+
+<script>
+fetch('/api/menu/sidebar?current_url=/profile').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
+fetch('/api/menu/topbar').then(r => r.text()).then(html => {
+    document.getElementById('topBar').innerHTML = html;
+    setTimeout(initUserDropdown, 100);
+});
+</script>
+{% endblock %}
