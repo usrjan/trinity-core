@@ -1,0 +1,31 @@
+{
+	"name": "jan/trinity-core",
+	"description": "Trinity Core — минимальное ядро системы",
+	"type": "project",
+	"version": "1.0.0",
+	"require": {
+		"php": ">=8.4",
+		"php-di/php-di": "^7.1",
+		"symfony/dotenv": "^8.0",
+		"symfony/routing": "^8.0",
+		"symfony/http-foundation": "^8.0",
+		"phpoffice/phpspreadsheet": "^5.7",
+		"phpoffice/phpword": "^1.4",
+		"doctrine/dbal": "^4.4",
+		"twig/twig": "^3.0",
+		"monolog/monolog": "^3.10"
+	},
+	"autoload": {
+		"psr-4": {
+			"Jan\\Trinity\\Core\\": "src/",
+			"Jan\\Trinity\\Plugin\\Spa\\": "plugins/spa/",
+			"Jan\\Trinity\\Plugin\\Admin\\": "plugins/admin/",
+			"Jan\\Trinity\\Plugin\\Users\\": "plugins/users/",
+			"Jan\\Trinity\\Plugin\\Monitor\\": "plugins/monitor/",
+			"Jan\\Trinity\\Plugin\\Guard\\": "plugins/guard/",
+			"Jan\\Trinity\\Plugin\\Map\\": "plugins/map/",
+			"Jan\\Trinity\\Plugin\\Tools\\": "plugins/tools/",
+			"Jan\\Trinity\\Plugin\\Gallery\\": "plugins/gallery/"
+		}
+	}
+}
