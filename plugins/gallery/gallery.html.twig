@@ -1,0 +1,692 @@
+{% extends 'base.html.twig' %}
+
+{% block body %}
+<div class="d-flex">
+	<aside class="sidebar" id="sidebar"></aside>
+	<div class="main-content">
+		<header class="top-bar" id="topBar"></header>
+		<main>
+			<div class="p-4">
+				<div class="d-flex justify-content-between align-items-center mb-4">
+					<h1 class="gold-text mb-0"><i class="bi bi-images"></i> Галерея</h1>
+					<div>
+						<button class="btn btn-outline-gold btn-sm ms-2" onclick="showCreateSectionModal()">
+							<i class="bi bi-folder-plus"></i> Создать раздел
+						</button>
+						<button class="btn btn-outline-gold btn-sm ms-2" onclick="document.getElementById('uploadInput').click()">
+							<i class="bi bi-upload"></i> Загрузить
+						</button>
+						<button class="btn btn-outline-gold btn-sm ms-2" onclick="importFromFolder()">
+							<i class="bi bi-folder-symlink"></i> Импорт из папки
+						</button>
+					</div>
+				</div>
+
+				<input type="file" id="uploadInput" multiple accept="image/*" style="display:none" onchange="uploadFiles(this.files)">
+
+				<div id="galleryContent">
+					<div id="galleryBreadcrumb" class="mb-3" style="min-height: 1.5rem;">
+						<span class="text-muted">Главная</span>
+					</div>
+					<div class="gallery-grid">
+						{% for item in sections %}
+							{% if item.type == 'item' %}
+								<div class="gallery-folder" onclick="loadItem({{ item.id }})">
+							{% else %}
+								<div class="gallery-folder" onclick="navigateTo({{ item.id }}, '{{ item.name|e('js') }}')">
+							{% endif %}
+									<div class="gallery-folder-icon">
+										<i class="bi bi-{{ item.type == 'item' ? 'image' : 'folder2' }}"></i>
+									</div>
+									<div class="gallery-folder-name">{{ item.name }}</div>
+								</div>
+						{% endfor %}
+					</div>
+				</div>
+			</div>
+		</main>
+	</div>
+</div>
+
+{# Модальное окно создания раздела #}
+<div id="createSectionModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+        <h5 class="gold-text mb-3">Создать раздел</h5>
+        <div class="mb-2">
+            <label class="form-label small">Название</label>
+            <input type="text" id="sectionName" class="form-control form-control-sm" placeholder="Новый раздел">
+        </div>
+        <div class="d-flex gap-2 justify-content-end">
+            <button class="btn btn-sm btn-outline-secondary" onclick="closeCreateSectionModal()">Отмена</button>
+            <button class="btn btn-sm btn-outline-gold" onclick="createSection()">Создать</button>
+        </div>
+    </div>
+</div>
+
+<script>
+var currentParentId = {{ rootId }};
+var navigationHistory = [];
+var currentParentName = 'Главная';
+
+fetch('/api/menu/sidebar?current_url=/gallery').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
+fetch('/api/menu/topbar').then(r => r.text()).then(html => {
+	document.getElementById('topBar').innerHTML = html;
+	setTimeout(initUserDropdown, 100);
+});
+
+function navigateTo(id, name) {
+	if (id === currentParentId) return;
+	
+	// Добавляем в историю только если мы не на корне
+	if (currentParentId !== {{ rootId }}) {
+		navigationHistory.push({ id: currentParentId, name: currentParentName });
+	}
+	
+	currentParentId = id;
+	currentParentName = name || '...';
+
+	fetch('/api/gallery/section/' + id)
+		.then(r => r.json())
+		.then(d => {
+			if (d.success) {
+				renderContent(d.data.html);
+			}
+		});
+}
+
+function goBack() {
+	if (navigationHistory.length === 0) return;
+	
+	var prev = navigationHistory.pop();
+	currentParentId = prev.id;
+	currentParentName = prev.name;
+
+	fetch('/api/gallery/section/' + prev.id)
+		.then(r => r.json())
+		.then(d => {
+			if (d.success) {
+				renderContent(d.data.html);
+			}
+		});
+}
+
+function goToSection(id, name) {
+    // Очищаем историю до этого раздела
+    // Находим индекс в истории, если есть
+    var foundIndex = -1;
+    for (var i = 0; i < navigationHistory.length; i++) {
+        if (navigationHistory[i].id === id) {
+            foundIndex = i;
+            break;
+        }
+    }
+    
+    if (foundIndex >= 0) {
+        // Обрезаем историю до этого раздела
+        navigationHistory = navigationHistory.slice(0, foundIndex);
+    }
+
+	// Принудительный переход, даже если id совпадает с currentParentId
+	currentParentId = id;
+	currentParentName = name;
+
+	fetch('/api/gallery/section/' + id)
+		.then(r => r.json())
+		.then(d => {
+			if (d.success) {
+				renderContent(d.data.html);
+			}
+		});
+}
+
+function renderContent(html) {
+	var isHome = (currentParentId === {{ rootId }});
+	
+	var breadcrumb = '<div id="galleryBreadcrumb" class="mb-3">';
+	
+	if (isHome) {
+		breadcrumb += '<span class="text-muted">Главная</span>';
+	} else {
+		breadcrumb += '<a href="#" class="gold-text" onclick="galleryGoHome()">Главная</a>';
+	}
+
+	for (var i = 0; i < navigationHistory.length; i++) {
+		breadcrumb += ' <span class="text-muted">/</span> ' +
+			'<a href="#" class="gold-text" onclick="jumpTo(' + i + ')">' +
+			navigationHistory[i].name + '</a>';
+	}
+
+	if (!isHome) {
+		breadcrumb += ' <span class="text-muted">/</span> ' +
+			'<span class="text-muted">' + currentParentName + '</span>';
+	}
+
+	breadcrumb += '</div>';
+
+	document.getElementById('galleryContent').innerHTML = breadcrumb + html;
+}
+
+function galleryGoHome() {
+	navigationHistory = [];
+	currentParentId = {{ rootId }};
+	currentParentName = 'Главная';
+
+	fetch('/api/gallery/section/' + currentParentId)
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
+			if (d.success) {
+				renderContent(d.data.html);
+			}
+		});
+}
+
+function jumpTo(index) {
+	// Удаляем историю после выбранного элемента
+	var target = navigationHistory[index];
+	navigationHistory = navigationHistory.slice(0, index);
+	currentParentId = target.id;
+	currentParentName = target.name;
+
+	fetch('/api/gallery/section/' + target.id)
+		.then(r => r.json())
+		.then(d => {
+			if (d.success) {
+				renderContent(d.data.html);
+			}
+		});
+}
+
+function loadItem(id, name) {
+	currentItemId = id;
+	fetch('/api/gallery/item/' + id)
+		.then(r => r.json())
+		.then(d => {
+			if (d.success) {
+				var breadcrumb = '<div id="galleryBreadcrumb" class="mb-3">' +
+					'<a href="#" class="gold-text" onclick="galleryGoHome()">Главная</a>';
+
+				for (var i = 0; i < navigationHistory.length; i++) {
+					breadcrumb += ' <span class="text-muted">/</span> ' +
+						'<a href="#" class="gold-text" onclick="jumpTo(' + i + ')">' +
+						navigationHistory[i].name + '</a>';
+				}
+
+				if (currentParentId !== {{ rootId }}) {
+					breadcrumb += ' <span class="text-muted">/</span> ' +
+						'<a href="#" class="gold-text" onclick="goToSection(' + currentParentId + ', \'' + currentParentName + '\')">' +
+						currentParentName + '</a>';
+				}
+
+				breadcrumb += ' <span class="text-muted">/</span> ' +
+					'<span class="text-muted">' + (name || '...') + '</span>';
+
+				breadcrumb += '</div>';
+
+				document.getElementById('galleryContent').innerHTML = breadcrumb + d.data.html;
+			}
+		});
+}
+
+function loadFileItem(id) {
+	fetch('/api/gallery/item/' + id)
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
+			if (d.success) {
+				document.getElementById('galleryContent').innerHTML = d.data.html;
+			}
+		});
+}
+
+function uploadFiles(files) {
+    if (!files.length) return;
+
+    var formData = new FormData();
+    formData.append('parent_id', currentParentId);
+    for (var i = 0; i < files.length; i++) {
+        formData.append('files[]', files[i]);
+    }
+
+    fetch('/api/gallery/upload', { method: 'POST', body: formData })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.success) {
+                // Обновляем текущий раздел
+                fetch('/api/gallery/section/' + currentParentId)
+                    .then(function(r) { return r.json(); })
+                    .then(function(sectionData) {
+                        if (sectionData.success) {
+                            renderContent(sectionData.data.html);
+                        }
+                    });
+            } else {
+                alert(d.message || 'Ошибка загрузки');
+            }
+        });
+
+    document.getElementById('uploadInput').value = '';
+}
+
+function importFromFolder() {
+    if (!confirm('Импортировать файлы из папки _import?')) return;
+
+    fetch('/api/gallery/import', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.success) {
+                alert('Импортировано: ' + (d.data.created || 0));
+                // Обновляем текущий раздел
+                fetch('/api/gallery/section/' + currentParentId)
+                    .then(function(r) { return r.json(); })
+                    .then(function(sectionData) {
+                        if (sectionData.success) {
+                            renderContent(sectionData.data.html);
+                        }
+                    });
+            } else {
+                alert(d.message || 'Ошибка импорта');
+            }
+        });
+}
+
+function setSectionThumb(fileId) {
+    fetch('/api/gallery/section/' + currentParentId + '/set-thumb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_id: fileId })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            // Обновляем раздел чтобы увидеть новую превьюшку
+            fetch('/api/gallery/section/' + currentParentId)
+                .then(r => r.json())
+                .then(sectionData => {
+                    if (sectionData.success) {
+                        renderContent(sectionData.data.html);
+                    }
+                });
+        } else {
+            alert(d.message || 'Ошибка');
+        }
+    });
+}
+
+function showCreateSectionModal() {
+    document.getElementById('createSectionModal').style.display = 'flex';
+}
+
+function closeCreateSectionModal() {
+    document.getElementById('createSectionModal').style.display = 'none';
+}
+
+function createSection() {
+    var name = document.getElementById('sectionName').value.trim();
+    if (!name) {
+        alert('Введите название раздела');
+        return;
+    }
+
+    fetch('/api/gallery/section/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, parent_id: currentParentId })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            closeCreateSectionModal();
+            document.getElementById('sectionName').value = '';
+            // Обновляем текущий раздел
+            fetch('/api/gallery/section/' + currentParentId)
+                .then(function(r) { return r.json(); })
+                .then(function(sectionData) {
+                    if (sectionData.success) {
+                        renderContent(sectionData.data.html);
+                    }
+                });
+        } else {
+            alert(d.message || 'Ошибка');
+        }
+    });
+}
+
+// Делегирование кликов для галереи
+document.addEventListener('click', function(e) {
+	// Редактировать
+	if (e.target.closest('#galleryEditButton')) {
+		var form = document.getElementById('galleryEditForm');
+		var info = document.getElementById('galleryItemInfo');
+		if (form) form.style.display = 'block';
+		if (info) info.style.display = 'none';
+	}
+	
+	// Отмена
+	if (e.target.closest('#galleryCancelButton')) {
+		var form = document.getElementById('galleryEditForm');
+		var info = document.getElementById('galleryItemInfo');
+		if (form) form.style.display = 'none';
+		if (info) info.style.display = 'block';
+	}
+	
+	// Сохранить
+	if (e.target.closest('#gallerySaveButton')) {
+		var form = document.getElementById('galleryEditForm');
+		if (!form) return;
+		
+		var name = document.getElementById('editName').value;
+		var description = document.getElementById('editDescription').value;
+		var meta = {
+			art_type: document.getElementById('editArtType').value,
+			subject: document.getElementById('editSubject').value,
+			style: document.getElementById('editStyle').value,
+			technique: document.getElementById('editTechnique').value,
+			materials: document.getElementById('editMaterials').value,
+			size: document.getElementById('editSize').value,
+			location: document.getElementById('editLocation').value,
+		};
+
+		fetch('/api/gallery/item/' + currentItemId + '/update', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: name, description: description, meta: meta })
+		})
+		.then(r => r.json())
+		.then(d => {
+			if (d.success) {
+				loadItem(currentItemId);
+			} else {
+				alert(d.message || 'Ошибка');
+			}
+		});
+	}
+	
+	// Добавить фото
+	if (e.target.closest('#galleryAddPhotoButton')) {
+		document.getElementById('galleryAddPhotoInput').click();
+	}
+});
+
+// Загрузка фото
+document.addEventListener('change', function(e) {
+	if (e.target.id === 'galleryAddPhotoInput') {
+		var files = e.target.files;
+		if (!files.length) return;
+
+		var formData = new FormData();
+		for (var i = 0; i < files.length; i++) {
+			formData.append('files[]', files[i]);
+		}
+
+		fetch('/api/gallery/item/' + currentItemId + '/upload', {
+			method: 'POST',
+			body: formData
+		})
+		.then(r => r.json())
+		.then(d => {
+			if (d.success) {
+				loadItem(currentItemId);
+			} else {
+				alert(d.message || 'Ошибка загрузки');
+			}
+		});
+
+		e.target.value = '';
+	}
+});
+
+// Удаление фото
+document.addEventListener('click', function(e) {
+	var btn = e.target.closest('[id^="deletePhoto"]');
+	if (btn) {
+		var photoId = btn.id.replace('deletePhoto', '');
+		if (confirm('Удалить фото?')) {
+			fetch('/api/gallery/file/' + photoId, { method: 'DELETE' })
+				.then(r => r.json())
+				.then(d => {
+					if (d.success) {
+						loadItem(currentItemId);
+					} else {
+						alert(d.message || 'Ошибка');
+					}
+				});
+		}
+	}
+	
+	// Удаление item
+	if (e.target.closest('#galleryDeleteItemButton')) {
+		if (confirm('Удалить элемент со всеми фото?')) {
+			fetch('/api/gallery/item/' + currentItemId, { method: 'DELETE' })
+				.then(r => r.json())
+				.then(d => {
+					if (d.success) {
+						goBack();
+					} else {
+						alert(d.message || 'Ошибка');
+					}
+				});
+		}
+	}
+});
+
+// Контекстное меню для превьюшек (правая кнопка)
+document.addEventListener('contextmenu', function(e) {
+    var card = e.target.closest('.gallery-card');
+    if (!card) return;
+
+    // Определяем тип элемента
+    var onclick = card.getAttribute('onclick');
+    if (!onclick) return;
+
+    // Извлекаем id файла
+    var match = onclick.match(/loadFileItem\((\d+)\)/);
+    if (!match) return;
+
+    e.preventDefault();
+    var fileId = match[1];
+
+    // Удаляем старое меню
+    var oldMenu = document.getElementById('galleryContextMenu');
+    if (oldMenu) oldMenu.remove();
+
+    var menu = document.createElement('div');
+    menu.id = 'galleryContextMenu';
+    menu.className = 'menu-context-menu';
+    menu.style.cssText =
+        'position:fixed; left:' + e.pageX + 'px; top:' + e.pageY + 'px; ' +
+        'background:#1a1a1a; border:1px solid rgba(255,170,0,0.3); ' +
+        'border-radius:8px; padding:0.5rem 0; min-width:200px; ' +
+        'z-index:10000; box-shadow:0 10px 30px rgba(0,0,0,0.5);';
+
+    menu.innerHTML =
+        '<a class="topbar-dropdown-item" href="#" onclick="setSectionThumb(' + fileId + '); return false;">' +
+        '<i class="bi bi-image gold-icon" style="width:20px;margin-right:8px;"></i>Сделать превью для раздела' +
+        '</a>';
+
+    document.body.appendChild(menu);
+
+    setTimeout(function() {
+        document.addEventListener('click', function() {
+            if (menu.parentNode) menu.remove();
+        }, { once: true });
+    }, 50);
+});
+</script>
+
+<style>
+.gallery-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+	gap: 12px;
+}
+
+.gallery-folder {
+	background: #1a1a1a;
+	border: 1px solid rgba(255,170,0,0.2);
+	border-radius: 6px;
+	padding: 16px 8px;
+	text-align: center;
+	cursor: pointer;
+	transition: all 0.2s;
+	aspect-ratio: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+}
+
+.gallery-folder:hover {
+	border-color: #ffaa00;
+	background: rgba(255,170,0,0.05);
+}
+
+.gallery-folder-icon {
+	font-size: 2.5rem;
+	color: #ffaa00;
+	margin-bottom: 8px;
+}
+
+.gallery-folder-name {
+	font-size: 0.85rem;
+	color: #aaaaaa;
+	word-break: break-word;
+}
+
+.gallery-card {
+	position: relative;
+	overflow: hidden;
+	border-radius: 6px;
+	cursor: pointer;
+	aspect-ratio: 1;
+}
+
+.gallery-card img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	transition: transform 0.3s;
+}
+
+.gallery-card:hover img {
+	transform: scale(1.05);
+}
+
+.gallery-card-overlay {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	background: linear-gradient(transparent, rgba(0,0,0,0.8));
+	padding: 8px;
+	opacity: 0;
+	transition: opacity 0.2s;
+}
+
+.gallery-card:hover .gallery-card-overlay {
+	opacity: 1;
+}
+
+.gallery-card-overlay span {
+	color: #ffaa00;
+	font-size: 0.8rem;
+}
+
+.gallery-card.tree-folder {
+    border: 1px solid rgba(255, 170, 0, 0.4);
+}
+
+.gallery-card.tree-folder:hover {
+    border-color: #ffaa00;
+}
+
+.gallery-photo-wrapper {
+	display: block;
+	height: 200px;
+	flex: 0 0 auto;
+	width: calc(200px * var(--aspect));
+	position: relative;
+	overflow: hidden;
+}
+
+.gallery-photo-wrapper a {
+	display: block;
+	height: 100%;
+	width: 100%;
+}
+
+.gallery-photo-wrapper img {
+	height: 100%;
+	width: 100%;
+	object-fit: cover;
+}
+
+.gallery-photo-delete {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	opacity: 0;
+	transition: opacity 0.2s;
+	padding: 2px 6px;
+	font-size: 14px;
+	z-index: 10;
+	background: rgba(0,0,0,0.7);
+	border: 1px solid rgba(255,170,0,0.3);
+	color: #ffaa00;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.gallery-photo-wrapper:hover .gallery-photo-delete {
+	opacity: 1;
+	background: rgba(255,170,0,0.15);
+	border-color: #ffaa00;
+}
+
+/* --- Полноразмерные изображения на странице item --- */
+.gallery-full {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	background: #0a0a0a;
+}
+
+.gallery-full-item {
+	position: relative;
+	width: 100%;
+	text-align: center;
+	background: #0a0a0a;
+}
+
+.gallery-full-item img {
+	max-width: 100%;
+	height: auto;
+	display: inline-block;
+	cursor: default;
+	transition: filter 0.2s;
+}
+
+.gallery-full-item img:hover {
+	filter: brightness(1.05);
+}
+
+/* Кнопка удаления */
+.gallery-full-item .gallery-photo-delete {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	opacity: 0;
+	transition: opacity 0.2s;
+	padding: 4px 8px;
+	font-size: 16px;
+	z-index: 10;
+	background: rgba(0, 0, 0, 0.7);
+	border: 1px solid rgba(255, 170, 0, 0.3);
+	color: #ffaa00;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.gallery-full-item:hover .gallery-photo-delete {
+	opacity: 1;
+}
+</style>
+{% endblock %}

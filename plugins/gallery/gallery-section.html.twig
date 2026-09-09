@@ -1,0 +1,67 @@
+{% if currentParentId is defined and currentParentId != rootId %}
+	<div class="mb-3">
+		<a href="#" class="gold-text" onclick="goBackToParent({{ currentParentId }})">
+			<i class="bi bi-arrow-left"></i> Назад
+		</a>
+	</div>
+{% endif %}
+
+<div class="gallery-grid">
+	{% for item in items %}
+		{% if item.type == 'file' and item.first_thumb %}
+			<div class="gallery-card" onclick="loadFileItem({{ item.id }})" title="{{ item.name }}">
+				<img src="{{ item.first_thumb }}" alt="{{ item.name }}" loading="lazy">
+				<div class="gallery-card-overlay"><span>{{ item.name }}</span></div>
+			</div>
+		{% elseif item.type == 'file' and item.is_video %}
+			<div class="gallery-card" onclick="loadFileItem({{ item.id }})" title="{{ item.name }}">
+				<div class="gallery-folder-icon" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a1a;">
+					<i class="bi bi-play-btn" style="font-size:3rem;color:#ffaa00;opacity:0.6;"></i>
+				</div>
+				<div class="gallery-card-overlay"><span>{{ item.name }}</span></div>
+			</div>
+		{% elseif item.type == 'file' and item.is_audio %}
+			<div class="gallery-card" onclick="loadFileItem({{ item.id }})" title="{{ item.name }}">
+				<div class="gallery-folder-icon" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a1a;">
+					<i class="bi bi-music-note" style="font-size:3rem;color:#ffaa00;opacity:0.6;"></i>
+				</div>
+				<div class="gallery-card-overlay"><span>{{ item.name }}</span></div>
+			</div>
+		{% elseif item.type == 'file' %}
+			<div class="gallery-card" onclick="loadFileItem({{ item.id }})" title="{{ item.name }}">
+				<img src="{{ item.first_thumb }}" alt="{{ item.name }}" loading="lazy">
+				<div class="gallery-card-overlay"><span>{{ item.name }}</span></div>
+			</div>
+		{% elseif item.type == 'tree' %}
+			<div class="gallery-card tree-folder" onclick="navigateTo({{ item.id }}, '{{ item.name|e('js') }}')" title="{{ item.name }}">
+				{% if item.first_thumb %}
+					<img src="{{ item.first_thumb }}" alt="{{ item.name }}" loading="lazy">
+				{% else %}
+					<div class="gallery-folder-icon" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a1a;">
+						<i class="bi bi-folder2" style="font-size:3rem;color:#ffaa00;opacity:0.6;"></i>
+					</div>
+				{% endif %}
+				<div class="gallery-card-overlay">
+					<span>{{ item.name }}</span>
+				</div>
+			</div>
+		{% elseif item.first_thumb %}
+			<div class="gallery-card" onclick="loadItem({{ item.id }}, '{{ item.name|e('js') }}')" title="{{ item.name }}">
+				<img src="{{ item.first_thumb }}" alt="{{ item.name }}" loading="lazy">
+				<div class="gallery-card-overlay"><span>{{ item.name }}</span></div>
+			</div>
+		{% elseif item.type == 'item' %}
+			<div class="gallery-folder" onclick="loadItem({{ item.id }}, '{{ item.name|e('js') }}')">
+				<div class="gallery-folder-icon"><i class="bi bi-image"></i></div>
+				<div class="gallery-folder-name">{{ item.name }}</div>
+			</div>
+		{% endif %}
+	{% endfor %}
+
+	{% if items is empty %}
+		<div class="text-center text-muted py-5">
+			<i class="bi bi-inbox" style="font-size:3rem;"></i>
+			<p class="mt-2">Пусто</p>
+		</div>
+	{% endif %}
+</div>
