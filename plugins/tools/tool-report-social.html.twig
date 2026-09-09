@@ -1,0 +1,323 @@
+{# ШАБЛОН РЕЗУЛЬТАТА: ОТЧЁТ ПО СОЦСЕТЯМ v3 #}
+<div class="tool-result mt-4">
+
+{% if data.word_file is defined %}
+    <div class="card bg-dark border-gold mb-4">
+        <div class="card-body text-center">
+            <h5 class="gold-text mb-3"><i class="bi bi-file-earmark-word"></i> WORD-файл готов</h5>
+            <a href="{{ data.word_file }}" class="btn btn-outline-gold" download>
+                <i class="bi bi-download"></i> Скачать отчёт
+            </a>
+        </div>
+    </div>
+{% endif %}
+
+{% set typeOut = data.params.type_out|default('alltheme') %}
+
+{# ============================================ #}
+{# ЗАГОЛОВОК ДЛЯ ОДНОГО ФАЙЛА #}
+{# ============================================ #}
+{% if typeOut != 'combined' and typeOut != 'org' %}
+	{% set source = '' %}
+	{% set count = 0 %}
+	{% if data.im is defined and data.im.count is defined %}
+		{% set source = 'IM' %}
+		{% set count = data.im.count %}
+	{% elseif data.pos is defined and data.pos.count is defined %}
+		{% set source = 'ПОС' %}
+		{% set count = data.pos.count %}
+	{% endif %}
+	
+	{% if count > 0 %}
+	<div class="card bg-dark border-gold mb-4">
+		<div class="card-body">
+			<h5 class="gold-text">
+				В {{ data.params.area ? data.params.area : 'Республика Крым' }}
+				{% if data.params.date_from and data.params.date_to %}
+					за период с {{ data.params.date_from }} по {{ data.params.date_to }}
+				{% endif %}
+				в {{ source }} поступило <strong>{{ count }}</strong> обращений
+			</h5>
+		</div>
+	</div>
+	{% endif %}
+{% endif %}
+
+{# ============================================ #}
+{# ТЕМЫ И ПОДТЕМЫ (alltheme / top5theme) #}
+{# ============================================ #}
+{% if typeOut == 'alltheme' or typeOut == 'top5theme' %}
+	{% set isTop5 = typeOut == 'top5theme' %}
+	
+	{% for block in [
+		{data: data.im, label: 'Обращения по темам (IM)'},
+		{data: data.pos, label: 'Позитивные обращения (ПОС)'}
+	] %}
+		{% if block.data is defined and block.data.full is not empty %}
+			<div class="card bg-dark border-gold mb-4">
+				<div class="card-header"><h5 class="mb-0">{{ block.label }}</h5></div>
+				<div class="card-body">
+					{% set topics = block.data.full %}
+					{% set total = block.data.count %}
+					{% set shown = 0 %}
+					
+					<table class="data-table">
+						<thead>
+							<tr>
+								<th>Тема</th>
+								<th class="text-end">Кол-во</th>
+								<th class="text-end">%</th>
+							</tr>
+						</thead>
+						<tbody>
+						{% set shown = 0 %}
+						{% for groupName, group in topics %}
+							{% set showDetails = not isTop5 or shown < 5 %}
+							
+							<tr style="background: rgba(255,170,0,0.08);">
+								<td><strong>{{ groupName }}</strong></td>
+								<td class="text-end"><strong>{{ group.sum }}</strong></td>
+								<td class="text-end gold-text"><strong>({{ group.percent }}%)</strong></td>
+							</tr>
+							
+							{% if group.child is defined and showDetails %}
+								{% set subShown = 0 %}
+								{% for subName, sub in group.child %}
+									{% if not isTop5 or subShown < 5 %}
+									<tr>
+										<td>{{ subName }}</td>
+										<td class="text-end">{{ sub.sum }}</td>
+										<td class="text-end text-muted">({{ sub.percent }}%)</td>
+									</tr>
+									{% set subShown = subShown + 1 %}
+									{% endif %}
+								{% endfor %}
+							{% endif %}
+							
+							{% set shown = shown + 1 %}
+						{% endfor %}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		{% endif %}
+	{% endfor %}
+{% endif %}
+
+{# ============================================ #}
+{# РЕАКЦИИ (для IM при alltheme/top5theme) #}
+{# ============================================ #}
+{% if (typeOut == 'alltheme' or typeOut == 'top5theme') and data.im is defined and data.im.reason is not empty %}
+	<div class="card bg-dark border-gold mb-4">
+		<div class="card-header"><h5 class="mb-0">Реакции</h5></div>
+		<div class="card-body">
+			<table class="data-table">
+				<tbody>
+				{% for name, item in data.im.reason %}
+					<tr>
+						<td>{{ name }}</td>
+						<td class="text-end">{{ item.sum }}</td>
+						<td class="text-end text-muted">({{ item.percent }}%)</td>
+					</tr>
+				{% endfor %}
+				</tbody>
+			</table>
+		</div>
+	</div>
+{% endif %}
+
+{# ============================================ #}
+{# СОЦСЕТИ (для IM при alltheme/top5theme) #}
+{# ============================================ #}
+{% if (typeOut == 'alltheme' or typeOut == 'top5theme') and data.im is defined and data.im.blog is not empty %}
+	<div class="card bg-dark border-gold mb-4">
+		<div class="card-header"><h5 class="mb-0">Социальные сети</h5></div>
+		<div class="card-body">
+			<table class="data-table">
+				<tbody>
+				{% for name, item in data.im.blog %}
+					<tr>
+						<td>{{ name }}</td>
+						<td class="text-end">{{ item.sum }}</td>
+						<td class="text-end text-muted">({{ item.percent|default(0) }}%)</td>
+					</tr>
+				{% endfor %}
+				</tbody>
+			</table>
+		</div>
+	</div>
+{% endif %}
+
+{# ============================================ #}
+{# КОМБИНИРОВАННЫЙ ОТЧЁТ #}
+{# ============================================ #}
+{% if typeOut == 'combined' %}
+
+	{# Заголовок сводки #}
+	{% if data.combine is defined and data.combine.count is defined %}
+	<div class="card bg-dark border-gold mb-4">
+		<div class="card-body">
+			<h5 class="gold-text">
+				Сводка: IM — {{ data.combine.count.im }}, ПОС — {{ data.combine.count.pos }}
+				(всего {{ data.combine.count.total }})
+			</h5>
+		</div>
+	</div>
+	{% endif %}
+
+	{# Сводка по темам #}
+	{% if data.combine is defined and data.combine.social is not empty %}
+		<div class="card bg-dark border-gold mb-4">
+			<div class="card-header"><h5 class="mb-0">Сводка по темам</h5></div>
+			<div class="card-body">
+				<table class="data-table">
+					<thead>
+						<tr>
+							<th>Тема</th>
+							<th class="text-end">IM</th>
+							<th class="text-end">ПОС</th>
+							<th class="text-end">Всего</th>
+							<th class="text-end">%</th>
+						</tr>
+					</thead>
+					<tbody>
+					{% for key, value in data.combine.social %}
+						<tr>
+							<td>{{ key }}</td>
+							<td class="text-end">{{ value.sum_im }}</td>
+							<td class="text-end">{{ value.sum_pos }}</td>
+							<td class="text-end"><strong>{{ value.sum_total }}</strong></td>
+							<td class="text-end">{{ value.percent }}%</td>
+						</tr>
+					{% endfor %}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	{% endif %}
+
+	{# Реакция организаций #}
+	{% if data.imp is defined %}
+		{% if data.imp.municipalities is not empty or data.imp.ministries is not empty or data.imp.organizations is not empty %}
+			<div class="card bg-dark border-gold mb-4">
+				<div class="card-header"><h5 class="mb-0">Реакция организаций</h5></div>
+				<div class="card-body">
+					<table class="data-table">
+						<thead>
+							<tr><th>Название</th><th class="text-end">В срок</th><th class="text-end">Всего</th><th class="text-end">%</th></tr>
+						</thead>
+						{% if data.imp.municipalities is not empty %}
+							<tbody>
+								{% set i = 1 %}
+								{% for key, value in data.imp.municipalities %}
+									{% if i <= 8 %}
+									<tr>
+										<td>{{ key }}</td>
+										<td class="text-end">{{ value.ok|default(0) }}</td>
+										<td class="text-end">{{ value.sum }}</td>
+										<td class="text-end">{{ value.percent|default(100) }}%</td>
+									</tr>
+									{% endif %}
+									{% set i = i + 1 %}
+								{% endfor %}
+							</tbody>
+						{% endif %}
+						{% if data.imp.ministries is not empty %}
+							<tbody><tr><td colspan="4">&nbsp;</td></tr></tbody>
+							<tbody>
+								{% set i = 1 %}
+								{% for key, value in data.imp.ministries %}
+									{% if i <= 5 %}
+									<tr>
+										<td>{{ key }}</td>
+										<td class="text-end">{{ value.ok|default(0) }}</td>
+										<td class="text-end">{{ value.sum }}</td>
+										<td class="text-end">{{ value.percent|default(100) }}%</td>
+									</tr>
+									{% endif %}
+									{% set i = i + 1 %}
+								{% endfor %}
+							</tbody>
+						{% endif %}
+						{% if data.imp.organizations is not empty %}
+							<tbody><tr><td colspan="4">&nbsp;</td></tr></tbody>
+							<tbody>
+								{% set i = 1 %}
+								{% for key, value in data.imp.organizations %}
+									{% if i <= 3 %}
+									<tr>
+										<td>{{ key }}</td>
+										<td class="text-end">{{ value.ok|default(0) }}</td>
+										<td class="text-end">{{ value.sum }}</td>
+										<td class="text-end">{{ value.percent|default(100) }}%</td>
+									</tr>
+									{% endif %}
+									{% set i = i + 1 %}
+								{% endfor %}
+							</tbody>
+						{% endif %}
+					</table>
+				</div>
+			</div>
+		{% endif %}
+	{% endif %}
+
+{% endif %}
+
+{# ============================================ #}
+{# ТОЛЬКО ОРГАНИЗАЦИИ (type_out = org) #}
+{# ============================================ #}
+{% if typeOut == 'org' and data.imp is defined %}
+	{% if data.imp.municipalities is not empty or data.imp.ministries is not empty or data.imp.organizations is not empty %}
+		<div class="card bg-dark border-gold mb-4">
+			<div class="card-header"><h5 class="mb-0">Реакция организаций</h5></div>
+			<div class="card-body">
+				<table class="data-table">
+					<thead>
+						<tr><th>Название</th><th class="text-end">В срок</th><th class="text-end">Всего</th><th class="text-end">%</th></tr>
+					</thead>
+					{% if data.imp.municipalities is not empty %}
+						<tbody>
+							{% for key, value in data.imp.municipalities %}
+							<tr>
+								<td>{{ key }}</td>
+								<td class="text-end">{{ value.ok|default(0) }}</td>
+								<td class="text-end">{{ value.sum }}</td>
+								<td class="text-end">{{ value.percent|default(100) }}%</td>
+							</tr>
+							{% endfor %}
+						</tbody>
+					{% endif %}
+					{% if data.imp.ministries is not empty %}
+						<tbody><tr><td colspan="4">&nbsp;</td></tr></tbody>
+						<tbody>
+							{% for key, value in data.imp.ministries %}
+							<tr>
+								<td>{{ key }}</td>
+								<td class="text-end">{{ value.ok|default(0) }}</td>
+								<td class="text-end">{{ value.sum }}</td>
+								<td class="text-end">{{ value.percent|default(100) }}%</td>
+							</tr>
+							{% endfor %}
+						</tbody>
+					{% endif %}
+					{% if data.imp.organizations is not empty %}
+						<tbody><tr><td colspan="4">&nbsp;</td></tr></tbody>
+						<tbody>
+							{% for key, value in data.imp.organizations %}
+							<tr>
+								<td>{{ key }}</td>
+								<td class="text-end">{{ value.ok|default(0) }}</td>
+								<td class="text-end">{{ value.sum }}</td>
+								<td class="text-end">{{ value.percent|default(100) }}%</td>
+							</tr>
+							{% endfor %}
+						</tbody>
+					{% endif %}
+				</table>
+			</div>
+		</div>
+	{% endif %}
+{% endif %}
+
+</div>
