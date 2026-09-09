@@ -1,0 +1,188 @@
+<div class="p-4">
+	<meta name="page-id" content="{{ page_id|default('') }}">
+	<div class="pt-3 pb-2 mb-3">
+		<h1>{{ title }}</h1>
+	</div>
+
+	{% if is_admin %}
+	<div class="text-center mt-2 mb-4">
+		<button class="btn btn-sm btn-outline-gold" onclick="toggleEditMode()">
+			<i class="bi bi-pencil"></i> Редактировать страницу
+		</button>
+
+		<button class="btn btn-sm btn-outline-gold" onclick="showAddSubPage()">
+			<i class="bi bi-plus-lg"></i> Создать подстраницу
+		</button>
+	</div>
+
+	{# Модальное окно создания подстраницы #}
+	<div id="addSubPageModal" class="modal-overlay" style="display:none;">
+		<div class="modal-content">
+			<h5 class="gold-text mb-3">Создать подстраницу</h5>
+			<div class="mb-2">
+				<label class="form-label small">Название</label>
+				<input type="text" id="subPageName" class="form-control form-control-sm">
+			</div>
+			<div class="mb-3">
+				<label class="form-label small">Slug</label>
+				<input type="text" id="subPageSlug" class="form-control form-control-sm">
+			</div>
+			<div class="d-flex gap-2 justify-content-end">
+				<button class="btn btn-sm btn-outline-secondary" onclick="closeAddSubPage()">Отмена</button>
+				<button class="btn btn-sm btn-outline-gold" onclick="addSubPage()">Создать</button>
+			</div>
+		</div>
+	</div>
+	{% endif %}
+
+	{# Подстраницы #}
+	{% if sub_pages is not empty %}
+		<div class="card bg-dark border-gold mb-4">
+			<div class="card-header d-flex justify-content-between align-items-center">
+				<h5 class="mb-0">Разделы</h5>
+			</div>
+			<div class="card-body">
+				<div class="list-group list-group-flush">
+					{% for sub in sub_pages %}
+						<div class="list-group-item list-group-item-action bg-dark text-light border-gold d-flex justify-content-between align-items-center">
+							{% if sub.slug %}
+								<a href="/{{ sub.slug }}" class="text-light text-decoration-none flex-grow-1"
+								onclick="event.preventDefault(); loadPage('/{{ sub.slug }}'); history.pushState({}, '', '/{{ sub.slug }}');">
+									<i class="bi bi-folder2 gold-icon me-2"></i>
+									{{ sub.name }}
+								</a>
+							{% else %}
+								<a href="#" class="text-light text-decoration-none flex-grow-1"
+								onclick="event.preventDefault(); loadPageById({{ sub.id }});">
+									<i class="bi bi-folder2 gold-icon me-2"></i>
+									{{ sub.name }}
+								</a>
+							{% endif %}
+							{% if is_admin %}
+								<button class="btn btn-sm btn-outline-danger ms-2" 
+										id="deleteSubPage{{ sub.id }}"
+										title="Удалить подстраницу">
+									<i class="bi bi-trash"></i>
+								</button>
+							{% endif %}
+						</div>
+					{% endfor %}
+				</div>
+			</div>
+		</div>
+	{% endif %}
+
+	{% if is_admin %}
+		<div id="addSectionForm" class="card bg-dark border-gold mb-4" style="display:none;">
+			<div class="card-header d-flex justify-content-between align-items-center">
+				<span>Добавить секцию</span>
+				<button class="btn btn-sm btn-outline-gold" onclick="addTextToNewSection()">
+					<i class="bi bi-plus-lg"></i> Добавить текст
+				</button>
+			</div>
+			<div class="card-body">
+				{# Основной текст (название + текст) #}
+				<div class="row g-2 mb-2">
+					<div class="col-1">
+						<input type="text" class="form-control form-control-sm" id="newLang" value="ru" placeholder="ru" maxlength="5">
+					</div>
+					<div class="col-4">
+						<input type="text" class="form-control form-control-sm" id="newName" placeholder="Название (необязательно)">
+					</div>
+					<div class="col-7">
+						<textarea class="form-control form-control-sm" id="newText" rows="2" placeholder="Текст (необязательно)"></textarea>
+					</div>
+				</div>
+				
+				{# Контейнер для дополнительных текстов #}
+				<div id="newSectionTexts"></div>
+				
+				<div class="row g-2">
+					<div class="col-1">
+						<input type="number" class="form-control form-control-sm" id="newSort" value="100" placeholder="Sort">
+					</div>
+					<div class="col-9"></div>
+					<div class="col-2">
+						<button class="btn btn-sm btn-outline-gold w-100" onclick="addSection()">
+							<i class="bi bi-plus-lg"></i> Добавить
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{% endif %}
+
+	{# Контейнер для секций #}
+	<div id="sectionsContainer">
+		{% for section in sections %}
+			<div class="card bg-dark border-gold mb-4 section-card" data-section-id="{{ section.id }}">
+				<div class="card-body">
+					{% if section.name %}
+						<h5 class="mt-3 mb-2 gold-text">{{ section.name }}</h5>
+					{% endif %}
+					
+					{% for text in section.texts %}
+						{% if text.name %}
+							<h6 class="gold-text">{{ text.name }}</h6>
+						{% endif %}
+						{% if text.text %}
+							<p>{{ text.text }}</p>
+						{% endif %}
+					{% endfor %}
+					
+					<div class="section-texts"></div>
+					
+					{% if is_admin %}
+						<div class="section-inline-edit mt-2 pt-2 border-top border-secondary" style="display:none;">
+							{# Основные поля секции #}
+							<div class="row g-2 mb-2">
+								<div class="col-1">
+									<input type="number" class="form-control form-control-sm" value="{{ section.sort }}" placeholder="Sort">
+								</div>
+								<div class="col-9"></div>
+								<div class="col-2">
+									<button class="btn btn-sm btn-outline-gold w-100 mb-1" onclick="saveSection(this, {{ section.id }})">
+										<i class="bi bi-check-lg"></i>
+									</button>
+									<button class="btn btn-sm btn-outline-danger w-100 mb-1" onclick="deleteSection({{ section.id }})">
+										<i class="bi bi-trash"></i>
+									</button>
+									<button class="btn btn-sm btn-outline-gold w-100" onclick="addTextToSection(this, {{ section.id }})">
+										<i class="bi bi-plus-lg"></i>
+									</button>
+								</div>
+							</div>
+							
+							{# Все тексты секции #}
+							{% for text in section.texts %}
+								<div class="row g-2 mb-2 text-entry-item">
+									<div class="col-1">
+										<input type="text" class="form-control form-control-sm text-lang" value="{{ text.lang }}" placeholder="ru" maxlength="5">
+									</div>
+									<div class="col-3">
+										<input type="text" class="form-control form-control-sm text-name" value="{{ text.name }}" placeholder="Название (необязательно)">
+									</div>
+									<div class="col-6">
+										<textarea class="form-control form-control-sm text-text" rows="2" placeholder="Текст (необязательно)">{{ text.text }}</textarea>
+									</div>
+									<div class="col-2">
+										<button class="btn btn-sm btn-outline-danger w-100" onclick="this.closest('.text-entry-item').remove()">
+											<i class="bi bi-trash"></i>
+										</button>
+									</div>
+								</div>
+							{% endfor %}
+						</div>
+					{% endif %}
+				</div>
+			</div>
+		{% endfor %}
+
+		{% if sections is empty %}
+			<div class="alert alert-info">
+				<i class="bi bi-info-circle"></i>
+				На этой странице пока нет контента.
+			</div>
+		{% endif %}
+	</div>
+</div>
