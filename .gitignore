@@ -1,0 +1,12 @@
+/.gitignore
+/trinity-core.code-workspace
+/var/
+/public/files
+/public/uploads
+/public/assets/css/fonts
+/public/assets/css/bootstrap.min.css
+/public/assets/css/bootstrap-icons.css
+/public/assets/css/img
+/public/assets/img
+/public/assets/js
+/public/assets/svg
