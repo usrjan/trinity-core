@@ -39,7 +39,13 @@ $kernel = new Kernel(__DIR__ . '/..');
  * Всё что происходит внутри — не наше дело.
  */
 
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
+// В production ошибки не отображаем, только логируем
+if (($_ENV['APP_ENV'] ?? 'prod') !== 'dev') {
+    ini_set('display_errors', 0);
+    error_reporting(E_ALL);
+} else {
+    ini_set('display_errors', 1);
+    error_reporting(E_ALL);
+}
 
 $kernel->handle();

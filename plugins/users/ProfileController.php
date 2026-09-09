@@ -173,6 +173,12 @@ class ProfileController
 			$langOptions[$code] = $langNames[$code] ?? strtoupper($code);
 		}
 
+		// Получаем CSRF-токен через GuardController
+		$csrfToken = $this->guard->getCsrfToken();
+		if ($csrfToken === null) {
+			$csrfToken = $this->guard->generateCsrfToken();
+		}
+
 		$html = $this->twig->render('profile-edit.html.twig', [
 			'user' => [
 				'login' => $data['login'] ?? '',
@@ -181,7 +187,7 @@ class ProfileController
 				'lang'  => $data['lang'] ?? 'ru',
 			],
 			'available_langs' => $langOptions,
-			'csrf_token'      => $_SESSION['csrf_token'] ?? '',
+			'csrf_token'      => $csrfToken,
 		]);
 
 		return new Response($html);
