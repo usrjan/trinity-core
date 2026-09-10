@@ -199,11 +199,41 @@ class Kernel
 			$response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
 		} catch (ResourceNotFoundException $e) {
+			// Логирование 404 ошибки
+			try {
+				$logger = $this->container->get(\Jan\Trinity\Core\Services\Logger::class);
+				$logger->warning('Страница не найдена: {uri}', ['uri' => $_SERVER['REQUEST_URI'] ?? 'unknown']);
+			} catch (\Throwable $logError) {
+				// Игнорируем ошибки логирования
+			}
 			$response = new Response('Not Found', 404);
+			
 		} catch (MethodNotAllowedException $e) {
+			// Логирование 405 ошибки
+			try {
+				$logger = $this->container->get(\Jan\Trinity\Core\Services\Logger::class);
+				$logger->warning('Метод не разрешён: {method} {uri}', [
+					'method' => $_SERVER['REQUEST_METHOD'] ?? 'unknown',
+					'uri' => $_SERVER['REQUEST_URI'] ?? 'unknown'
+				]);
+			} catch (\Throwable $logError) {
+				// Игнорируем ошибки логирования
+			}
 			$response = new Response('Method Not Allowed', 405);
+			
 		} catch (\Throwable $e) {
-			error_log("[Trinity] " . $e->getMessage() . "\n" . $e->getTraceAsString());
+			// Логирование критической ошибки
+			try {
+				$logger = $this->container->get(\Jan\Trinity\Core\Services\Logger::class);
+				$logger->error('Критическая ошибка: {message}', [
+					'message' => $e->getMessage(),
+					'file' => $e->getFile() . ':' . $e->getLine(),
+					'trace' => $e->getTraceAsString()
+				]);
+			} catch (\Throwable $logError) {
+				// Игнорируем ошибки логирования
+				error_log("[Trinity] " . $e->getMessage() . "\n" . $e->getTraceAsString());
+			}
 			
 			// Пробуем показать красивую страницу ошибки через Монитор
 			try {
