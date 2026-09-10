@@ -1,25 +1,10 @@
 ```
-# Compiled and build artifacts
-*.pyc
-__pycache__/
-*.o
-*.obj
-dist/
-build/
-target/
-
 # Dependencies
-.venv/
-venv/
-node_modules/
 vendor/
-composer.lock
 
 # Logs and temp files
 *.log
 *.tmp
-*.swp
-*.swo
 
 # Environment
 .env
@@ -29,20 +14,12 @@ composer.lock
 # Editors
 .vscode/
 .idea/
-*.sublime-project
-*.sublime-workspace
 
-# OS
+# OS generated files
 .DS_Store
 Thumbs.db
 
-# Coverage
-.coverage
-coverage/
-htmlcov/
-
-# Cache
-.mypy_cache/
-.pytest_cache/
-.gradle/
+# Build artifacts
+build/
+dist/
 ```

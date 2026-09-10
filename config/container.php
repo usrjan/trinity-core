@@ -28,6 +28,7 @@ use Jan\Trinity\Core\Queue\Queue;
 use Jan\Trinity\Core\Queue\Jobs\ExcelImportJob;
 use Jan\Trinity\Core\Event\EventDispatcher;
 use Jan\Trinity\Core\Schedule\Scheduler;
+use Jan\Trinity\Core\Calc\CalcService;
 
 use Jan\Trinity\Core\Controller\HomeController;
 use Jan\Trinity\Plugin\Menu\MenuController;
@@ -154,6 +155,11 @@ return [
 	// ============================================
 	EventDispatcher::class => \DI\autowire(),
 	Scheduler::class => \DI\autowire(),
+	
+	// ============================================
+	// 9. КАЛЬКУЛЯТОР ФОРМУЛ
+	// ============================================
+	CalcService::class => \DI\autowire(),
 
 	// ============================================
 	// 9. ПАРАМЕТРЫ ПРИЛОЖЕНИЯ
