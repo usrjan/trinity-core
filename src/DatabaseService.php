@@ -74,6 +74,99 @@ class DatabaseService
     }
 
     /**
+     * Выполнить SQL-запрос с параметрами (INSERT, UPDATE, DELETE).
+     * 
+     * @param string $sql SQL-запрос с плейсхолдерами (?)
+     * @param array $params Параметры для подстановки
+     * @return int Количество затронутых строк
+     */
+    public function executeStatement(string $sql, array $params = []): int
+    {
+        return $this->getConnection()->executeStatement($sql, $params);
+    }
+
+    /**
+     * Вставить запись в таблицу.
+     * 
+     * @param string $table Имя таблицы
+     * @param array $data Ассоциативный массив данных (ключ => значение)
+     * @return void
+     */
+    public function insert(string $table, array $data): void
+    {
+        $columns = implode(', ', array_keys($data));
+        $placeholders = implode(', ', array_fill(0, count($data), '?'));
+        
+        $sql = "INSERT INTO $table ($columns) VALUES ($placeholders)";
+        $this->getConnection()->executeStatement($sql, array_values($data));
+    }
+
+    /**
+     * Обновить запись в таблице.
+     * 
+     * @param string $table Имя таблицы
+     * @param array $data Данные для обновления (ключ => значение)
+     * @param array $criteria Условия WHERE (ключ => значение)
+     * @return int Количество затронутых строк
+     */
+    public function update(string $table, array $data, array $criteria): int
+    {
+        $setParts = [];
+        $params = [];
+        
+        foreach ($data as $column => $value) {
+            $setParts[] = "$column = ?";
+            $params[] = $value;
+        }
+        
+        $whereParts = [];
+        foreach ($criteria as $column => $value) {
+            $whereParts[] = "$column = ?";
+            $params[] = $value;
+        }
+        
+        $sql = "UPDATE $table SET " . implode(', ', $setParts) . " WHERE " . implode(' AND ', $whereParts);
+        return $this->getConnection()->executeStatement($sql, $params);
+    }
+
+    /**
+     * Получить одно значение из базы данных.
+     * 
+     * @param string $sql SQL-запрос
+     * @param array $params Параметры для подстановки
+     * @return mixed|null Первое значение первой строки или null
+     */
+    public function fetchOne(string $sql, array $params = []): mixed
+    {
+        $result = $this->getConnection()->fetchOne($sql, $params);
+        return $result === false ? null : $result;
+    }
+
+    /**
+     * Получить одну ассоциативную строку из базы данных.
+     * 
+     * @param string $sql SQL-запрос
+     * @param array $params Параметры для подстановки
+     * @return array|null Ассоциативный массив или null
+     */
+    public function fetchAssociative(string $sql, array $params = []): ?array
+    {
+        $result = $this->getConnection()->fetchAssociative($sql, $params);
+        return $result === false ? null : $result;
+    }
+
+    /**
+     * Получить последний вставленный ID.
+     * 
+     * @param string|null $name Имя последовательности (не используется в MySQL)
+     * @return string|int Последний ID
+     */
+    public function lastInsertId(string $name = null): string|int
+    {
+        return $this->getConnection()->lastInsertId($name);
+    }
+
+    /**
      * Выполнить операции в транзакции.
      * 
      * Гарантирует атомарность: либо все операции выполнятся,

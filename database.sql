@@ -145,7 +145,31 @@ INSERT INTO `text` (`key`, `lang`, `name`, `text`) VALUES
 (21, 'ru', 'Галерея', NULL);
 
 -- ============================================
--- 5. НЕЙРОНЫ — ИЕРАРХИЯ
+-- 6. ТАБЛИЦА ОЧЕРЕДИ ЗАДАЧ (queue_jobs)
+-- ============================================
+-- Хранит фоновые задачи для асинхронного выполнения.
+-- Используется системой очередей Trinity Core.
+-- ============================================
+DROP TABLE IF EXISTS `queue_jobs`;
+
+CREATE TABLE IF NOT EXISTS `queue_jobs` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `job_class` VARCHAR(255) NOT NULL,
+    `payload` JSON NOT NULL,
+    `queue_name` VARCHAR(50) DEFAULT 'default',
+    `status` VARCHAR(20) DEFAULT 'pending',
+    `attempts` INT DEFAULT 0,
+    `max_attempts` INT DEFAULT 3,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `executed_at` TIMESTAMP NULL,
+    `error_message` TEXT NULL,
+    INDEX `idx_status_queue` (`status`, `queue_name`),
+    INDEX `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- 7. НЕЙРОНЫ — ИЕРАРХИЯ
 -- ============================================
 -- Структура:
 --   SYSTEM (1)        — системные настройки и пользователи

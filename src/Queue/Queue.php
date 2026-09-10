@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Trinity\Queue;
+namespace Jan\Trinity\Core\Queue;
 
-use Trinity\Services\DatabaseService;
-use Trinity\Services\Logger;
+use Jan\Trinity\Core\DatabaseService;
+use Jan\Trinity\Core\Services\Logger;
 
 /**
  * Менеджер очереди задач.
