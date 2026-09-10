@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Trinity\Queue\Jobs;
+namespace Jan\Trinity\Core\Queue\Jobs;
 
-use Trinity\Queue\JobInterface;
-use Trinity\Services\Logger;
+use Jan\Trinity\Core\Queue\JobInterface;
+use Jan\Trinity\Core\Services\Logger;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 /**

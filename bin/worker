@@ -1,0 +1,198 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * WORKER — ФОНОВЫЙ ИСПОЛНИТЕЛЬ ЗАДАЧ
+ * ===================================
+ * 
+ * Этот скрипт запускается в фоне и обрабатывает задачи из очереди.
+ * 
+ * Использование:
+ *   php bin/worker              — обработать все доступные задачи и выйти
+ *   php bin/worker --daemon     — работать в режиме демона (бесконечный цикл)
+ *   php bin/worker --queue=email  — обрабатывать только очередь 'email'
+ *   php bin/worker --clean      — очистить старые выполненные задачи
+ * 
+ * === ДЛЯ МЕНЯ ===
+ * Мы создали этот воркер чтобы разгрузить веб-запросы.
+ * Тяжёлые операции теперь идут в фоне.
+ * 
+ * === КНИГА ===
+ * Глава 9. Рабочие.
+ * 
+ * В Амбере есть рабочие — тени, которые выполняют приказы.
+ * Воркер — мой рабочий. Он берёт задачи из очереди и делает их.
+ * Без вопросов. Без усталости.
+ */
+
+use Jan\Trinity\Core\Queue\Queue;
+use Jan\Trinity\Core\Queue\JobInterface;
+use Jan\Trinity\Core\Services\Logger;
+use DI\ContainerBuilder;
+
+// Composer — наш проводник в мире зависимостей
+require_once __DIR__ . '/../vendor/autoload.php';
+
+// ============================================
+// КОНФИГУРАЦИЯ
+// ============================================
+
+$argv = $_SERVER['argv'] ?? [];
+$options = [
+    'daemon' => in_array('--daemon', $argv),
+    'clean' => in_array('--clean', $argv),
+    'queue' => 'default',
+    'sleep' => 5, // секунд между проверками в режиме демона
+];
+
+// Извлекаем имя очереди из аргумента --queue=name
+foreach ($argv as $arg) {
+    if (str_starts_with($arg, '--queue=')) {
+        $options['queue'] = substr($arg, strlen('--queue='));
+    }
+}
+
+// ============================================
+// ИНИЦИАЛИЗАЦИЯ
+// ============================================
+
+echo "=== Trinity Worker ===\n";
+echo "Режим: " . ($options['daemon'] ? 'демон' : 'одиночный запуск') . "\n";
+echo "Очередь: {$options['queue']}\n";
+
+// Загружаем переменные окружения
+$dotenv = new \Symfony\Component\Dotenv\Dotenv();
+$dotenv->loadEnv(__DIR__ . '/../.env');
+
+// Создаём DI-контейнер (упрощённая версия)
+$containerBuilder = new ContainerBuilder();
+$containerBuilder->addDefinitions(__DIR__ . '/../config/container.php');
+$container = $containerBuilder->build();
+
+$queue = $container->get(Queue::class);
+$logger = $container->get(Logger::class);
+
+// ============================================
+// ОЧИСТКА СТАРЫХ ЗАДАЧ
+// ============================================
+
+if ($options['clean']) {
+    echo "Очистка старых задач...\n";
+    $deleted = $queue->cleanOldJobs(7);
+    echo "Удалено задач: $deleted\n";
+    if (!$options['daemon']) {
+        exit(0);
+    }
+}
+
+// ============================================
+// ЦИКЛ ОБРАБОТКИ ЗАДАЧ
+// ============================================
+
+$iteration = 0;
+$processedTotal = 0;
+
+while (true) {
+    $iteration++;
+    $startTime = microtime(true);
+    
+    echo "\n[Итерация $iteration] Поиск задач в очереди '{$options['queue']}'...\n";
+    
+    // Извлекаем задачу из очереди
+    $jobData = $queue->pop($options['queue']);
+    
+    if (!$jobData) {
+        echo "Задач нет.\n";
+        
+        if (!$options['daemon']) {
+            // Одиночный режим — выходим
+            break;
+        }
+        
+        // Режим демона — ждём следующую проверку
+        echo "Сон на {$options['sleep']} секунд...\n";
+        sleep($options['sleep']);
+        continue;
+    }
+    
+    // Нашли задачу — выполняем
+    $jobId = $jobData['id'];
+    $jobClass = $jobData['job_class'];
+    $payload = $jobData['payload'];
+    
+    echo "Обработка задачи #$jobId: $jobClass\n";
+    
+    try {
+        // Создаём экземпляр задачи через DI-контейнер
+        if (!$container->has($jobClass)) {
+            throw new \RuntimeException("Класс задачи не найден в контейнере: $jobClass");
+        }
+        
+        /** @var JobInterface $job */
+        $job = $container->get($jobClass);
+        
+        // Выполняем задачу
+        $job->execute($payload);
+        
+        // Помечаем как выполненную
+        $queue->markAsCompleted($jobId);
+        $job->onSuccess($payload);
+        
+        $processedTotal++;
+        echo "✓ Задача #$jobId выполнена успешно\n";
+        
+    } catch (\Throwable $e) {
+        $errorMessage = $e->getMessage() . ' в ' . $e->getFile() . ':' . $e->getLine();
+        
+        // Проверяем количество попыток
+        $shouldRetry = ($jobData['attempts'] + 1) < $jobData['max_attempts'];
+        
+        $queue->markAsFailed($jobId, $errorMessage, $shouldRetry);
+        
+        if (isset($job)) {
+            try {
+                $job->onFailure($payload, $e);
+            } catch (\Throwable $inner) {
+                $logger->error('Ошибка в onFailure: {message}', ['message' => $inner->getMessage()]);
+            }
+        }
+        
+        if ($shouldRetry) {
+            echo "✗ Задача #$jobId провалена. Попытка будет повторена.\n";
+        } else {
+            echo "✗ Задача #$jobId провалена после исчерпания попыток.\n";
+        }
+        
+        $logger->error('Задача провалена: {job} (ID: {id})', [
+            'job' => $jobClass,
+            'id' => $jobId,
+            'error' => $errorMessage
+        ]);
+    }
+    
+    // В одиночном режиме выходим после первой задачи
+    if (!$options['daemon']) {
+        break;
+    }
+    
+    // Небольшая пауза между задачами
+    $executionTime = microtime(true) - $startTime;
+    if ($executionTime < 1) {
+        usleep(500000); // 0.5 секунды
+    }
+}
+
+// ============================================
+// ЗАВЕРШЕНИЕ
+// ============================================
+
+echo "\n=== Статистика ===\n";
+echo "Обработано задач: $processedTotal\n";
+
+if ($options['daemon']) {
+    echo "Воркер работает в режиме демона. Нажмите Ctrl+C для остановки.\n";
+} else {
+    echo "Воркер завершил работу.\n";
+}
+
+exit(0);

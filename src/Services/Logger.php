@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Trinity\Core\Services;
+namespace Jan\Trinity\Core\Services;
 
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
@@ -10,10 +10,10 @@ use Psr\Log\InvalidArgumentException;
 
 /**
  * Класс Logger
- * 
+ *
  * Реализация простого логгера, соответствующего стандарту PSR-3.
  * Записывает логи в файлы, разделяя их по уровням важности.
- * 
+ *
  * Уровни логирования (от самого важного к менее важному):
  * - emergency: Система неработоспособна
  * - alert: Требуется немедленное действие
@@ -23,8 +23,8 @@ use Psr\Log\InvalidArgumentException;
  * - notice: Нормальные, но значимые события
  * - info: Информационные сообщения
  * - debug: Отладочная информация
- * 
- * @package Trinity\Core\Services
+ *
+ * @package Jan\Trinity\Core\Services
  */
 class Logger implements LoggerInterface
 {
@@ -54,7 +54,7 @@ class Logger implements LoggerInterface
 
     /**
      * Конструктор
-     * 
+     *
      * @param string $logPath Путь к папке для хранения логов
      * @param string $minLevel Минимальный уровень для записи (по умолчанию 'debug')
      */
@@ -135,16 +135,16 @@ class Logger implements LoggerInterface
 
     /**
      * {@inheritdoc}
-     * 
+     *
      * Основной метод записи лога.
-     * 
+     *
      * Алгоритм работы:
      * 1. Проверяет, проходит ли сообщение фильтр минимального уровня.
      * 2. Интерполирует контекстные переменные в сообщение (заменяет {key} на значение).
      * 3. Формирует строку лога с временной меткой, уровнем и сообщением.
      * 4. Определяет имя файла в зависимости от уровня (error.log, info.log или general.log).
      * 5. Дописывает строку в файл.
-     * 
+     *
      * @param mixed $level Уровень логирования
      * @param string|\Stringable $message Сообщение
      * @param array $context Контекстные данные
@@ -187,10 +187,10 @@ class Logger implements LoggerInterface
 
     /**
      * Интерполяция переменных контекста в сообщение
-     * 
+     *
      * Заменяет плейсхолдеры вида {key} на соответствующие значения из массива context.
      * Исключает ключ 'exception', так как он обрабатывается отдельно (не выводится в тексте).
-     * 
+     *
      * @param string|\Stringable $message Сообщение
      * @param array $context Контекст
      * @return string Обработанное сообщение
@@ -209,7 +209,7 @@ class Logger implements LoggerInterface
             if ($key === 'exception' || !is_scalar($val) && !$val instanceof \Stringable) {
                 continue;
             }
-            
+
             $replace['{' . $key . '}'] = $val;
         }
 
