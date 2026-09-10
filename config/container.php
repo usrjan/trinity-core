@@ -24,6 +24,8 @@ use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Services\Logger;
+use Jan\Trinity\Core\Queue\Queue;
+use Jan\Trinity\Core\Queue\Jobs\ExcelImportJob;
 
 use Jan\Trinity\Core\Controller\HomeController;
 use Jan\Trinity\Plugin\Menu\MenuController;
@@ -140,12 +142,18 @@ return [
 	SynapseRepository::class => \DI\autowire(),
 
 	// ============================================
-	// 7. ПАРАМЕТРЫ ПРИЛОЖЕНИЯ
+	// 7. ОЧЕРЕДИ ЗАДАЧ
+	// ============================================
+	Queue::class => \DI\autowire(),
+	ExcelImportJob::class => \DI\autowire(),
+
+	// ============================================
+	// 8. ПАРАМЕТРЫ ПРИЛОЖЕНИЯ
 	// ============================================
 	'app.base_path' => dirname(__DIR__),
 
 	// ============================================
-	// 8. КОНТРОЛЛЕРЫ ПЛАГИНОВ
+	// 9. КОНТРОЛЛЕРЫ ПЛАГИНОВ
 	// ============================================
 	MonitorController::class => function (Environment $twig, Session $session, NeuronRepository $neuronRepo) {
 		return new \Jan\Trinity\Plugin\Monitor\MonitorController($twig, $session, dirname(__DIR__), $neuronRepo);
