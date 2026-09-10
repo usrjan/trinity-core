@@ -1,1 +1,1 @@
-Nothing needs to be added to the .gitignore file based on the provided changes. The listed files (docs/IMPORT_OPTIMIZATION.md and plugins/admin/ExcelImportService.php) are source code and documentation files that should be tracked by git.
+Nothing needs to be added to .gitignore since the changes only include source code files (.php, .twig, .md) and no build artifacts, dependencies, or temporary files.

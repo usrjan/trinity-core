@@ -438,9 +438,10 @@ class AdminController
 	 * 
 	 * Импортирует Excel-файл в базу данных.
 	 * Поддерживает листы: TREE, ITEM, MON, CITY...
+	 * Если файл большой — создаёт задачу в очереди.
 	 * 
 	 * @param Request $request — содержит файл в поле 'file'
-	 * @return JsonResponse — статистика импорта (created, errors)
+	 * @return JsonResponse — job_id для фонового импорта или результат (created, errors)
 	 */
 	public function import(Request $request): JsonResponse
 	{
@@ -457,6 +458,35 @@ class AdminController
 				$this->neuronRepo,
 				$this->synapseRepo
 			);
+			
+			// Проверяем размер файла (если > 1MB — запускаем фоновую задачу)
+			$maxSyncSize = 1 * 1024 * 1024; // 1MB
+			if ($file->getSize() > $maxSyncSize) {
+				// Создаём запись о задаче импорта в БД (нейрон типа 'job')
+				$jobData = [
+					'job_class' => 'Jan\\Trinity\\Plugin\\Admin\\Jobs\\ImportJob',
+					'queue_name' => 'default',
+					'status' => 'pending',
+					'attempts' => 0,
+					'max_attempts' => 3,
+					'file_path' => $file->getPathname(),
+					'file_name' => $file->getClientOriginalName(),
+					'user_id' => $_SESSION['user_id'] ?? null,
+					'created_at' => date('Y-m-d H:i:s'),
+				];
+				
+				$jobId = $this->neuronRepo->create('job', $jobData);
+				
+				// Логируем создание задачи
+				$this->neuronRepo->logAdminAction('import_job_created', [
+					'job_id' => $jobId,
+					'file'   => $file->getClientOriginalName(),
+				]);
+				
+				return ApiResponse::success(['job_id' => $jobId]);
+			}
+			
+			// Синхронный импорт для маленьких файлов
 			$result = $importer->import($file->getPathname());
 
 			// Логируем успешный импорт
@@ -471,6 +501,48 @@ class AdminController
 			error_log('[Trinity Import] ' . $e->getMessage());
 			return ApiResponse::error('Ошибка импорта: ' . $e->getMessage(), 500);
 		}
+	}
+
+	/**
+	 * GET /api/admin/import-status/{jobId}
+	 * 
+	 * Возвращает статус выполнения задачи импорта.
+	 * Используется для AJAX polling на фронтенде.
+	 * 
+	 * @param int $jobId — ID задачи импорта
+	 * @return JsonResponse — статус, прогресс, ошибки
+	 */
+	public function importStatus(int $jobId): JsonResponse
+	{
+		if ($error = $this->requireAdminForApi()) return $error;
+
+		// Находим задачу по ID
+		$job = $this->neuronRepo->findById($jobId);
+		if (!$job || $job['type'] !== 'job') {
+			return ApiResponse::error('Задача не найдена', 404);
+		}
+
+		$data = is_string($job['data'] ?? null) 
+			? json_decode($job['data'], true) 
+			: ($job['data'] ?? []);
+		
+		$status = $data['status'] ?? 'pending';
+		$progress = $data['progress'] ?? 0;
+		$currentSheet = $data['current_sheet'] ?? '';
+		$processedRows = $data['processed_rows'] ?? 0;
+		$totalRows = $data['total_rows'] ?? 0;
+		$errors = $data['errors'] ?? [];
+		$errorMessage = $data['error_message'] ?? null;
+
+		return ApiResponse::success([
+			'status' => $status,
+			'progress' => $progress,
+			'current_sheet' => $currentSheet,
+			'processed_rows' => $processedRows,
+			'total_rows' => $totalRows,
+			'errors' => $errors,
+			'error_message' => $errorMessage,
+		]);
 	}
 
 	/**

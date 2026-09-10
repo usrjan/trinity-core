@@ -53,4 +53,9 @@ return function ($routes) {
 		'_controller' => AdminController::class,
 		'_method'     => 'import',
 	], [], [], '', [], ['POST']));
+
+	$routes->add('admin_import_status', new Route('/api/admin/import-status/{jobId}', [
+		'_controller' => AdminController::class,
+		'_method'     => 'importStatus',
+	], ['jobId' => '\\d+'], [], '', [], ['GET']));
 };
