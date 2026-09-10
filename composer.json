@@ -13,7 +13,8 @@
 		"phpoffice/phpword": "^1.4",
 		"doctrine/dbal": "^4.4",
 		"twig/twig": "^3.0",
-		"monolog/monolog": "^3.10"
+		"monolog/monolog": "^3.10",
+		"symfony/expression-language": "^8.0"
 	},
 	"autoload": {
 		"psr-4": {
