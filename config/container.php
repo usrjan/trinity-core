@@ -26,6 +26,8 @@ use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Services\Logger;
 use Jan\Trinity\Core\Queue\Queue;
 use Jan\Trinity\Core\Queue\Jobs\ExcelImportJob;
+use Jan\Trinity\Core\Event\EventDispatcher;
+use Jan\Trinity\Core\Schedule\Scheduler;
 
 use Jan\Trinity\Core\Controller\HomeController;
 use Jan\Trinity\Plugin\Menu\MenuController;
@@ -148,7 +150,13 @@ return [
 	ExcelImportJob::class => \DI\autowire(),
 
 	// ============================================
-	// 8. ПАРАМЕТРЫ ПРИЛОЖЕНИЯ
+	// 8. СОБЫТИЯ И ПЛАНИРОВЩИК
+	// ============================================
+	EventDispatcher::class => \DI\autowire(),
+	Scheduler::class => \DI\autowire(),
+
+	// ============================================
+	// 9. ПАРАМЕТРЫ ПРИЛОЖЕНИЯ
 	// ============================================
 	'app.base_path' => dirname(__DIR__),
 

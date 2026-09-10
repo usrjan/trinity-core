@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS `text` (
 CREATE TABLE IF NOT EXISTS `neuron` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `pid` INT UNSIGNED DEFAULT NULL,       -- родительский нейрон (NULL = корень)
-    `type` ENUM('tree','item','file','user','calc','plugin','migration','route','config','template','command','project','construction','detail','job') NOT NULL DEFAULT 'item',
+    `type` ENUM('tree','item','file','user','calc','plugin','migration','route','config','template','command','project','construction','detail','job','schedule','event_listener') NOT NULL DEFAULT 'item',
     `tree` INT UNSIGNED DEFAULT NULL,      -- привязка к дереву (для группировки)
     `text` INT UNSIGNED DEFAULT NULL,      -- ссылка на text.key (для мультиязычного контента)
     `data` JSON DEFAULT NULL,              -- все остальные данные в JSON
@@ -76,6 +76,19 @@ CREATE TABLE IF NOT EXISTS `neuron` (
     `job_executed_at` DATETIME GENERATED ALWAYS AS (JSON_EXTRACT(`data`, '$.executed_at')) STORED,
     `job_error_message` TEXT GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.error_message'))) STORED,
     
+    -- Виртуальные столбцы для планировщика (schedule)
+    `schedule_cron` VARCHAR(100) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.cron_expression'))) STORED,
+    `schedule_command` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.command'))) STORED,
+    `schedule_last_run` DATETIME GENERATED ALWAYS AS (JSON_EXTRACT(`data`, '$.last_run')) STORED,
+    `schedule_next_run` DATETIME GENERATED ALWAYS AS (JSON_EXTRACT(`data`, '$.next_run')) STORED,
+    `schedule_is_active` TINYINT(1) GENERATED ALWAYS AS (COALESCE(JSON_EXTRACT(`data`, '$.is_active'), 1)) STORED,
+    
+    -- Виртуальные столбцы для событий (event_listener)
+    `event_name` VARCHAR(100) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.event_name'))) STORED,
+    `event_priority` INT GENERATED ALWAYS AS (COALESCE(JSON_EXTRACT(`data`, '$.priority'), 0)) STORED,
+    `event_callback` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.callback'))) STORED,
+    `event_is_active` TINYINT(1) GENERATED ALWAYS AS (COALESCE(JSON_EXTRACT(`data`, '$.is_active'), 1)) STORED,
+    
     PRIMARY KEY (`id`),
     INDEX `idx_pid` (`pid`),
     INDEX `idx_type` (`type`),
@@ -90,7 +103,13 @@ CREATE TABLE IF NOT EXISTS `neuron` (
     INDEX `idx_hash` (`hash`(64)),
     -- Индексы для задач
     INDEX `idx_job_status_queue` (`job_status`, `job_queue`),
-    INDEX `idx_job_executed` (`job_executed_at`)
+    INDEX `idx_job_executed` (`job_executed_at`),
+    -- Индексы для планировщика
+    INDEX `idx_schedule_active_next` (`schedule_is_active`, `schedule_next_run`),
+    INDEX `idx_schedule_cron` (`schedule_cron`),
+    -- Индексы для событий
+    INDEX `idx_event_name_priority` (`event_name`, `event_priority`),
+    INDEX `idx_event_active` (`event_is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================

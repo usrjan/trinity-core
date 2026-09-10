@@ -1,47 +1,48 @@
 ```
-# Binary/compiled files
+# Compiled and build artifacts
+*.pyc
+__pycache__/
 *.o
 *.obj
-*.out
-*.exe
-*.dll
-*.so
-*.a
-
-# Build artifacts
-bin/
-build/
 dist/
+build/
+target/
 
 # Dependencies
+.venv/
+venv/
 node_modules/
 vendor/
+composer.lock
 
-# Logs
+# Logs and temp files
 *.log
+*.tmp
+*.swp
+*.swo
 
 # Environment
 .env
 .env.local
-*.env.*
+.env.*
 
-# Editor/IDE
+# Editors
 .vscode/
 .idea/
-*.swp
-*.swo
-*.tmp
+*.sublime-project
+*.sublime-workspace
 
-# System
+# OS
 .DS_Store
 Thumbs.db
 
-# Database
-*.sql.bak
-*.db.bak
+# Coverage
+.coverage
+coverage/
+htmlcov/
 
 # Cache
-__pycache__/
-*.pyc
-.Python
+.mypy_cache/
+.pytest_cache/
+.gradle/
 ```
