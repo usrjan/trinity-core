@@ -1,0 +1,6 @@
+[2026-08-25 11:25:24] 500: Доступ запрещён
+  File: /home/web/vendor/jan/trinity-core/src/Middleware/AuthMiddleware.php:99
+  URL: /admin
+  Method: GET
+  IP: 10.250.11.102
+  User: guest
