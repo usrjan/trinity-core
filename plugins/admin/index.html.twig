@@ -35,6 +35,22 @@
 							</button>
 						</div>
 					</div>
+					
+					{# Прогресс-бар импорта #}
+					<div id="importProgressContainer" class="mb-3" style="display:none;">
+						<div class="card bg-dark border-secondary">
+							<div class="card-body py-2">
+								<div class="d-flex justify-content-between align-items-center mb-1">
+									<small class="text-muted" id="importStatusText">Импорт...</small>
+									<small class="text-info" id="importPercentText">0%</small>
+								</div>
+								<div class="progress" style="height: 8px;">
+									<div class="progress-bar progress-bar-striped progress-bar-animated bg-info" id="importProgressBar" role="progressbar" style="width: 0%;"></div>
+								</div>
+								<div id="importDetails" class="mt-1 small text-muted"></div>
+							</div>
+						</div>
+					</div>
 					<div id="neuronTree">
 						<div class="text-center text-muted py-3">
 							<div class="spinner-border spinner-border-sm"></div>
