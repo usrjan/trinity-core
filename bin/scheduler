@@ -1,0 +1,52 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * КОНСОЛЬНЫЙ ПЛАНИРОВЩИК
+ * 
+ * Запускается по крону (например, каждую минуту):
+ * * * * * * php bin/scheduler
+ * 
+ * Проверяет и выполняет задачи по расписанию.
+ */
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use Jan\Trinity\Core\Kernel;
+use Dotenv\Dotenv;
+
+// Загружаем окружение
+$dotenv = new Dotenv();
+$dotenv->loadImmutable(__DIR__ . '/../.env');
+
+// Инициализируем ядро
+$kernel = new Kernel(__DIR__ . '/..');
+$kernel->initialize();
+
+// Получаем контейнер
+$container = $kernel->getContainer();
+
+// Получаем планировщик
+$scheduler = $container->get(\Jan\Trinity\Core\Schedule\Scheduler::class);
+
+// Запускаем проверку и выполнение расписаний
+$results = $scheduler->run();
+
+// Выводим результаты
+if (empty($results)) {
+    echo "[" . date('Y-m-d H:i:s') . "] Нет задач для выполнения\n";
+} else {
+    foreach ($results as $result) {
+        $status = $result['success'] ? '✓' : '✗';
+        $time = date('Y-m-d H:i:s');
+        echo "[{$time}] {$status} Задача #{$result['neuron_id']} ({$result['command']})\n";
+        
+        if (!$result['success']) {
+            error_log("Scheduler failed: {$result['command']}");
+        }
+    }
+}
+
+exit(0);
