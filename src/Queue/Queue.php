@@ -11,7 +11,7 @@ use Jan\Trinity\Core\Services\Logger;
  * Менеджер очереди задач.
  * 
  * Обрабатывает хранение и выполнение фоновых задач.
- * Задачи хранятся в таблице `queue_jobs` базы данных.
+ * Задачи хранятся в таблице `neuron` с type='job'.
  * 
  * @author Trinity Core Team
  */
@@ -30,33 +30,6 @@ class Queue
     {
         $this->db = $db;
         $this->logger = $logger;
-        $this->ensureTableExists();
-    }
-
-    /**
-     * Создает таблицу очереди, если она не существует.
-     * 
-     * @return void
-     */
-    private function ensureTableExists(): void
-    {
-        $this->db->executeStatement("
-            CREATE TABLE IF NOT EXISTS queue_jobs (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                job_class VARCHAR(255) NOT NULL,
-                payload JSON NOT NULL,
-                queue_name VARCHAR(50) DEFAULT 'default',
-                status VARCHAR(20) DEFAULT 'pending',
-                attempts INT DEFAULT 0,
-                max_attempts INT DEFAULT 3,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                executed_at TIMESTAMP NULL,
-                error_message TEXT NULL,
-                INDEX idx_status_queue (status, queue_name),
-                INDEX idx_created (created_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ");
     }
 
     /**
@@ -64,7 +37,7 @@ class Queue
      * 
      * @param JobInterface $job Экземпляр задачи
      * @param array $payload Данные для задачи
-     * @return int ID добавленной задачи
+     * @return int ID добавленной задачи (ID нейрона)
      */
     public function push(JobInterface $job, array $payload = []): int
     {
@@ -72,16 +45,26 @@ class Queue
         $queueName = $job->getQueue();
         $maxAttempts = $job->getMaxAttempts();
 
-        $this->db->insert('queue_jobs', [
+        // Создаём нейрон типа 'job'
+        $data = [
             'job_class' => $jobClass,
-            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            'payload' => $payload,
             'queue_name' => $queueName,
             'status' => 'pending',
             'attempts' => 0,
-            'max_attempts' => $maxAttempts
+            'max_attempts' => $maxAttempts,
+            'created_at' => date('Y-m-d H:i:s')
+        ];
+
+        $conn = $this->db->getConnection();
+        $conn->insert('neuron', [
+            'pid' => null,
+            'type' => 'job',
+            'data' => json_encode($data, JSON_UNESCAPED_UNICODE),
+            'date' => date('Y-m-d H:i:s')
         ]);
 
-        $jobId = (int) $this->db->lastInsertId();
+        $jobId = (int) $conn->lastInsertId();
 
         $this->logger->info('Задача добавлена в очередь: {job} (ID: {id}, очередь: {queue})', [
             'job' => $jobClass,
@@ -107,10 +90,18 @@ class Queue
         
         try {
             $stmt = $conn->executeQuery("
-                SELECT id, job_class, payload, queue_name, attempts, max_attempts
-                FROM queue_jobs
-                WHERE status = 'pending' AND queue_name = ?
-                ORDER BY created_at ASC
+                SELECT id, 
+                       JSON_EXTRACT(data, '$.job_class') as job_class,
+                       JSON_EXTRACT(data, '$.payload') as payload,
+                       JSON_EXTRACT(data, '$.queue_name') as queue_name,
+                       JSON_EXTRACT(data, '$.attempts') as attempts,
+                       JSON_EXTRACT(data, '$.max_attempts') as max_attempts
+                FROM neuron
+                WHERE type = 'job'
+                  AND is_deleted = 0
+                  AND JSON_EXTRACT(data, '$.status') = 'pending'
+                  AND JSON_EXTRACT(data, '$.queue_name') = ?
+                ORDER BY id ASC
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
             ", [$queueName]);
@@ -119,14 +110,17 @@ class Queue
 
             if ($job) {
                 // Обновляем статус на 'processing'
-                $this->db->update('queue_jobs', [
-                    'status' => 'processing',
-                    'updated_at' => date('Y-m-d H:i:s')
+                $currentData = json_decode($job['payload'], true);
+                $currentData['status'] = 'processing';
+                $currentData['updated_at'] = date('Y-m-d H:i:s');
+                
+                $conn->update('neuron', [
+                    'data' => json_encode($currentData, JSON_UNESCAPED_UNICODE)
                 ], ['id' => $job['id']]);
 
                 $conn->commit();
                 
-                $job['payload'] = json_decode($job['payload'], true);
+                $job['payload'] = json_decode((string) $job['payload'], true);
                 return $job;
             }
 
@@ -146,10 +140,16 @@ class Queue
      */
     public function markAsCompleted(int $jobId): void
     {
-        $this->db->update('queue_jobs', [
-            'status' => 'completed',
-            'executed_at' => date('Y-m-d H:i:s'),
-            'updated_at' => date('Y-m-d H:i:s')
+        $neuron = $this->getJobNeuron($jobId);
+        if (!$neuron) return;
+        
+        $data = is_string($neuron['data']) ? json_decode($neuron['data'], true) : $neuron['data'];
+        $data['status'] = 'completed';
+        $data['executed_at'] = date('Y-m-d H:i:s');
+        $data['updated_at'] = date('Y-m-d H:i:s');
+
+        $this->db->update('neuron', [
+            'data' => json_encode($data, JSON_UNESCAPED_UNICODE)
         ], ['id' => $jobId]);
 
         $this->logger->debug('Задача ID {id} выполнена успешно', ['id' => $jobId]);
@@ -165,15 +165,19 @@ class Queue
      */
     public function markAsFailed(int $jobId, string $errorMessage, bool $shouldRetry = true): void
     {
+        $neuron = $this->getJobNeuron($jobId);
+        if (!$neuron) return;
+        
+        $data = is_string($neuron['data']) ? json_decode($neuron['data'], true) : $neuron['data'];
+        
         if ($shouldRetry) {
-            $this->db->update('queue_jobs', [
-                'status' => 'pending',
-                'attempts' => $this->db->fetchOne(
-                    "SELECT attempts FROM queue_jobs WHERE id = ?", 
-                    [$jobId]
-                ) + 1,
-                'error_message' => $errorMessage,
-                'updated_at' => date('Y-m-d H:i:s')
+            $data['status'] = 'pending';
+            $data['attempts'] = ($data['attempts'] ?? 0) + 1;
+            $data['error_message'] = $errorMessage;
+            $data['updated_at'] = date('Y-m-d H:i:s');
+
+            $this->db->update('neuron', [
+                'data' => json_encode($data, JSON_UNESCAPED_UNICODE)
             ], ['id' => $jobId]);
 
             $this->logger->warning('Задача ID {id} будет повторена. Ошибка: {error}', [
@@ -181,10 +185,12 @@ class Queue
                 'error' => $errorMessage
             ]);
         } else {
-            $this->db->update('queue_jobs', [
-                'status' => 'failed',
-                'error_message' => $errorMessage,
-                'updated_at' => date('Y-m-d H:i:s')
+            $data['status'] = 'failed';
+            $data['error_message'] = $errorMessage;
+            $data['updated_at'] = date('Y-m-d H:i:s');
+
+            $this->db->update('neuron', [
+                'data' => json_encode($data, JSON_UNESCAPED_UNICODE)
             ], ['id' => $jobId]);
 
             $this->logger->error('Задача ID {id} провалена после исчерпания попыток. Ошибка: {error}', [
@@ -203,24 +209,24 @@ class Queue
     public function getStats(?string $queueName = null): array
     {
         $params = [];
-        $where = '';
+        $where = "WHERE type = 'job' AND is_deleted = 0";
 
         if ($queueName) {
-            $where = 'WHERE queue_name = ?';
+            $where .= " AND JSON_EXTRACT(data, '$.queue_name') = ?";
             $params = [$queueName];
         }
 
         $result = $this->db->fetchAssociative("
             SELECT 
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-            FROM queue_jobs
+                SUM(CASE WHEN JSON_EXTRACT(data, '$.status') = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN JSON_EXTRACT(data, '$.status') = 'processing' THEN 1 ELSE 0 END) as processing,
+                SUM(CASE WHEN JSON_EXTRACT(data, '$.status') = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN JSON_EXTRACT(data, '$.status') = 'failed' THEN 1 ELSE 0 END) as failed
+            FROM neuron
             $where
         ", $params);
 
-        return array_map('intval', $result);
+        return array_map('intval', $result ?: []);
     }
 
     /**
@@ -234,12 +240,29 @@ class Queue
         $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$days} days"));
         
         $affected = $this->db->executeStatement("
-            DELETE FROM queue_jobs 
-            WHERE status IN ('completed', 'failed') AND executed_at < ?
+            DELETE FROM neuron 
+            WHERE type = 'job'
+              AND is_deleted = 0
+              AND JSON_EXTRACT(data, '$.status') IN ('completed', 'failed')
+              AND JSON_EXTRACT(data, '$.executed_at') < ?
         ", [$cutoffDate]);
 
         $this->logger->info('Очищено {count} старых задач', ['count' => $affected]);
 
         return $affected;
+    }
+
+    /**
+     * Получает данные нейрона-задачи.
+     * 
+     * @param int $jobId ID задачи
+     * @return array|null
+     */
+    private function getJobNeuron(int $jobId): ?array
+    {
+        return $this->db->getConnection()->executeQuery(
+            "SELECT * FROM neuron WHERE id = ? AND type = 'job' AND is_deleted = 0",
+            [$jobId]
+        )->fetchAssociative() ?: null;
     }
 }
