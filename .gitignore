@@ -1,4 +1,7 @@
 ```
+# Compiled and build artifacts
+bin/
+
 # Dependencies
 vendor/
 
@@ -9,13 +12,13 @@ vendor/
 # Environment
 .env
 .env.local
-*.env.*
+.env.*
 
 # Editors
 .vscode/
 .idea/
 
-# Cache and compiled
-*.cache
-*.compiled
+# OS generated files
+.DS_Store
+Thumbs.db
 ```
