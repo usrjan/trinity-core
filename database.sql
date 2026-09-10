@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS `text` (
 CREATE TABLE IF NOT EXISTS `neuron` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `pid` INT UNSIGNED DEFAULT NULL,       -- родительский нейрон (NULL = корень)
-    `type` ENUM('tree','item','file','user','calc','plugin','migration','route','config','template','command','project','construction','detail') NOT NULL DEFAULT 'item',
+    `type` ENUM('tree','item','file','user','calc','plugin','migration','route','config','template','command','project','construction','detail','job') NOT NULL DEFAULT 'item',
     `tree` INT UNSIGNED DEFAULT NULL,      -- привязка к дереву (для группировки)
     `text` INT UNSIGNED DEFAULT NULL,      -- ссылка на text.key (для мультиязычного контента)
     `data` JSON DEFAULT NULL,              -- все остальные данные в JSON
@@ -67,6 +67,15 @@ CREATE TABLE IF NOT EXISTS `neuron` (
     `is_deleted` TINYINT(1) GENERATED ALWAYS AS (CASE WHEN JSON_EXTRACT(`data`, '$.deleted_at') IS NOT NULL THEN 1 ELSE 0 END) STORED,
     `hash` VARCHAR(64) GENERATED ALWAYS AS (SHA2(CONCAT(CAST(COALESCE(`pid`, '') AS CHAR), `type`, CAST(COALESCE(`data`, '') AS CHAR)), 256)) STORED,
     
+    -- Виртуальные столбцы для задач (jobs)
+    `job_class` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.job_class'))) STORED,
+    `job_queue` VARCHAR(50) GENERATED ALWAYS AS (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.queue_name')), 'default')) STORED,
+    `job_status` VARCHAR(20) GENERATED ALWAYS AS (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.status')), 'pending')) STORED,
+    `job_attempts` INT GENERATED ALWAYS AS (COALESCE(JSON_EXTRACT(`data`, '$.attempts'), 0)) STORED,
+    `job_max_attempts` INT GENERATED ALWAYS AS (COALESCE(JSON_EXTRACT(`data`, '$.max_attempts'), 3)) STORED,
+    `job_executed_at` DATETIME GENERATED ALWAYS AS (JSON_EXTRACT(`data`, '$.executed_at')) STORED,
+    `job_error_message` TEXT GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.error_message'))) STORED,
+    
     PRIMARY KEY (`id`),
     INDEX `idx_pid` (`pid`),
     INDEX `idx_type` (`type`),
@@ -78,7 +87,10 @@ CREATE TABLE IF NOT EXISTS `neuron` (
     INDEX `idx_login` (`login`),
     INDEX `idx_email` (`email`),
     INDEX `idx_deleted` (`is_deleted`),
-    INDEX `idx_hash` (`hash`(64))
+    INDEX `idx_hash` (`hash`(64)),
+    -- Индексы для задач
+    INDEX `idx_job_status_queue` (`job_status`, `job_queue`),
+    INDEX `idx_job_executed` (`job_executed_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
@@ -145,31 +157,7 @@ INSERT INTO `text` (`key`, `lang`, `name`, `text`) VALUES
 (21, 'ru', 'Галерея', NULL);
 
 -- ============================================
--- 6. ТАБЛИЦА ОЧЕРЕДИ ЗАДАЧ (queue_jobs)
--- ============================================
--- Хранит фоновые задачи для асинхронного выполнения.
--- Используется системой очередей Trinity Core.
--- ============================================
-DROP TABLE IF EXISTS `queue_jobs`;
-
-CREATE TABLE IF NOT EXISTS `queue_jobs` (
-    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `job_class` VARCHAR(255) NOT NULL,
-    `payload` JSON NOT NULL,
-    `queue_name` VARCHAR(50) DEFAULT 'default',
-    `status` VARCHAR(20) DEFAULT 'pending',
-    `attempts` INT DEFAULT 0,
-    `max_attempts` INT DEFAULT 3,
-    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `executed_at` TIMESTAMP NULL,
-    `error_message` TEXT NULL,
-    INDEX `idx_status_queue` (`status`, `queue_name`),
-    INDEX `idx_created` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================
--- 7. НЕЙРОНЫ — ИЕРАРХИЯ
+-- 6. НЕЙРОНЫ — ИЕРАРХИЯ
 -- ============================================
 -- Структура:
 --   SYSTEM (1)        — системные настройки и пользователи
