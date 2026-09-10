@@ -90,25 +90,41 @@ CREATE TABLE IF NOT EXISTS `neuron` (
     `event_is_active` TINYINT(1) GENERATED ALWAYS AS (COALESCE(JSON_EXTRACT(`data`, '$.is_active'), 1)) STORED,
     
     PRIMARY KEY (`id`),
+    -- Базовые индексы
     INDEX `idx_pid` (`pid`),
     INDEX `idx_type` (`type`),
     INDEX `idx_tree` (`tree`),
     INDEX `idx_text` (`text`),
-    INDEX `idx_slug_pid` (`pid`, `slug`),
+    INDEX `idx_date` (`date`),
+    
+    -- Композитные индексы для иерархии и каталогов
+    INDEX `idx_pid_type` (`pid`, `type`),
+    INDEX `idx_pid_sort` (`pid`, `sort`),
+    INDEX `idx_tree_type` (`tree`, `type`),
+    INDEX `idx_pid_slug` (`pid`, `slug`),
+    
+    -- Индексы для маршрутов и пользователей
     INDEX `idx_route` (`route`(255)),
-    INDEX `idx_sort` (`pid`, `sort`),
     INDEX `idx_login` (`login`),
     INDEX `idx_email` (`email`),
+    
+    -- Индексы для мягкого удаления и хеша
     INDEX `idx_deleted` (`is_deleted`),
     INDEX `idx_hash` (`hash`(64)),
-    -- Индексы для задач
+    
+    -- === Индексы для задач (jobs) ===
     INDEX `idx_job_status_queue` (`job_status`, `job_queue`),
+    INDEX `idx_job_status_type` (`type`, `job_status`, `job_queue`),
     INDEX `idx_job_executed` (`job_executed_at`),
-    -- Индексы для планировщика
+    
+    -- === Индексы для планировщика (schedule) ===
     INDEX `idx_schedule_active_next` (`schedule_is_active`, `schedule_next_run`),
+    INDEX `idx_schedule_type_active` (`type`, `schedule_is_active`, `schedule_next_run`),
     INDEX `idx_schedule_cron` (`schedule_cron`),
-    -- Индексы для событий
+    
+    -- === Индексы для событий (event_listener) ===
     INDEX `idx_event_name_priority` (`event_name`, `event_priority`),
+    INDEX `idx_event_type_active` (`type`, `event_is_active`, `event_name`),
     INDEX `idx_event_active` (`event_is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -136,12 +152,30 @@ CREATE TABLE IF NOT EXISTS `synapse` (
     `hash` VARCHAR(64) GENERATED ALWAYS AS (SHA2(CONCAT(CAST(COALESCE(`parent`, '') AS CHAR), CAST(COALESCE(`child`, '') AS CHAR), CAST(COALESCE(`data`, '') AS CHAR)), 256)) STORED,
     
     PRIMARY KEY (`id`),
+    -- Базовые индексы
     INDEX `idx_tree` (`tree`),
     INDEX `idx_parent` (`parent`),
     INDEX `idx_child` (`child`),
+    INDEX `idx_time` (`time`),
+    
+    -- Композитные индексы для связей
     INDEX `idx_parent_child` (`parent`, `child`),
+    INDEX `idx_parent_child_time` (`parent`, `child`, `time`),
+    INDEX `idx_child_parent` (`child`, `parent`),
+    INDEX `idx_tree_parent` (`tree`, `parent`),
+    
+    -- Индексы для типов связей и истории атрибутов
     INDEX `idx_relation_type` (`relation_type`),
-    INDEX `idx_hash` (`hash`(64))
+    INDEX `idx_parent_relation` (`parent`, `relation_type`),
+    INDEX `idx_parent_relation_time` (`parent`, `relation_type`, `time`),
+    
+    -- Индексы для текстовых ссылок
+    INDEX `idx_text_key` (`text_key`),
+    INDEX `idx_text_id` (`text_id`),
+    
+    -- Технические индексы
+    INDEX `idx_hash` (`hash`(64)),
+    INDEX `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
