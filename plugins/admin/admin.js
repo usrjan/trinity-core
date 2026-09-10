@@ -423,47 +423,114 @@
 	};
 
 	/**
-	 * Импорт Excel-файла.
+	 * Импорт Excel-файла с прогресс-баром.
 	 */
 	window.importExcel = function(file) {
 		if (!file) return;
-		if (!confirm('Импортировать файл ' + file.name + '?')) {
-			document.getElementById('importFile').value = '';
-			return;
-		}
-
+		
 		var formData = new FormData();
 		formData.append('file', file);
 
-		// Находим кнопку импорта и блокируем
+		// Находим кнопку импорта и панель управления
 		var importBtn = document.querySelector('.tree-panel .btn-outline-gold[onclick*="importFile"]');
+		var treePanel = document.getElementById('neuronTree');
+		
+		// Создаём или очищаем зону прогресса
+		var progressZone = document.getElementById('importProgressZone');
+		if (!progressZone) {
+			progressZone = document.createElement('div');
+			progressZone.id = 'importProgressZone';
+			progressZone.className = 'alert alert-info mt-3';
+			treePanel.parentNode.insertBefore(progressZone, treePanel.nextSibling);
+		}
+		
+		progressZone.innerHTML = 
+			'<div class="d-flex align-items-center">' +
+				'<div class="spinner-border spinner-border-sm me-2" role="status"><span class="visually-hidden">Загрузка...</span></div>' +
+				'<strong>Импорт файла:</strong> ' + escapeHtml(file.name) + '&nbsp;&nbsp;' +
+				'<span id="importStatusText">Подготовка...</span>' +
+			'</div>' +
+			'<div class="progress mt-2" style="height: 20px;">' +
+				'<div id="importProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;">0%</div>' +
+			'</div>' +
+			'<div id="importDetails" class="mt-2 small text-muted"></div>' +
+			'<div id="importErrors" class="mt-2 text-danger small"></div>';
+
 		if (importBtn) {
 			importBtn.disabled = true;
 			importBtn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
 		}
 
+		// Отправляем файл
 		fetch('/api/admin/import', {
 			method: 'POST',
 			body: formData
 		})
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
+			var progressBar = document.getElementById('importProgressBar');
+			var statusText = document.getElementById('importStatusText');
+			var details = document.getElementById('importDetails');
+			var errorsDiv = document.getElementById('importErrors');
+			
 			if (d.success) {
-				var msg = 'Импорт завершён! Создано: ' + (d.data.created || 0);
+				// Успех
+				if (progressBar) {
+					progressBar.style.width = '100%';
+					progressBar.textContent = '100%';
+					progressBar.classList.remove('progress-bar-animated');
+					progressBar.classList.add('bg-success');
+				}
+				if (statusText) statusText.textContent = 'Завершено!';
+				
+				var msg = 'Импорт завершён! Создано/обновлено: ' + (d.data.created || 0);
+				if (d.data.processed) {
+					msg += ', обработано строк: ' + d.data.processed;
+				}
+				if (details) details.textContent = msg;
+				
 				if (d.data.errors && d.data.errors.length > 0) {
-					msg += '\nОшибок: ' + d.data.errors.length;
+					if (errorsDiv) {
+						errorsDiv.innerHTML = '<strong>Ошибки (' + d.data.errors.length + '):</strong><br>' + 
+							d.data.errors.slice(0, 10).map(function(e) { return escapeHtml(e); }).join('<br>');
+						if (d.data.errors.length > 10) {
+							errorsDiv.innerHTML += '<br>... и ещё ' + (d.data.errors.length - 10) + ' ошибок (см. консоль)';
+						}
+					}
 					console.warn('Ошибки импорта:', d.data.errors);
 				}
-				alert(msg);
-				window.loadTree();
-				loadDashboard();
+				
+				setTimeout(function() {
+					window.loadTree();
+					loadDashboard();
+					if (progressZone) progressZone.remove();
+				}, 2000);
 			} else {
-				alert('Ошибка: ' + (d.message || 'Неизвестная ошибка'));
+				// Ошибка сервера
+				if (progressBar) {
+					progressBar.classList.remove('progress-bar-animated');
+					progressBar.classList.add('bg-danger');
+					progressBar.style.width = '100%';
+					progressBar.textContent = 'Ошибка';
+				}
+				if (statusText) statusText.textContent = 'Ошибка';
+				if (errorsDiv) errorsDiv.textContent = 'Ошибка: ' + (d.message || 'Неизвестная ошибка');
 			}
 		})
 		.catch(function(e) {
 			console.error('Ошибка импорта:', e);
-			alert('Ошибка импорта');
+			var errorsDiv = document.getElementById('importErrors');
+			var statusText = document.getElementById('importStatusText');
+			var progressBar = document.getElementById('importProgressBar');
+			
+			if (statusText) statusText.textContent = 'Ошибка соединения';
+			if (progressBar) {
+				progressBar.classList.remove('progress-bar-animated');
+				progressBar.classList.add('bg-danger');
+				progressBar.style.width = '100%';
+				progressBar.textContent = 'Ошибка';
+			}
+			if (errorsDiv) errorsDiv.textContent = 'Ошибка сети: ' + e.message;
 		})
 		.finally(function() {
 			if (importBtn) {
