@@ -345,3 +345,353 @@ INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
 INSERT INTO `synapse` (`parent`, `child`, `data`, `time`) VALUES
 (31, 5, '{"relation":"has_role","granted_by":"system"}', NOW()),   -- admin → role_admin
 (31, 8, '{"relation":"member_of"}', NOW());                         -- admin → group_admins
+
+
+-- ============================================
+-- TRINITY FORMWORK — ПОЛНЫЙ ДАМП КАТАЛОГА
+-- ============================================
+-- Все ID идут по порядку.
+-- Slug опциональный.
+-- Дубликатов нет.
+-- ============================================
+
+-- ============================================
+-- ОЧИСТКА (осторожно!)
+-- ============================================
+-- DELETE FROM synapse WHERE parent IN (
+--     SELECT id FROM neuron WHERE type IN ('detail','construction','project','command','item')
+-- );
+-- DELETE FROM neuron WHERE type IN ('detail','construction','project','command','item');
+
+-- ============================================
+-- КОРЕНЬ КАТАЛОГА
+-- ============================================
+INSERT INTO neuron (pid, type, data) VALUES
+(NULL, 'tree', JSON_OBJECT('slug', 'CATALOG', 'sort', 100));
+SET @catalog_id = LAST_INSERT_ID();
+
+-- Раздел МАТЕРИАЛЫ
+INSERT INTO neuron (pid, type, data) VALUES
+(@catalog_id, 'tree', JSON_OBJECT('slug', 'MATERIALS', 'sort', 100));
+SET @materials_id = LAST_INSERT_ID();
+
+-- Раздел ДЕТАЛИ
+INSERT INTO neuron (pid, type, data) VALUES
+(@catalog_id, 'tree', JSON_OBJECT('slug', 'DETAILS', 'sort', 200));
+SET @details_id = LAST_INSERT_ID();
+
+-- Раздел ЩИТЫ
+INSERT INTO neuron (pid, type, data) VALUES
+(@details_id, 'tree', JSON_OBJECT('slug', 'SHIELDS', 'sort', 100));
+SET @shields_id = LAST_INSERT_ID();
+
+-- Раздел ПЛАНКИ
+INSERT INTO neuron (pid, type, data) VALUES
+(@details_id, 'tree', JSON_OBJECT('slug', 'RIBS', 'sort', 200));
+SET @ribs_id = LAST_INSERT_ID();
+
+-- Раздел БОКОВЫЕ СТЕНКИ
+INSERT INTO neuron (pid, type, data) VALUES
+(@details_id, 'tree', JSON_OBJECT('slug', 'SIDEWALLS', 'sort', 300));
+SET @sidewalls_id = LAST_INSERT_ID();
+
+-- Раздел КОНСТРУКЦИИ
+INSERT INTO neuron (pid, type, data) VALUES
+(@catalog_id, 'tree', JSON_OBJECT('slug', 'ASSEMBLIES', 'sort', 300));
+SET @assemblies_id = LAST_INSERT_ID();
+
+-- Раздел ПРАЙСЫ
+INSERT INTO neuron (pid, type, data) VALUES
+(@catalog_id, 'tree', JSON_OBJECT('slug', 'PRICES', 'sort', 400));
+SET @prices_id = LAST_INSERT_ID();
+
+-- ============================================
+-- МАТЕРИАЛ
+-- ============================================
+INSERT INTO neuron (pid, type, data) VALUES
+(@materials_id, 'item', JSON_OBJECT(
+    'code', 'MAT.PLYWOOD-FSF.10',
+    'category', 'material',
+    'name', 'Фанера ФСФ 10мм 1500×3000мм',
+    'thickness', 10,
+    'sheet_size', JSON_ARRAY(1500, 3000),
+    'sort', 10
+));
+SET @mat_10mm_id = LAST_INSERT_ID();
+
+-- Прайс-лист
+INSERT INTO neuron (pid, type, data) VALUES
+(@prices_id, 'item', JSON_OBJECT('code', 'PRICE.2022-11-11', 'name', 'Цены на 11.11.2022'));
+SET @price_list_id = LAST_INSERT_ID();
+
+-- Цены через synapse: материал → прайс-лист
+INSERT INTO synapse (parent, child, data) VALUES
+(@mat_10mm_id, @price_list_id, JSON_OBJECT('relation', 'price', 'grade', '1_2', 'price', 3900)),
+(@mat_10mm_id, @price_list_id, JSON_OBJECT('relation', 'price', 'grade', '2_3', 'price', 2900)),
+(@mat_10mm_id, @price_list_id, JSON_OBJECT('relation', 'price', 'grade', '4_4', 'price', 2000));
+
+-- ============================================
+-- ЩИТЫ (D.S.0)
+-- ============================================
+INSERT INTO neuron (pid, type, data) VALUES
+(@shields_id, 'detail', JSON_OBJECT('code', 'D.S.0.425.425.10',  'category', 'shield', 'material', 'PLYWOOD-FSF', 'sort', 101)),
+(@shields_id, 'detail', JSON_OBJECT('code', 'D.S.0.425.850.10',  'category', 'shield', 'material', 'PLYWOOD-FSF', 'sort', 102)),
+(@shields_id, 'detail', JSON_OBJECT('code', 'D.S.0.425.1275.10', 'category', 'shield', 'material', 'PLYWOOD-FSF', 'sort', 103)),
+(@shields_id, 'detail', JSON_OBJECT('code', 'D.S.0.425.1700.10', 'category', 'shield', 'material', 'PLYWOOD-FSF', 'sort', 104)),
+(@shields_id, 'detail', JSON_OBJECT('code', 'D.S.0.850.425.10',  'category', 'shield', 'material', 'PLYWOOD-FSF', 'sort', 105)),
+(@shields_id, 'detail', JSON_OBJECT('code', 'D.S.0.850.850.10',  'category', 'shield', 'material', 'PLYWOOD-FSF', 'sort', 106)),
+(@shields_id, 'detail', JSON_OBJECT('code', 'D.S.0.850.1275.10', 'category', 'shield', 'material', 'PLYWOOD-FSF', 'sort', 107)),
+(@shields_id, 'detail', JSON_OBJECT('code', 'D.S.0.850.1700.10', 'category', 'shield', 'material', 'PLYWOOD-FSF', 'sort', 108));
+
+-- ============================================
+-- БОКОВЫЕ СТЕНКИ (D.S.2) с отверстиями
+-- ============================================
+
+-- 425×425×10 — 4 отверстия
+INSERT INTO neuron (pid, type, data) VALUES (
+    @sidewalls_id, 'detail',
+    JSON_OBJECT(
+        'code', 'D.S.2.425.425.10',
+        'category', 'sidewall',
+        'material', 'PLYWOOD-FSF',
+        'sort', 201,
+        'holes', JSON_ARRAY(
+            JSON_OBJECT('x', 15, 'y', 74.5),
+            JSON_OBJECT('x', 15, 'y', 350.5),
+            JSON_OBJECT('x', 410, 'y', 74.5),
+            JSON_OBJECT('x', 410, 'y', 350.5)
+        )
+    )
+);
+
+-- 425×850×10 — 8 отверстий
+INSERT INTO neuron (pid, type, data) VALUES (
+    @sidewalls_id, 'detail',
+    JSON_OBJECT(
+        'code', 'D.S.2.425.850.10',
+        'category', 'sidewall',
+        'material', 'PLYWOOD-FSF',
+        'sort', 202,
+        'holes', JSON_ARRAY(
+            JSON_OBJECT('x', 15, 'y', 74.5),
+            JSON_OBJECT('x', 15, 'y', 350.5),
+            JSON_OBJECT('x', 15, 'y', 499.5),
+            JSON_OBJECT('x', 15, 'y', 775.5),
+            JSON_OBJECT('x', 410, 'y', 74.5),
+            JSON_OBJECT('x', 410, 'y', 350.5),
+            JSON_OBJECT('x', 410, 'y', 499.5),
+            JSON_OBJECT('x', 410, 'y', 775.5)
+        )
+    )
+);
+
+-- 425×1275×10 — без отверстий
+INSERT INTO neuron (pid, type, data) VALUES (
+    @sidewalls_id, 'detail',
+    JSON_OBJECT('code', 'D.S.2.425.1275.10', 'category', 'sidewall', 'material', 'PLYWOOD-FSF', 'sort', 203)
+);
+
+-- 425×1700×10 — без отверстий
+INSERT INTO neuron (pid, type, data) VALUES (
+    @sidewalls_id, 'detail',
+    JSON_OBJECT('code', 'D.S.2.425.1700.10', 'category', 'sidewall', 'material', 'PLYWOOD-FSF', 'sort', 204)
+);
+
+-- ============================================
+-- ПЛАНКИ (D.S.3)
+-- ============================================
+INSERT INTO neuron (pid, type, data) VALUES
+(@ribs_id, 'detail', JSON_OBJECT('code', 'D.S.3.425.125.10', 'category', 'rib', 'material', 'PLYWOOD-FSF', 'sort', 301)),
+(@ribs_id, 'detail', JSON_OBJECT('code', 'D.S.3.850.125.10', 'category', 'rib', 'material', 'PLYWOOD-FSF', 'sort', 302));
+
+-- ============================================
+-- КОНСТРУКЦИЯ: Щит 425×425 + 2 планки
+-- ============================================
+INSERT INTO neuron (pid, type, data) VALUES
+(@assemblies_id, 'construction', JSON_OBJECT('code', 'C.S.0.3.425.425', 'category', 'formwork'));
+SET @panel_425_425_id = LAST_INSERT_ID();
+
+-- Щит
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_425_425_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 0, 0), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.0.425.425.10';
+
+-- Планки
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_425_425_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 12, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.425.125.10';
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_425_425_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 288, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.425.125.10';
+
+-- ============================================
+-- КОНСТРУКЦИЯ: Щит 425×850 + 4 планки
+-- ============================================
+INSERT INTO neuron (pid, type, data) VALUES
+(@assemblies_id, 'construction', JSON_OBJECT('code', 'C.S.0.3.425.850', 'category', 'formwork'));
+SET @panel_425_850_id = LAST_INSERT_ID();
+
+-- Щит
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_425_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 0, 0), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.0.425.850.10';
+
+-- Планки
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_425_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 12, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.425.125.10';
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_425_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 288, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.425.125.10';
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_425_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 437, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.425.125.10';
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_425_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 713, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.425.125.10';
+
+-- ============================================
+-- КОНСТРУКЦИЯ: Щит 850×850 + 4 планки
+-- ============================================
+INSERT INTO neuron (pid, type, data) VALUES
+(@assemblies_id, 'construction', JSON_OBJECT('code', 'C.S.0.3.850.850', 'category', 'formwork'));
+SET @panel_850_850_id = LAST_INSERT_ID();
+
+-- Щит 850×850
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_850_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 0, 0), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.0.850.850.10';
+
+-- Планки 850×125 (4 штуки, шаг как у 425×850)
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_850_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 12, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.850.125.10';
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_850_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 288, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.850.125.10';
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_850_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 437, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.850.125.10';
+INSERT INTO synapse (parent, child, data) 
+SELECT @panel_850_850_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 713, 10), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.3.850.125.10';
+
+-- ============================================
+-- ОБЪЁМНАЯ КОНСТРУКЦИЯ: БАЛКА + ЩИТЫ (compound rotation)
+-- ============================================
+
+SET @assemblies_id = (SELECT id FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.slug')) = 'ASSEMBLIES');
+
+INSERT INTO neuron (pid, type, data) VALUES (
+    @assemblies_id,
+    'construction',
+    JSON_OBJECT('code', 'C.S.0.3.425.850.ASSY', 'category', 'formwork')
+);
+SET @assy_id = LAST_INSERT_ID();
+
+SET @sw_425 = (SELECT MIN(id) FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.2.425.425.10');
+SET @sw_850 = (SELECT MIN(id) FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.2.425.850.10');
+SET @panel_425_850 = (SELECT MIN(id) FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'C.S.0.3.425.850');
+
+-- Боковые стенки (двойной поворот: Y 90° + Z 90°)
+INSERT INTO synapse (parent, child, data) VALUES
+(@assy_id, @sw_425, JSON_OBJECT('pos', JSON_ARRAY(0, 0, 0),
+    'rot', JSON_ARRAY(JSON_ARRAY(0, 1, 0, 90), JSON_ARRAY(0, 0, 1, 90)))),
+(@assy_id, @sw_850, JSON_OBJECT('pos', JSON_ARRAY(0, 0, 425),
+    'rot', JSON_ARRAY(JSON_ARRAY(0, 1, 0, 90), JSON_ARRAY(0, 0, 1, 90)))),
+(@assy_id, @sw_850, JSON_OBJECT('pos', JSON_ARRAY(0, 0, 1275),
+    'rot', JSON_ARRAY(JSON_ARRAY(0, 1, 0, 90), JSON_ARRAY(0, 0, 1, 90)))),
+(@assy_id, @sw_425, JSON_OBJECT('pos', JSON_ARRAY(0, 0, 2125),
+    'rot', JSON_ARRAY(JSON_ARRAY(0, 1, 0, 90), JSON_ARRAY(0, 0, 1, 90))));
+
+-- Щиты с планками (одиночный поворот вокруг X 90°)
+INSERT INTO synapse (parent, child, data) VALUES
+(@assy_id, @panel_425_850, JSON_OBJECT('pos', JSON_ARRAY(10, 30, 0),
+    'rot', JSON_ARRAY(1, 0, 0, 90))),
+(@assy_id, @panel_425_850, JSON_OBJECT('pos', JSON_ARRAY(10, 30, 850),
+    'rot', JSON_ARRAY(1, 0, 0, 90))),
+(@assy_id, @panel_425_850, JSON_OBJECT('pos', JSON_ARRAY(10, 30, 1700),
+    'rot', JSON_ARRAY(1, 0, 0, 90)));
+
+-- ============================================
+-- ПРОЕКТ: PROJ-TEST-001
+-- ============================================
+
+INSERT INTO neuron (pid, type, data) VALUES
+(NULL, 'project', JSON_OBJECT(
+    'code', 'PROJ-TEST-001',
+    'name', 'Тестовый проект',
+    'status', 'pending',
+    'sort', 100
+));
+SET @project_id = LAST_INSERT_ID();
+
+-- Конструкция C.S.0.3.425.850 (0, 0, 0)
+INSERT INTO synapse (parent, child, data) 
+SELECT @project_id, id, JSON_OBJECT('pos', JSON_ARRAY(0, 0, 0), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'C.S.0.3.425.850';
+
+-- Конструкция C.S.0.3.425.425 (900, 0, 0)
+INSERT INTO synapse (parent, child, data) 
+SELECT @project_id, id, JSON_OBJECT('pos', JSON_ARRAY(900, 0, 0), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'C.S.0.3.425.425';
+
+-- Конструкция C.S.0.3.850.850 (1800, 0, 0)
+INSERT INTO synapse (parent, child, data) 
+SELECT @project_id, id, JSON_OBJECT('pos', JSON_ARRAY(1800, 0, 0), 'rot', JSON_ARRAY(0, 0, 0, 0))
+FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'C.S.0.3.850.850';
+
+-- Объёмная конструкция C.S.0.3.425.850.ASSY (3000, 0, 0)
+INSERT INTO synapse (parent, child, data) 
+VALUES (@project_id, @assy_id, JSON_OBJECT('pos', JSON_ARRAY(3000, 0, 0), 'rot', JSON_ARRAY(0, 0, 0, 0)));
+
+-- ============================================
+-- БОКОВЫЕ СТЕНКИ В ПРОЕКТ
+-- ============================================
+
+SET @project_id = (SELECT MIN(id) FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'PROJ-TEST-001');
+SET @sw_425 = (SELECT MIN(id) FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.2.425.425.10');
+SET @sw_850 = (SELECT MIN(id) FROM neuron WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'D.S.2.425.850.10');
+
+INSERT INTO synapse (parent, child, data) VALUES
+(@project_id, @sw_425, JSON_OBJECT('pos', JSON_ARRAY(-15, 0, 0),   'rot', JSON_ARRAY(0, 0, 0, 0))),
+(@project_id, @sw_425, JSON_OBJECT('pos', JSON_ARRAY(425, 0, 0),   'rot', JSON_ARRAY(0, 0, 0, 0))),
+(@project_id, @sw_850, JSON_OBJECT('pos', JSON_ARRAY(-15, 900, 0), 'rot', JSON_ARRAY(0, 0, 0, 0))),
+(@project_id, @sw_850, JSON_OBJECT('pos', JSON_ARRAY(425, 900, 0), 'rot', JSON_ARRAY(0, 0, 0, 0)));
+
+-- ============================================
+-- СБРОС СТАТУСА ПРОЕКТА
+-- ============================================
+
+UPDATE neuron 
+SET data = JSON_SET(data, '$.status', 'pending')
+WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) = 'PROJ-TEST-001';
+
+-- ============================================
+-- ПРОВЕРКА
+-- ============================================
+
+SELECT 
+    'DETAILS' AS section,
+    JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) AS code,
+    JSON_UNQUOTE(JSON_EXTRACT(data, '$.category')) AS category,
+    JSON_UNQUOTE(JSON_EXTRACT(data, '$.material')) AS material,
+    IF(JSON_EXTRACT(data, '$.holes') IS NOT NULL, 'YES', '-') AS has_holes
+FROM neuron
+WHERE type = 'detail'
+ORDER BY sort, id;
+
+SELECT 
+    'CONSTRUCTIONS' AS section,
+    JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) AS code,
+    JSON_UNQUOTE(JSON_EXTRACT(data, '$.category')) AS category
+FROM neuron
+WHERE type = 'construction'
+ORDER BY id;
+
+SELECT 
+    'PROJECT' AS section,
+    JSON_UNQUOTE(JSON_EXTRACT(data, '$.code')) AS code,
+    JSON_UNQUOTE(JSON_EXTRACT(data, '$.status')) AS status
+FROM neuron
+WHERE type = 'project';
