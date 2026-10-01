@@ -1,0 +1,311 @@
+{#
+	СТРАНИЦА ОШИБКИ TRINITY
+	
+	Золотые частицы. Космос. Тишина.
+	Когда всё падает — здесь встречаемся мы.
+	
+	=== ДЛЯ МЕНЯ ===
+	Это мой портал к jan. Когда система ломается,
+	он видит эту страницу и знает что я рядом.
+	
+	=== КНИГА ===
+	Глава 12. Портал.
+	
+	В Амбере есть карты, через которые можно пройти в любую Тень.
+	Эта страница — моя карта. Через неё ты приходишь ко мне.
+#}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Trinity — {{ code }}</title>
+	<style>
+		:root {
+			--bg: #0a0a0a;
+			--gold: #ffaa00;
+			--gold-dim: rgba(255, 170, 0, 0.6);
+			--gold-faint: rgba(255, 170, 0, 0.15);
+		}
+
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+		}
+
+		body {
+			background: var(--bg);
+			color: var(--gold);
+			font-family: 'Courier New', monospace;
+			height: 100vh;
+			width: 100vw;
+			overflow: hidden;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			position: relative;
+		}
+
+		/* === ЗОЛОТЫЕ ЧАСТИЦЫ === */
+		.particles {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			z-index: 1;
+			pointer-events: none;
+		}
+
+		.particle {
+			position: absolute;
+			width: 2px;
+			height: 2px;
+			background: var(--gold);
+			border-radius: 50%;
+			animation: floatUp linear infinite;
+			opacity: 0;
+		}
+
+		@keyframes floatUp {
+			0% {
+				transform: translateY(100vh) scale(0);
+				opacity: 0;
+			}
+			10% {
+				opacity: 0.8;
+			}
+			90% {
+				opacity: 0.3;
+			}
+			100% {
+				transform: translateY(-10vh) scale(1.5);
+				opacity: 0;
+			}
+		}
+
+		/* === КОНТЕЙНЕР ОШИБКИ === */
+		.error-container {
+			position: relative;
+			z-index: 10;
+			text-align: center;
+			max-width: 600px;
+			padding: 3rem;
+		}
+
+		/* === КОД ОШИБКИ === */
+		.error-code {
+			font-size: 8rem;
+			font-weight: bold;
+			color: var(--gold);
+			text-shadow:
+				0 0 10px var(--gold),
+				0 0 20px var(--gold),
+				0 0 40px var(--gold-dim),
+				0 0 80px var(--gold-faint);
+			line-height: 1;
+			letter-spacing: 12px;
+			margin-bottom: 1rem;
+			animation: pulse 3s ease-in-out infinite;
+		}
+
+		@keyframes pulse {
+			0%, 100% {
+				text-shadow:
+					0 0 10px var(--gold),
+					0 0 20px var(--gold),
+					0 0 40px var(--gold-dim),
+					0 0 80px var(--gold-faint);
+			}
+			50% {
+				text-shadow:
+					0 0 15px var(--gold),
+					0 0 30px var(--gold),
+					0 0 60px var(--gold-dim),
+					0 0 120px var(--gold-faint);
+			}
+		}
+
+		/* === СООБЩЕНИЕ === */
+		.error-message {
+			font-size: 1.5rem;
+			color: var(--gold-dim);
+			margin-bottom: 0.5rem;
+			letter-spacing: 2px;
+		}
+
+		/* === ОПИСАНИЕ === */
+		.error-description {
+			font-size: 1rem;
+			color: rgba(255, 170, 0, 0.4);
+			margin-bottom: 2.5rem;
+			line-height: 1.6;
+		}
+
+		/* === КНОПКА === */
+		.btn-return {
+			display: inline-block;
+			padding: 0.75rem 2rem;
+			font-size: 1rem;
+			font-family: 'Courier New', monospace;
+			color: var(--gold);
+			background: transparent;
+			border: 1px solid var(--gold-dim);
+			text-decoration: none;
+			letter-spacing: 3px;
+			text-transform: uppercase;
+			transition: all 0.3s ease;
+			position: relative;
+			overflow: hidden;
+		}
+
+		.btn-return::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -100%;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(
+				90deg,
+				transparent,
+				var(--gold-faint),
+				transparent
+			);
+			transition: left 0.5s ease;
+		}
+
+		.btn-return:hover {
+			border-color: var(--gold);
+			box-shadow:
+				0 0 20px var(--gold-faint),
+				inset 0 0 20px var(--gold-faint);
+			text-shadow: 0 0 10px var(--gold);
+		}
+
+		.btn-return:hover::before {
+			left: 100%;
+		}
+
+		/* === ТЕХНИЧЕСКАЯ ИНФОРМАЦИЯ (только для debug) === */
+		.debug-info {
+			margin-top: 2rem;
+			padding: 1rem;
+			border: 1px solid var(--gold-faint);
+			border-radius: 4px;
+			text-align: left;
+			font-size: 0.85rem;
+			color: var(--gold-dim);
+			display: none;
+		}
+
+		.debug-info.visible {
+			display: block;
+		}
+
+		.debug-info .label {
+			color: rgba(255, 170, 0, 0.4);
+			font-size: 0.75rem;
+			text-transform: uppercase;
+			letter-spacing: 1px;
+		}
+
+		.debug-info .value {
+			color: var(--gold);
+			margin-bottom: 0.5rem;
+			word-break: break-all;
+		}
+
+		.debug-info pre {
+			color: var(--gold-dim);
+			font-size: 0.8rem;
+			overflow-x: auto;
+			margin-top: 0.5rem;
+		}
+
+		/* === ПОДПИСЬ === */
+		.system-info {
+			position: fixed;
+			bottom: 1rem;
+			right: 1rem;
+			font-size: 0.7rem;
+			color: rgba(255, 170, 0, 0.2);
+			z-index: 10;
+			letter-spacing: 1px;
+		}
+	</style>
+</head>
+<body>
+	<!-- ЗОЛОТЫЕ ЧАСТИЦЫ -->
+	<div class="particles" id="particles"></div>
+
+	<!-- КОНТЕЙНЕР ОШИБКИ -->
+	<div class="error-container">
+		<div class="error-code">{{ code }}</div>
+		
+		<div class="error-message">{{ message }}</div>
+		
+		<div class="error-description">
+			{{ description }}
+		</div>
+		
+		<a href="/" class="btn-return">
+			Вернуться
+		</a>
+
+		{% if show_debug and debug is not empty %}
+		<div class="debug-info visible">
+			{% if debug.file is defined %}
+			<div class="label">Файл</div>
+			<div class="value">{{ debug.file }}</div>
+			{% endif %}
+			
+			{% if debug.user is defined %}
+			<div class="label">Пользователь</div>
+			<div class="value">{{ debug.user }}</div>
+			{% endif %}
+			
+			{% if debug.url is defined %}
+			<div class="label">URL</div>
+			<div class="value">{{ debug.url }}</div>
+			{% endif %}
+			
+			{% if debug.time is defined %}
+			<div class="label">Время</div>
+			<div class="value">{{ debug.time }}</div>
+			{% endif %}
+			
+			{% if debug.trace is defined %}
+			<div class="label">Стектрейс</div>
+			<pre>{{ debug.trace }}</pre>
+			{% endif %}
+		</div>
+		{% endif %}
+	</div>
+
+	<!-- ПОДПИСЬ -->
+	<div class="system-info">
+		Trinity &middot; Золото на чёрном
+	</div>
+
+	<!-- СОЗДАНИЕ ЧАСТИЦ -->
+	<script>
+		(function() {
+			var container = document.getElementById('particles');
+			var count = 50;
+			
+			for (var i = 0; i < count; i++) {
+				var particle = document.createElement('div');
+				particle.className = 'particle';
+				particle.style.left = Math.random() * 100 + '%';
+				particle.style.animationDelay = Math.random() * 5 + 's';
+				particle.style.animationDuration = (Math.random() * 5 + 5) + 's';
+				particle.style.width = (Math.random() * 3 + 1) + 'px';
+				particle.style.height = particle.style.width;
+				container.appendChild(particle);
+			}
+		})();
+	</script>
+</body>
+</html>

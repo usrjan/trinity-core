@@ -1,0 +1,41 @@
+{#
+	ФОРМА РЕГИСТРАЦИИ
+	Золото на чёрном. Минимум лишнего.
+#}
+{% extends 'base.html.twig' %}
+
+{% block body %}
+<div class="auth-page">
+	<div class="auth-card">
+		<div class="card-header">
+			<div class="auth-logo"><i class="bi bi-triangle-fill"></i></div>
+			<div class="auth-title">Trinity</div>
+			<small class="text-muted">Создание аккаунта</small>
+		</div>
+		<div class="card-body">
+			{% if error %}
+			<div class="auth-error"><i class="bi bi-exclamation-triangle"></i> {{ error }}</div>
+			{% endif %}
+			<form method="POST" action="/register" class="auth-form">
+				<input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+				<div class="mb-3">
+					<label class="form-label"><i class="bi bi-person"></i> Логин</label>
+					<input type="text" class="form-control" name="login" placeholder="jan" required autofocus>
+				</div>
+				<div class="mb-3">
+					<label class="form-label"><i class="bi bi-envelope"></i> Email</label>
+					<input type="email" class="form-control" name="email" placeholder="jan@trinity.local" required>
+				</div>
+				<div class="mb-3">
+					<label class="form-label"><i class="bi bi-key"></i> Пароль</label>
+					<input type="password" class="form-control" name="password" placeholder="Минимум 8 символов" minlength="8" required>
+				</div>
+				<button type="submit" class="btn btn-trinity"><i class="bi bi-person-plus"></i> Зарегистрироваться</button>
+			</form>
+		</div>
+		<div class="card-footer">
+			<small class="text-muted">Уже есть аккаунт? <a href="/login" class="auth-link">Войти</a></small>
+		</div>
+	</div>
+</div>
+{% endblock %}

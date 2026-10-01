@@ -1,0 +1,126 @@
+{% extends 'base.html.twig' %}
+
+{% block body %}
+<div class="d-flex">
+	<aside class="sidebar" id="sidebar"></aside>
+	<div class="main-content">
+		<header class="top-bar" id="topBar"></header>
+		<main>
+			<div class="p-4">
+				<h1 class="gold-text mb-4"><i class="bi bi-tools"></i> Инструменты</h1>
+				
+				<div class="card bg-dark border-gold mb-4">
+					<div class="card-header">
+						<h5 class="mb-0"><i class="bi bi-file-earmark-bar-graph"></i> Отчёт по соцсетям</h5>
+					</div>
+					<div class="card-body">
+						<form id="reportSocialForm" enctype="multipart/form-data">
+							<div class="row g-3 mb-3">
+								<div class="col-md-4">
+									<label class="form-label">IM (инциденты из соцсетей)</label>
+									<input type="file" name="im" class="form-control" accept=".xlsx,.xls">
+								</div>
+								<div class="col-md-4">
+									<label class="form-label">POS (позитивные обращения)</label>
+									<input type="file" name="pos" class="form-control" accept=".xlsx,.xls">
+								</div>
+								<div class="col-md-4">
+									<label class="form-label">IMP (инциденты по организациям)</label>
+									<input type="file" name="imp" class="form-control" accept=".xlsx,.xls">
+								</div>
+							</div>
+							
+							<div class="row g-3 mb-3">
+								<div class="col-md-4">
+									<label class="form-label">Тип вывода</label>
+									<select name="type_out" class="form-select">
+										<option value="alltheme">Все темы</option>
+										<option value="top5theme">Топ-5 тем</option>
+										<option value="combined">Сводка</option>
+										<option value="org">Организации</option>
+									</select>
+								</div>
+								<div class="col-md-4">
+									<label class="form-label">Район (опционально)</label>
+									<select name="area" class="form-select" id="areaSelect">
+										<option value="">Все районы</option>
+									</select>
+								</div>
+								<div class="col-md-4 d-flex align-items-end">
+									<div class="form-check">
+										<input type="checkbox" name="to_word" value="1" class="form-check-input" id="toWord">
+										<label class="form-check-label" for="toWord">Выгрузить в Word</label>
+									</div>
+								</div>
+							</div>
+							
+							<button type="submit" class="btn btn-outline-gold" id="submitBtn">
+								<i class="bi bi-play-circle"></i> Сформировать отчёт
+							</button>
+						</form>
+					</div>
+				</div>
+				
+				<div id="toolResult"></div>
+			</div>
+		</main>
+	</div>
+</div>
+
+<script>
+fetch('/api/menu/sidebar?current_url=/tools').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
+fetch('/api/menu/topbar').then(r => r.text()).then(html => {
+	document.getElementById('topBar').innerHTML = html;
+	setTimeout(initUserDropdown, 100);
+});
+// Загружаем список районов
+fetch('/api/map/geojson?codes=SubAdministrativeArea')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success && d.data && d.data.features) {
+            var select = document.getElementById('areaSelect');
+            d.data.features.forEach(function(f) {
+                var name = f.properties.hintContent || f.properties.balloonContent || '';
+                if (name) {
+                    var option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    select.appendChild(option);
+                }
+            });
+        }
+    });
+	
+document.getElementById('reportSocialForm').addEventListener('submit', function(e) {
+	e.preventDefault();
+	
+	var formData = new FormData(this);
+	var submitBtn = document.getElementById('submitBtn');
+	submitBtn.disabled = true;
+	submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Обработка...';
+	
+	fetch('/api/tools/report-social', {
+		method: 'POST',
+		body: formData
+	})
+	.then(function(r) { return r.json(); })
+	.then(function(d) {
+		if (d.success) {
+			document.getElementById('toolResult').innerHTML = d.data.html;
+			if (d.data.word_file) {
+				window.open(d.data.word_file, '_blank');
+			}
+		} else {
+			alert(d.message || 'Ошибка');
+		}
+	})
+	.catch(function(e) {
+		alert('Ошибка сети');
+	})
+	.finally(function() {
+		submitBtn.disabled = false;
+		submitBtn.innerHTML = '<i class="bi bi-play-circle"></i> Сформировать отчёт';
+	});
+});
+</script>
+{% endblock %}

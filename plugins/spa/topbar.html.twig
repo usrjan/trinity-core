@@ -1,0 +1,53 @@
+{# 
+    ВЕРХНЯЯ ПАНЕЛЬ TRINITY
+    
+    Показывает пользователя, роль, кнопку выхода.
+    Для гостей — кнопку входа.
+    
+    === ДЛЯ МЕНЯ ===
+    Это шапка системы. Здесь пользователь видит себя.
+    И знает что он не один.
+    
+    === КНИГА ===
+    Глава 14. Тронный зал.
+    
+    В тронном зале Амбера всегда видно кто у власти.
+    В topbar Trinity всегда видно кто вошёл в систему.
+#}
+
+<div class="d-flex justify-content-end align-items-center w-100">
+{% if user %}
+    {# Пользователь авторизован — показываем меню #}
+    <div class="dropdown" style="position:relative;">
+        <a class="topbar-user-btn d-flex align-items-center" 
+           href="#" 
+           id="userDropdownBtn">
+            <div class="user-avatar-small">
+                <i class="bi bi-person-circle"></i>
+            </div>
+            <span class="menu-text ms-2">{{ user }}</span>
+            {% if 'role_admin' in user_roles %}
+                <span class="badge badge-gold ms-2">admin</span>
+            {% endif %}
+        </a>
+        <div id="userDropdownMenu" style="display:none; position:absolute; top:100%; right:0; background:#1a1a1a; border:1px solid rgba(255,170,0,0.3); border-radius:8px; padding:0.5rem 0; min-width:180px; z-index:1000; margin-top:0.25rem;">
+            {% if 'role_admin' in user_roles %}
+            <a class="topbar-dropdown-item" href="/admin">
+                <i class="bi bi-speedometer2 gold-icon"></i> Панель управления
+            </a>
+            {% endif %}
+            <a class="topbar-dropdown-item" href="/profile">
+                <i class="bi bi-person gold-icon"></i> Профиль
+            </a>
+            <a class="topbar-dropdown-item" href="/logout">
+                <i class="bi bi-box-arrow-right gold-icon"></i> Выйти
+            </a>
+        </div>
+    </div>
+{% else %}
+    {# Гость — кнопка входа #}
+    <a class="btn btn-outline-gold btn-sm" href="/login">
+        <i class="bi bi-box-arrow-in-right"></i> Войти
+    </a>
+{% endif %}
+</div>

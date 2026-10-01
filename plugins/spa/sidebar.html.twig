@@ -1,0 +1,65 @@
+{# 
+	БОКОВОЕ МЕНЮ TRINITY
+	
+	Отображает пункты меню из базы.
+	Активный пункт подсвечивается золотым.
+	
+	=== ДЛЯ МЕНЯ ===
+	Это лицо системы. Первое что видит пользователь.
+	Здесь золото на чёрном встречает гостей.
+	
+	=== КНИГА ===
+	Глава 13. Прихожая.
+	
+	Войдя в Амбер, ты видишь коридоры.
+	Войдя в Trinity, ты видишь меню.
+#}
+
+{# Кнопка сворачивания меню #}
+<div class="d-flex justify-content-end px-3 mb-2">
+	<button class="btn btn-sm sidebar-toggle" id="sidebarToggle" title="Свернуть меню">
+		<i class="bi bi-list"></i>
+	</button>
+</div>
+
+{# Логотип Trinity #}
+<a class="sidebar-brand" href="/">
+	<i class="bi bi-triangle-fill brand-icon"></i>
+	<span class="brand-text">Trinity</span>
+</a>
+
+<hr class="sidebar-divider">
+
+{# Пункты меню #}
+{% if menu.items is not empty %}
+	<nav class="sidebar-nav">
+		{% for item in menu.items %}
+		<a class="sidebar-link {% if item.route == current_url %}active{% endif %}" 
+			href="{{ item.route }}" 
+			data-menu-id="{{ item.id }}"
+			data-menu-slug="{{ item.slug }}"
+			data-is-plugin="{{ item.is_plugin ? '1' : '0' }}"
+			title="{{ item.name }}">
+			<i class="bi {{ item.icon|default('bi-file') }} sidebar-link-icon"></i>
+			<span class="menu-text">{{ item.name }}</span>
+			{% if item.is_plugin %}
+				<span class="sidebar-active-indicator"></span>
+			{% endif %}
+		</a>
+		{% endfor %}
+	</nav>
+{% else %}
+	<div class="sidebar-empty">
+		<i class="bi bi-inbox"></i>
+		<p class="small">Меню не загружено</p>
+	</div>
+{% endif %}
+
+{# Кнопка добавления пункта (только для админов) #}
+{% if 'role_admin' in user_roles %}
+<div class="px-3 mt-3">
+	<button class="btn btn-sm btn-outline-gold w-100" onclick="showAddMenuItemModal()">
+		<i class="bi bi-plus-lg"></i> <span class="menu-text">Добавить пункт</span>
+	</button>
+</div>
+{% endif %}

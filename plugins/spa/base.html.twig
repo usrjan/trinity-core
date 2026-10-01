@@ -1,0 +1,115 @@
+{#
+    БАЗОВЫЙ ШАБЛОН SPA
+    ====================
+    Каркас для всех страниц с боковым меню и контентной областью.
+    Используется главной страницей и динамическими SPA-страницами.
+    
+    Зоны:
+    - #sidebar      — боковое меню (загружается через API)
+    - #topBar       — верхняя панель пользователя (загружается через API)
+    - #breadcrumbNav — хлебные крошки (обновляются при SPA-навигации)
+    - #mainContent  — контент (загружается через API или SPA-движок)
+    
+    Страницы без SPA-зон (логин, регистрация) переопределяют {% block body %}.
+#}
+<!DOCTYPE html>
+<html lang="{{ user_lang|default('ru') }}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title|default('Trinity') }}</title>
+
+    {# Стили #}
+    <link rel="stylesheet" href="/assets/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/assets/css/bootstrap-icons.css">
+    <link rel="stylesheet" href="/assets/css/trinity-dark.css">
+    <link rel="icon" href="/assets/svg/favicon.svg" type="image/svg+xml">
+
+    {% block stylesheets %}{% endblock %}
+</head>
+<body>
+    {% block body %}
+    <div class="d-flex">
+        {# Боковое меню — заполняется через API #}
+        <aside class="sidebar" id="sidebar">
+            <div class="skeleton-sidebar">
+                <div class="skeleton-line skeleton-line-short"></div>
+                <div class="skeleton-line skeleton-line-long"></div>
+                <div class="skeleton-line skeleton-line-medium"></div>
+            </div>
+        </aside>
+
+        <div class="main-content">
+            {# Верхняя панель — заполняется через API #}
+            <header class="top-bar" id="topBar">
+                <div class="skeleton-topbar">
+                    <div class="skeleton-line skeleton-line-short"></div>
+                </div>
+            </header>
+
+            {# Хлебные крошки — обновляются SPA-движком #}
+            <nav id="breadcrumbNav" class="breadcrumb-spa">
+                <a href="/" class="gold-text">Главная</a>
+                <span id="breadcrumbPath"></span>
+            </nav>
+
+            {# Контент — заполняется через API или SPA-движком #}
+            <main id="mainContent">
+                <div class="skeleton-content">
+                    <div class="skeleton-line skeleton-line-long skeleton-line-heading"></div>
+                    <div class="skeleton-line skeleton-line-full"></div>
+                    <div class="skeleton-line skeleton-line-full"></div>
+                </div>
+            </main>
+        </div>
+    </div>
+    {% endblock %}
+
+    {# Модальное окно добавления пункта меню #}
+    <div id="addMenuItemModal" class="modal-overlay">
+        <div class="modal-content">
+            <h5 class="gold-text mb-3">Добавить пункт меню</h5>
+            <div class="mb-2">
+                <label class="form-label small">Название</label>
+                <input type="text" id="menuItemName" class="form-control form-control-sm" placeholder="Главная">
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Slug</label>
+                <input type="text" id="menuItemSlug" class="form-control form-control-sm" placeholder="home">
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Иконка (Bootstrap Icons)</label>
+                <input type="text" id="menuItemIcon" class="form-control form-control-sm" placeholder="bi-house" value="bi-file">
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Маршрут</label>
+                <input type="text" id="menuItemRoute" class="form-control form-control-sm" placeholder="/" value="/">
+            </div>
+            <div class="mb-3">
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="menuItemIsPlugin" value="1">
+                    <label class="form-check-label small" for="menuItemIsPlugin">Это плагин (полный переход, не SPA)</label>
+                </div>
+            </div>
+            <div class="d-flex gap-2 justify-content-end">
+                <button class="btn btn-sm btn-outline-secondary" onclick="closeAddMenuItemModal()">Отмена</button>
+                <button class="btn btn-sm btn-outline-gold" onclick="addMenuItem()">Добавить</button>
+            </div>
+        </div>
+    </div>
+
+    {# SPA-движок #}
+    <script src="/assets/js/spa.js"></script>
+
+    {# Управление меню #}
+    <script src="/assets/js/menu.js"></script>
+
+    {# Inline-редактор страниц #}
+    <script src="/assets/js/page-editor.js"></script>
+    <script>
+    var isAdmin = {{ is_admin|default('false') }};
+    var userLang = '{{ user_lang|default('ru') }}';
+    </script>
+    {% block javascripts %}{% endblock %}
+</body>
+</html>

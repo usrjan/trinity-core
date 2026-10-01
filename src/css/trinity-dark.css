@@ -1,0 +1,601 @@
+/* ============================================
+   TRINITY DARK THEME v1.2
+   Цвета: #050505 #0d0d0d #1a1a1a | #aaaaaa #cccccc #e0e0e0 | #ffaa00
+   ============================================ */
+
+/* --- Базовые стили --- */
+body {
+	background-color: #050505;
+	color: #aaaaaa;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	margin: 0;
+	padding: 0;
+	overflow-x: hidden;
+	line-height: 1.7;
+}
+
+a { color: #ffaa00; text-decoration: none; transition: color 0.2s ease; }
+a:hover { color: #ffcc44; }
+
+h1, h2, h3, h4, h5, h6 { color: #e0e0e0; font-weight: 600; }
+
+code {
+	color: #ffaa00;
+	background: rgba(255, 170, 0, 0.1);
+	padding: 2px 6px;
+	border-radius: 4px;
+}
+
+.gold-text { color: #ffaa00; }
+.gold-icon { color: #ffaa00; }
+
+/* --- Боковая панель --- */
+.sidebar {
+	position: sticky;
+	top: 0;
+	height: 100vh;
+	overflow-y: auto;
+	overflow-x: hidden;
+	background-color: #0d0d0d;
+	box-shadow: inset -1px 0 0 rgba(255, 170, 0, 0.1);
+	padding: 1rem 0;
+	width: 250px;
+	transition: width 0.3s ease;
+	flex-shrink: 0;
+}
+
+.sidebar.collapsed { width: 64px; }
+
+.sidebar.collapsed .menu-text,
+.sidebar.collapsed .brand-text,
+.sidebar.collapsed .sidebar-divider,
+.sidebar.collapsed .sidebar-empty { display: none; }
+
+.sidebar.collapsed .sidebar-link {
+	justify-content: center;
+	padding: 0.5rem;
+}
+
+.sidebar.collapsed .sidebar-link-icon { margin-right: 0; }
+
+.sidebar.collapsed .btn-outline-gold {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	width: 40px;
+	height: 40px;
+	padding: 0;
+	margin: 0 auto;
+	border-radius: 50%;
+}
+
+.sidebar.collapsed .btn-outline-gold i { margin: 0; font-size: 1.2rem; }
+
+.sidebar.collapsed .sidebar-toggle {
+	margin: 0 auto;
+	display: block;
+}
+
+.sidebar-brand {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	color: #ffaa00;
+	font-weight: 700;
+	letter-spacing: 2px;
+	font-size: 1.5rem;
+	text-decoration: none;
+	padding: 0.5rem;
+	transition: color 0.2s ease;
+}
+
+.sidebar-brand:hover { color: #ffcc44; }
+.brand-icon { font-size: 1.8rem; }
+
+.sidebar-toggle {
+	color: #888888;
+	border: none;
+	background: transparent;
+	padding: 0.25rem 0.5rem;
+	transition: color 0.2s ease;
+}
+
+.sidebar-toggle:hover { color: #ffaa00; }
+.sidebar-divider { border-color: rgba(255, 170, 0, 0.1); margin: 0.5rem 0; }
+
+/* --- Навигация в сайдбаре --- */
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding: 0 0.5rem; }
+
+.sidebar-link {
+	display: flex;
+	align-items: center;
+	color: #cccccc;
+	padding: 0.6rem 0.75rem;
+	border-radius: 6px;
+	text-decoration: none;
+	transition: all 0.2s ease;
+	position: relative;
+	overflow: hidden;
+}
+
+.sidebar-link:hover { background: rgba(255, 170, 0, 0.08); color: #ffaa00; }
+.sidebar-link.active { background: rgba(255, 170, 0, 0.12); color: #ffaa00; }
+
+.sidebar-link-icon {
+	width: 22px;
+	text-align: center;
+	margin-right: 10px;
+	font-size: 1.1rem;
+	flex-shrink: 0;
+}
+
+.sidebar-link:hover .sidebar-link-icon { transform: scale(1.1); }
+
+.sidebar-active-indicator {
+	position: absolute;
+	left: 0;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 3px;
+	height: 60%;
+	background: linear-gradient(180deg, #ffaa00, #ff8800);
+	border-radius: 0 3px 3px 0;
+}
+
+.sidebar-empty { text-align: center; color: #666; padding: 2rem 1rem; }
+.sidebar-empty i { font-size: 2rem; opacity: 0.3; }
+
+/* --- Основной контент --- */
+.main-content { flex: 1; min-width: 0; min-height: 100vh; }
+
+/* --- Верхняя панель --- */
+.top-bar {
+	position: sticky;
+	top: 0;
+	z-index: 1020;
+	background-color: #0d0d0d;
+	border-bottom: 1px solid rgba(255, 170, 0, 0.2);
+	padding: 0.75rem 1rem;
+	margin: 0;
+}
+
+.topbar-user-btn {
+	color: #cccccc;
+	text-decoration: none;
+	padding: 0.25rem 0.5rem;
+	border-radius: 8px;
+	transition: background-color 0.2s ease;
+}
+
+.topbar-user-btn:hover { background-color: rgba(255, 170, 0, 0.1); color: #ffaa00; }
+
+.topbar-dropdown-item {
+	display: flex;
+	align-items: center;
+	padding: 0.5rem 1rem;
+	color: #cccccc;
+	text-decoration: none;
+	transition: background 0.15s;
+}
+
+.topbar-dropdown-item:hover { background: rgba(255, 170, 0, 0.1); color: #ffaa00; }
+.topbar-dropdown-item i { width: 20px; margin-right: 8px; }
+
+.user-avatar-small {
+	width: 32px;
+	height: 32px;
+	border-radius: 50%;
+	background: rgba(255, 170, 0, 0.15);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 1.2rem;
+	color: #ffaa00;
+}
+
+/* --- Хлебные крошки SPA --- */
+.breadcrumb-spa {
+    display: none;
+    padding: 0.5rem 1.5rem;
+    background: #0a0a0a;
+    border-bottom: 1px solid rgba(255, 170, 0, 0.1);
+    font-size: 0.85rem;
+}
+
+/* --- Модальное окно --- */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 99999;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background: #1a1a1a;
+    border: 1px solid rgba(255, 170, 0, 0.3);
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 400px;
+    width: 90%;
+}
+
+/* --- Кнопки --- */
+.btn { border-radius: 6px; transition: all 0.2s ease; }
+
+.btn-outline-gold {
+	color: #ffaa00;
+	border: 1px solid rgba(255, 170, 0, 0.3);
+	background: transparent;
+	border-radius: 6px;
+	padding: 0.4rem 0.8rem;
+	transition: all 0.2s ease;
+}
+
+.btn-outline-gold:hover { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; color: #ffcc44; }
+
+.btn-outline-danger {
+	color: #ff4444;
+	border-color: rgba(255, 68, 68, 0.3);
+	background: transparent;
+}
+
+.btn-outline-danger:hover { background: rgba(255, 68, 68, 0.1); border-color: #ff4444; }
+
+.btn-danger { background-color: #ff0000; border-color: #ff0000; color: #fff; }
+.btn-danger:hover { background-color: #cc0000; border-color: #cc0000; }
+
+/* --- Карточки --- */
+.card {
+	background-color: #0d0d0d;
+	border: 1px solid rgba(255, 170, 0, 0.2);
+	border-radius: 8px;
+}
+
+.card-header {
+	background-color: rgba(255, 170, 0, 0.05);
+	border-bottom: 1px solid rgba(255, 170, 0, 0.1);
+	color: #e0e0e0;
+}
+
+.card-body { color: #aaaaaa; }
+.card-footer { background-color: transparent; border-top: 1px solid rgba(255, 170, 0, 0.1); color: #888; }
+
+.border-gold { border-color: rgba(255, 170, 0, 0.2) !important; }
+
+/* --- Таблицы --- */
+.table { color: #aaaaaa; }
+.table th { color: #e0e0e0; border-bottom: 1px solid rgba(255, 170, 0, 0.2); }
+.table td { border-bottom: 1px solid rgba(255, 255, 255, 0.05); vertical-align: middle; }
+
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th, .data-table td { padding: 0.5rem 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); text-align: left; }
+.data-table th { color: #888; font-size: 0.85rem; }
+.data-table td { color: #ccc; }
+.data-table tr { cursor: pointer; transition: background-color 0.15s; }
+.data-table tr:hover { background-color: rgba(255, 170, 0, 0.05); }
+
+/* --- Формы --- */
+.form-control, .form-select {
+	background-color: #141414;
+	border: 1px solid rgba(255, 170, 0, 0.2);
+	color: #cccccc;
+	border-radius: 6px;
+}
+
+.form-control:focus, .form-select:focus {
+	background-color: #1a1a1a;
+	border-color: #ffaa00;
+	box-shadow: 0 0 0 0.25rem rgba(255, 170, 0, 0.15);
+	color: #fff;
+}
+
+.form-control::placeholder { color: #666; }
+.form-label { color: #cccccc; }
+.form-check-input:checked { background-color: #ffaa00; border-color: #ffaa00; }
+
+/* --- Бейджи --- */
+.badge-gold { background: linear-gradient(135deg, #ffaa00, #ff8800); color: #000; font-weight: 600; font-size: 0.7rem; }
+
+/* --- Алерты --- */
+.alert-danger { background-color: rgba(255, 0, 0, 0.1); border-color: rgba(255, 0, 0, 0.3); color: #ff4444; }
+.alert-info { background-color: rgba(255, 170, 0, 0.05); border-color: rgba(255, 170, 0, 0.2); color: #ffaa00; }
+
+/* --- Спиннер --- */
+.spinner-border { color: #ffaa00; }
+
+/* --- JSON --- */
+pre {
+	color: #ffaa00;
+	background: #0a0a0a;
+	padding: 1rem;
+	border-radius: 6px;
+	border: 1px solid rgba(255, 170, 0, 0.1);
+}
+
+/* ============================================
+   СКЕЛЕТОНЫ
+   ============================================ */
+.skeleton-sidebar, .skeleton-topbar, .skeleton-content { padding: 1rem; }
+
+.skeleton-line {
+	height: 12px;
+	background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+	background-size: 200% 100%;
+	animation: skeleton-pulse 1.5s ease-in-out infinite;
+	border-radius: 4px;
+	margin-bottom: 8px;
+}
+
+.skeleton-line-short { width: 60%; }
+.skeleton-line-medium { width: 80%; }
+.skeleton-line-long { width: 95%; }
+.skeleton-line-full { width: 100%; }
+.skeleton-line-heading { height: 20px; width: 40%; margin-bottom: 16px; }
+
+@keyframes skeleton-pulse {
+	0% { background-position: 200% 0; }
+	100% { background-position: -200% 0; }
+}
+
+/* ============================================
+   АДМИН-ПАНЕЛЬ
+   ============================================ */
+.admin-layout { display: flex; height: calc(100vh - 53px); }
+
+.tree-panel {
+	width: 320px;
+	min-width: 320px;
+	background-color: #0d0d0d;
+	border-right: 1px solid rgba(255, 170, 0, 0.2);
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding: 1rem;
+}
+
+.neuron-panel { flex: 1; overflow-y: auto; padding: 1.5rem; background-color: #050505; }
+
+.neuron-panel-empty { text-align: center; margin-top: 20vh; color: #888; }
+.neuron-panel-empty .empty-icon { font-size: 3rem; opacity: 0.3; }
+
+.tree-node { user-select: none; }
+
+.tree-node-content {
+	display: flex;
+	align-items: center;
+	padding: 4px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 0.15s;
+}
+
+.tree-node-content:hover { background-color: rgba(255, 170, 0, 0.1); }
+.tree-node-content.active { background-color: rgba(255, 170, 0, 0.2); color: #ffaa00; }
+.tree-node-content .node-code { flex: 1; }
+.tree-node-content .node-badge { font-size: 0.65rem; }
+.tree-children { margin-left: 20px; }
+
+.neuron-field { margin-bottom: 0.75rem; }
+.neuron-field label { display: block; color: #888; font-size: 0.85rem; margin-bottom: 0.25rem; }
+.neuron-field .value { color: #e0e0e0; }
+.neuron-field input, .neuron-field select, .neuron-field textarea {
+	width: 100%;
+	background-color: #141414;
+	border: 1px solid rgba(255, 170, 0, 0.3);
+	color: #e0e0e0;
+	padding: 0.5rem;
+	border-radius: 4px;
+}
+
+.section-card {
+	background-color: #0d0d0d;
+	border: 1px solid rgba(255, 170, 0, 0.15);
+	border-radius: 8px;
+	margin-bottom: 1.5rem;
+}
+
+.section-card .section-header {
+	padding: 0.75rem 1rem;
+	border-bottom: 1px solid rgba(255, 170, 0, 0.1);
+	color: #e0e0e0;
+}
+
+.section-card .section-body { padding: 1rem; }
+
+.neuron-actions { margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.json-preview {
+	background: #050505;
+	border: 1px solid rgba(255, 170, 0, 0.2);
+	border-radius: 4px;
+	padding: 0.75rem;
+	font-family: 'Courier New', monospace;
+	font-size: 0.85rem;
+	color: #ffaa00;
+	max-height: 300px;
+	overflow-y: auto;
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+/* ============================================
+   КАРТА
+   ============================================ */
+.map-loading {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	text-align: center;
+	color: #888;
+	z-index: 1;
+}
+
+.map-pulse {
+	width: 60px;
+	height: 60px;
+	border: 2px solid rgba(255, 170, 0, 0.3);
+	border-radius: 50%;
+	margin: 0 auto 1rem;
+	animation: map-pulse 2s ease-in-out infinite;
+}
+
+@keyframes map-pulse {
+	0%, 100% { transform: scale(1); opacity: 0.5; }
+	50% { transform: scale(1.2); opacity: 1; }
+}
+
+/* --- Кнопки слоёв карты --- */
+.map-layer-buttons {
+	display: flex;
+	gap: 2px;
+	background: #1a1a1a;
+	border: 1px solid rgba(255, 170, 0, 0.3);
+	border-radius: 6px;
+	padding: 3px;
+}
+
+.trinity-layer-btn {
+	background: transparent;
+	color: #aaaaaa;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	padding: 4px 10px;
+	font-size: 12px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	white-space: nowrap;
+}
+
+.trinity-layer-btn:hover { color: #ffaa00; border-color: rgba(255, 170, 0, 0.3); background: rgba(255, 170, 0, 0.08); }
+.trinity-layer-btn.active { color: #ffaa00; background: rgba(255, 170, 0, 0.15); border-color: rgba(255, 170, 0, 0.5); box-shadow: 0 0 10px rgba(255, 170, 0, 0.15); }
+
+.map-filter-button-wrapper {
+	background: #1a1a1a;
+	border: 1px solid rgba(255, 170, 0, 0.3);
+	border-radius: 6px;
+	padding: 3px;
+}
+
+.trinity-filter-btn {
+	background: transparent;
+	color: #aaaaaa;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	padding: 4px 10px;
+	font-size: 12px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	white-space: nowrap;
+}
+
+.trinity-filter-btn:hover { color: #ffaa00; border-color: rgba(255, 170, 0, 0.3); background: rgba(255, 170, 0, 0.08); }
+
+/* --- Панели карты --- */
+#offcanvas {
+	background: #1a1a1a;
+	border-left: 1px solid rgba(255, 170, 0, 0.3);
+}
+
+#offcanvas .offcanvas-header { border-bottom: 1px solid rgba(255, 170, 0, 0.15); background: #111; }
+#offcanvas .offcanvas-header .offcanvas-title { color: #ffaa00; }
+#offcanvas .btn-close { filter: invert(1); }
+
+#rightPanel { background: #1a1a1a; }
+#rightPanel .gold-text { color: #ffaa00; }
+
+#rightPanel .form-select {
+	background-color: #111;
+	border: 1px solid rgba(255, 170, 0, 0.3);
+	color: #aaaaaa;
+}
+
+#rightPanel .form-select:focus { border-color: #ffaa00; box-shadow: 0 0 5px rgba(255, 170, 0, 0.3); color: #ffaa00; }
+#rightPanel .form-select option { background: #1a1a1a; color: #aaaaaa; }
+
+#loffcanvas { background: #1a1a1a; border-right: 1px solid rgba(255, 170, 0, 0.3); }
+#loffcanvas .offcanvas-header { border-bottom: 1px solid rgba(255, 170, 0, 0.15); background: #111; }
+#loffcanvas .btn-close { filter: invert(1); }
+#leftPanel { background: #1a1a1a; }
+#leftPanel .gold-text { color: #ffaa00; }
+#leftPanel .border-gold { border-color: rgba(255, 170, 0, 0.3) !important; }
+
+/* ============================================
+   АУТЕНТИФИКАЦИЯ
+   ============================================ */
+.auth-page {
+	min-height: 100vh;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: linear-gradient(135deg, #050505 0%, #0d0d0d 50%, #050505 100%);
+	position: relative;
+	overflow: hidden;
+}
+
+.auth-card {
+	background: rgba(13, 13, 13, 0.95);
+	backdrop-filter: blur(20px);
+	border: 1px solid rgba(255, 170, 0, 0.2);
+	border-radius: 16px;
+	box-shadow: 0 0 60px rgba(255, 170, 0, 0.08);
+	position: relative;
+	z-index: 1;
+	width: 100%;
+	max-width: 420px;
+}
+
+.auth-card .card-header { background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.06); text-align: center; padding: 2rem 2rem 1rem; }
+.auth-card .card-body { padding: 2rem; }
+.auth-card .card-footer { background: transparent; border-top: 1px solid rgba(255, 255, 255, 0.06); text-align: center; padding: 1rem 2rem; }
+
+.auth-logo { font-size: 3rem; color: #ffaa00; margin-bottom: 0.5rem; filter: drop-shadow(0 0 10px rgba(255, 170, 0, 0.3)); }
+.auth-title { font-size: 1.5rem; font-weight: 700; color: #ffaa00; letter-spacing: 2px; text-transform: uppercase; }
+
+.auth-form .form-control {
+	background: rgba(255, 255, 255, 0.04);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	color: #fff;
+	border-radius: 8px;
+	padding: 0.75rem 1rem;
+	transition: all 0.3s ease;
+}
+
+.auth-form .form-control:focus { background: rgba(255, 255, 255, 0.08); border-color: #ffaa00; box-shadow: 0 0 0 0.25rem rgba(255, 170, 0, 0.1); color: #fff; }
+.auth-form .form-control::placeholder { color: rgba(255, 255, 255, 0.3); }
+.auth-form .form-label { color: rgba(255, 255, 255, 0.6); font-weight: 500; margin-bottom: 0.5rem; }
+
+.btn-trinity {
+	background: linear-gradient(135deg, #ff8800 0%, #ffaa00 100%);
+	border: none;
+	color: #000;
+	font-weight: 700;
+	padding: 0.75rem 2rem;
+	border-radius: 8px;
+	transition: all 0.3s ease;
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	width: 100%;
+}
+
+.btn-trinity:hover { background: linear-gradient(135deg, #ffaa00 0%, #ffcc44 100%); transform: translateY(-2px); box-shadow: 0 10px 30px rgba(255, 170, 0, 0.3); color: #000; }
+
+.auth-link { color: #ffaa00; text-decoration: none; transition: color 0.3s ease; }
+.auth-link:hover { color: #ffcc44; }
+
+.auth-error { background: rgba(255, 0, 0, 0.08); border: 1px solid rgba(255, 0, 0, 0.2); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.5rem; color: #ff6666; }
+
+/* ============================================
+   АДАПТИВНОСТЬ
+   ============================================ */
+@media (max-width: 768px) {
+	.sidebar { width: 100%; min-height: auto; }
+	.sidebar.collapsed { width: 100%; }
+	.main-content { margin-left: 0; }
+}
