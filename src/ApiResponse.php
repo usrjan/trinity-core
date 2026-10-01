@@ -87,33 +87,4 @@ class ApiResponse
         ], $code);
     }
 
-    /**
-     * Ответ с пагинацией.
-     * 
-     * @param array $data — массив данных
-     * @param int $total — всего записей
-     * @param int $page — текущая страница
-     * @param int $perPage — записей на странице
-     * @return JsonResponse
-     */
-    public static function paginated(array $data, int $total, int $page = 1, int $perPage = 50): JsonResponse
-    {
-        return new JsonResponse([
-            'success' => true,
-            'data'    => $data,
-            'message' => null,
-            'meta'    => [
-                'timestamp'   => date('c'),
-                'version'     => self::VERSION,
-                'request_id'  => $_SERVER['REQUEST_ID'] ?? uniqid(),
-                'pagination'  => [
-                    'page'        => $page,
-                    'per_page'    => $perPage,
-                    'total'       => $total,
-                    'total_pages' => (int) ceil($total / $perPage),
-                ],
-            ],
-            'error'   => null,
-        ]);
-    }
 }
