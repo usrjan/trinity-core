@@ -73,28 +73,4 @@ class DatabaseService
         return $this->connection;
     }
 
-    /**
-     * Выполнить операции в транзакции.
-     * 
-     * Гарантирует атомарность: либо все операции выполнятся,
-     * либо не выполнится ни одна.
-     * 
-     * @param callable $callback — функция, принимающая Connection
-     * @return mixed — результат выполнения callback
-     * @throws \Exception — при ошибке транзакция автоматически откатывается
-     */
-    public function transaction(callable $callback): mixed
-    {
-        $conn = $this->getConnection();
-        $conn->beginTransaction();
-
-        try {
-            $result = $callback($conn);
-            $conn->commit();
-            return $result;
-        } catch (\Exception $e) {
-            $conn->rollBack();
-            throw $e;
-        }
-    }
 }
