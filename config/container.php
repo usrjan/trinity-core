@@ -24,8 +24,9 @@ use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 
-use Jan\Trinity\Core\Controller\HomeController;
-use Jan\Trinity\Plugin\Menu\MenuController;
+use Jan\Trinity\Plugin\Spa\HomeController;
+use Jan\Trinity\Plugin\Spa\MenuController;
+use Jan\Trinity\Plugin\Spa\PageController;
 use Jan\Trinity\Plugin\Admin\AdminController;
 use Jan\Trinity\Plugin\Users\AuthController;
 use Jan\Trinity\Plugin\Users\ProfileController;
@@ -127,16 +128,20 @@ return [
 	// ============================================
 	// 8. КОНТРОЛЛЕРЫ ПЛАГИНОВ
 	// ============================================
-	MonitorController::class => function (Environment $twig, Session $session, NeuronRepository $neuronRepo) {
-		return new \Jan\Trinity\Plugin\Monitor\MonitorController($twig, $session, dirname(__DIR__), $neuronRepo);
-	},
-	GuardController::class => function (NeuronRepository $neuronRepo) {
-		return new \Jan\Trinity\Plugin\Guard\GuardController($neuronRepo, dirname(__DIR__));
-	},
-	AuthController::class => \DI\autowire(),
+	// Контроллеры с обязательными scalar-параметрами ($basePath)
+	// собираются вручную; остальные создаются автопроводкой PHP-DI
+	// по типу из конструктора.
+	MonitorController::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
+
+	GuardController::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
+
 	HomeController::class => \DI\autowire(),
-	AdminController::class => \DI\autowire(),
 	MenuController::class => \DI\autowire(),
+	PageController::class => \DI\autowire(),
+	AdminController::class => \DI\autowire(),
+	AuthController::class => \DI\autowire(),
 	ProfileController::class => \DI\autowire(),
 	MapController::class => \DI\autowire(),
 	ToolsController::class => \DI\autowire(),
