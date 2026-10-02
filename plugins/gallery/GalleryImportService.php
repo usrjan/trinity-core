@@ -16,15 +16,7 @@ class GalleryImportService
 	{
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
-
-		// Путь к хранилищу галереи — из .env (GALLERY_UPLOADS_DIR).
-		// Значение по умолчанию совпадает с путём в GalleryController.
-		$dotenv = new \Symfony\Component\Dotenv\Dotenv();
-		$env = $dotenv->populate([
-			'GALLERY_UPLOADS_DIR' => __DIR__ . '/../../../../../www/uploads/gallery',
-		]);
-
-		$this->galleryDir = rtrim((string) ($env['GALLERY_UPLOADS_DIR'] ?? ''), '/');
+		$this->galleryDir = __DIR__ . '/../../public/uploads/gallery';
 		$this->importDir = $this->galleryDir . '/_import';
 	}
 
