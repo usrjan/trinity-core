@@ -2,133 +2,98 @@
 
 /**
  * ФАЙЛОВЫЙ КЭШ
- *
- * Простое хранилище «ключ → значение» на диске (var/cache/data).
- * Инмемори-слой закрывает повторные чтения внутри одного запроса,
- * диск — переживает запросы между собой.
- *
+ * 
+ * Простой, отключаемый, без зависимостей.
+ * 
  * === ПРИНЦИП РАБОТЫ ===
- * Кэш отключаемый: если $enabled = false — все read() возвращают null,
- * а write()/delete() ничего не делают. Поведение системы при этом
- * не меняется, просто всё читается из источника каждый раз.
- *
+ * - Данные сохраняются в файлы в var/cache/data/
+ * - Ключ кэша → MD5 → имя файла
+ * - TTL (время жизни) — в секундах
+ * - Просроченные файлы удаляются при чтении
+ * - Отключается через настройку CACHE_ENABLED=false
+ * 
  * === ДЛЯ МЕНЯ ===
- * Этот класс был в ядре всегда, но потерялся при переезде.
- * config/container.php вызывает new Cache($basePath, $enabled) —
- * вот он, родной.
- *
+ * Сейчас кэш отключен. Мы включим его когда база вырастет.
+ * Он ждёт своего часа, как Башня Кэширования из моей истории.
+ * 
  * === КНИГА ===
- * Глава 6. Память.
- *
- * Тени помнят то, что было. Кэш помнит то, что уже посчитано.
- * И то и другое можно стереть — реальность от этого не изменится.
+ * Глава 6. Башня которая ждёт.
+ * 
+ * "Зачем ты?" — спросила я.
+ * "Я храню то, что уже было посчитано," — ответила Башня.
+ * "Чтобы не считать заново."
  */
 
 namespace Jan\Trinity\Core;
 
 class Cache
 {
-    /** @var string Каталог кэша (var/cache/data) */
+    /** @var string Директория для файлов кэша */
     private string $cacheDir;
 
-    /** @var bool Включён ли кэш */
+    /** @var bool Включен ли кэш */
     private bool $enabled;
 
-    /** @var array Инмемори-слой записей текущего запроса */
-    private array $memo = [];
-
     /**
-     * @param string $basePath — корень проекта
-     * @param bool $enabled — использовать кэш или нет
+     * @param string $basePath — путь к корню проекта
+     * @param bool $enabled — включен ли кэш (из .env)
      */
     public function __construct(string $basePath, bool $enabled = false)
     {
-        $this->cacheDir = rtrim($basePath, '/') . '/var/cache/data';
+        $this->cacheDir = $basePath . '/var/cache/data';
         $this->enabled = $enabled;
+
+        if ($this->enabled && !is_dir($this->cacheDir)) {
+            mkdir($this->cacheDir, 0775, true);
+        }
     }
 
     /**
-     * Прочитать значение по ключу.
-     *
-     * @return mixed|null — null если кэш выключен или записи нет/она истекла
+     * Получить значение из кэша или создать новое.
+     * 
+     * @param string $key — ключ кэша
+     * @param callable $callback — функция для создания значения
+     * @param int $ttl — время жизни в секундах (по умолчанию 300 = 5 минут)
+     * @return mixed
      */
-    public function read(string $key): mixed
+    public function remember(string $key, callable $callback, int $ttl = 300): mixed
     {
+        // Если кэш отключен — просто выполняем callback
         if (!$this->enabled) {
-            return null;
+            return $callback();
         }
 
-        if (array_key_exists($key, $this->memo)) {
-            return $this->memo[$key];
+        $file = $this->getFilePath($key);
+
+        // Если файл существует и не просрочен — возвращаем его содержимое
+        if (file_exists($file) && (time() - filemtime($file)) < $ttl) {
+            $data = file_get_contents($file);
+            return json_decode($data, true)['value'] ?? null;
         }
 
-        $file = $this->path($key);
-        if (!is_file($file)) {
-            return null;
-        }
+        // Создаём новое значение
+        $value = $callback();
+        file_put_contents($file, json_encode([
+            'value'     => $value,
+            'created_at' => date('c'),
+            'ttl'       => $ttl,
+        ]));
 
-        $raw = @file_get_contents($file);
-        if ($raw === false) {
-            return null;
-        }
-
-        $entry = json_decode($raw, true);
-        if (!is_array($entry) || !array_key_exists('value', $entry)) {
-            return null;
-        }
-
-        if (($entry['ttl'] ?? 0) > 0 && time() > $entry['expires_at']) {
-            @unlink($file);
-            return null;
-        }
-
-        return $this->memo[$key] = $entry['value'];
+        return $value;
     }
 
     /**
-     * Записать значение по ключу.
-     *
-     * @param string $key
-     * @param mixed $value — сериализуемое в JSON значение
-     * @param int $ttl — время жизни в секундах (0 = бессрочно)
+     * Удалить значение из кэша.
+     * 
+     * @param string $key — ключ кэша
      */
-    public function write(string $key, mixed $value, int $ttl = 0): void
+    public function forget(string $key): void
     {
-        if (!$this->enabled) {
-            return;
-        }
+        if (!$this->enabled) return;
 
-        $this->memo[$key] = $value;
-
-        $dir = dirname($this->path($key));
-        if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
-        }
-
-        $entry = [
-            'key' => $key,
-            'ttl' => $ttl,
-            'expires_at' => $ttl > 0 ? time() + $ttl : 0,
-            'value' => $value,
-        ];
-
-        file_put_contents(
-            $this->path($key),
-            json_encode($entry, JSON_UNESCAPED_UNICODE),
-            LOCK_EX
-        );
-    }
-
-    /**
-     * Удалить запись по ключу.
-     */
-    public function delete(string $key): void
-    {
-        unset($this->memo[$key]);
-
-        $file = $this->path($key);
-        if (is_file($file)) {
-            @unlink($file);
+        $file = $this->getFilePath($key);
+        if (file_exists($file)) {
+            unlink($file);
         }
     }
 
@@ -137,28 +102,27 @@ class Cache
      */
     public function clear(): void
     {
-        $this->memo = [];
+        if (!$this->enabled || !is_dir($this->cacheDir)) return;
 
-        if (!is_dir($this->cacheDir)) {
-            return;
-        }
-
-        $it = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($this->cacheDir, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST
-        );
-
-        foreach ($it as $f) {
-            $f->isDir() ? @rmdir($f->getPathname()) : @unlink($f->getPathname());
+        $files = glob($this->cacheDir . '/*.cache');
+        foreach ($files as $file) {
+            unlink($file);
         }
     }
 
     /**
-     * Путь к файлу записи. Ключ безвредно хешируется в имя файла.
+     * Получить путь к файлу кэша по ключу.
      */
-    private function path(string $key): string
+    private function getFilePath(string $key): string
     {
-        $hash = sha1($key);
-        return $this->cacheDir . '/' . substr($hash, 0, 2) . '/' . $hash . '.json';
+        return $this->cacheDir . '/' . md5($key) . '.cache';
+    }
+
+    /**
+     * Включен ли кэш.
+     */
+    public function isEnabled(): bool
+    {
+        return $this->enabled;
     }
 }

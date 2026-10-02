@@ -498,7 +498,7 @@ class AdminController
 		// Последние нейроны
 		$latest = $conn->executeQuery(
 			"SELECT n.id, n.type, n.date, 
-				(SELECT t.name FROM `text` t WHERE t.`key` = n.text AND t.lang = 'ru' LIMIT 1) as name
+				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as name
 			FROM neuron n WHERE n.is_deleted = 0 ORDER BY n.id DESC LIMIT 8"
 		)->fetchAllAssociative();
 

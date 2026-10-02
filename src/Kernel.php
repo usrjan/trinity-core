@@ -168,22 +168,15 @@ class Kernel
 				$plugin($routes);
 			}
 
-			// Ищем подходящий маршрут среди файловых и плагиновых роутов.
-			// Шаг 3: роуты из базы — самые низкоприоритетные, поэтому
-			// проверяются только если файловые маршруты не совпали.
+			// Шаг 3: Загружаем роуты из базы (самые низкоприоритетные)
+			$this->loadRoutesFromDatabase($routes);
+
+			// Ищем подходящий маршрут
 			$context = new RequestContext();
 			$context->fromRequest($request);
 
-			try {
-				$matcher = new UrlMatcher($routes, $context);
-				$parameters = $matcher->match($context->getPathInfo());
-			} catch (ResourceNotFoundException $e) {
-				$parameters = $this->matchDatabaseRoute($request);
-
-				if ($parameters === null) {
-					throw $e;
-				}
-			}
+			$matcher = new UrlMatcher($routes, $context);
+			$parameters = $matcher->match($context->getPathInfo());
 
 			// Извлекаем контроллер и метод
 			$controllerClass = $parameters['_controller'];
@@ -248,16 +241,10 @@ class Kernel
 	 * 
 	 * Роуты хранятся в нейронах type='route'.
 	 * Сортируются по sort (как в Битриксе).
-	 *
-	 * Нейрон-роут — обычный JSON-нейрон, поэтому матчинг симулируется
-	 * над его данными так же, как Symfony делает это над Route:
-	 * - path компилируется в регулярку (placeholder {id} → именованная группа);
-	 * - проверяются methods / host / schemes;
-	 * - совпадение даёт _controller/_method и параметры URL.
-	 *
-	 * Если база недоступна — роуты из базы не участвуют в матчинге.
+	 * 
+	 * Если база недоступна — загружаются из файла config/routes.php.
 	 */
-	private function matchDatabaseRoute(Request $request): ?array
+	private function loadRoutesFromDatabase(\Symfony\Component\Routing\RouteCollection $routes): void
 	{
 		try {
 			$db = $this->container->get(DatabaseService::class);
@@ -266,60 +253,28 @@ class Kernel
 			$dbRoutes = $conn->executeQuery(
 				"SELECT * FROM neuron WHERE type = 'route' AND is_deleted = 0 ORDER BY sort ASC"
 			)->fetchAllAssociative();
+
+			foreach ($dbRoutes as $route) {
+				$data = json_decode($route['data'] ?? '{}', true);
+				
+				$routes->add($data['name'] ?? 'route_' . $route['id'], 
+					new \Symfony\Component\Routing\Route(
+						$data['path'] ?? '/',
+						[
+							'_controller' => $data['controller'] ?? '',
+							'_method' => $data['method'] ?? '__invoke',
+						],
+						$data['requirements'] ?? [],
+						$data['options'] ?? [],
+						$data['host'] ?? '',
+						$data['schemes'] ?? [],
+						$data['methods'] ?? []
+					)
+				);
+			}
 		} catch (\Throwable $e) {
-			// База недоступна — роутов из базы нет
-			return null;
+			// База недоступна — роуты из базы не загружаются
 		}
-
-		$pathInfo = rawurldecode($request->getPathInfo());
-		$method = $request->getMethod();
-
-		foreach ($dbRoutes as $route) {
-			$data = json_decode($route['data'] ?? '{}', true);
-			if (!is_array($data) || empty($data['controller'])) {
-				continue;
-			}
-
-			$pattern = $data['path'] ?? '/';
-			$requirements = $data['requirements'] ?? [];
-			$defaults = $data['defaults'] ?? [];
-
-			// Методы: пустой список = любые
-			$methods = array_map('strtoupper', $data['methods'] ?? []);
-			if ($methods && !in_array($method, $methods, true)) {
-				continue;
-			}
-
-			// Host / schemes — если заданы
-			if (!empty($data['host']) && strtolower($request->getHost()) !== strtolower((string)$data['host'])) {
-				continue;
-			}
-			$schemes = $data['schemes'] ?? [];
-			if ($schemes && !in_array($request->getScheme(), $schemes, true)) {
-				continue;
-			}
-
-			// Компиляция пути: {name} → (?P<name>regex), дефолт [^/]+
-			$regex = preg_replace_callback('#\{(\w+)(?::([^}]+))?\}#', function ($m) use ($requirements) {
-				$name = $m[1];
-				$regex = $requirements[$name] ?? ($m[2] ?? '[^/]+');
-				return '(?P<' . $name . '>' . $regex . ')';
-			}, $pattern);
-
-			if (@preg_match('#^' . $regex . '$#u', $pathInfo, $matches) !== 1) {
-				continue;
-			}
-
-			$params = array_filter($matches, 'is_string', ARRAY_FILTER_USE_KEY);
-			unset($params['_route'], $params['_regexp']);
-
-			return array_merge($params, $defaults, [
-				'_controller' => $data['controller'],
-				'_method'     => $data['method'] ?? '__invoke',
-			]);
-		}
-
-		return null;
 	}
 
 	// ============================================

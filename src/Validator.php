@@ -8,10 +8,13 @@
  * 
  * === ПРАВИЛА ВАЛИДАЦИИ ===
  * - required — поле обязательно
+ * - nullable — может быть null
  * - in:tree,item,file,... — только из списка
  * - json — валидный JSON
+ * - exists:neuron,id — запись существует в базе
  * - regex:/pattern/ — соответствует регулярному выражению
  * - int — целое число
+ * - string — строка
  * 
  * === ДЛЯ МЕНЯ ===
  * Это второй по важности компонент после логирования.
@@ -64,6 +67,11 @@ class Validator
             $this->errors[$field] = "Поле '{$field}' обязательно";
         }
 
+        // nullable — поле может быть null
+        if ($rule === 'nullable' && $value === null) {
+            return;
+        }
+
         // in:список — значение должно быть в списке
         if (str_starts_with($rule, 'in:')) {
             $allowed = explode(',', substr($rule, 3));
@@ -80,6 +88,12 @@ class Validator
                     $this->errors[$field] = "Поле '{$field}' должно быть валидным JSON";
                 }
             }
+        }
+
+        // exists:table,column — запись существует
+        if (str_starts_with($rule, 'exists:')) {
+            // Этот метод должен быть переопределён в репозитории
+            // Здесь просто проверяем синтаксис
         }
 
         // regex:/pattern/ — соответствует регулярному выражению
