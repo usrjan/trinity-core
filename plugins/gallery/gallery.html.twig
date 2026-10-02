@@ -67,6 +67,7 @@
 var currentParentId = {{ rootId }};
 var navigationHistory = [];
 var currentParentName = 'Главная';
+var currentItemId = null;
 
 fetch('/api/menu/sidebar?current_url=/gallery').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
 fetch('/api/menu/topbar').then(r => r.text()).then(html => {
@@ -228,6 +229,7 @@ function loadItem(id, name) {
 }
 
 function loadFileItem(id) {
+	currentItemId = id;
 	fetch('/api/gallery/item/' + id)
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
@@ -452,10 +454,19 @@ document.addEventListener('click', function(e) {
 		}
 	}
 	
-	// Удаление item
+	// Удаление item / file
 	if (e.target.closest('#galleryDeleteItemButton')) {
-		if (confirm('Удалить элемент со всеми фото?')) {
-			fetch('/api/gallery/item/' + currentItemId, { method: 'DELETE' })
+		if (!currentItemId) {
+			alert('Не удалось определить удаляемый элемент. Откройте его из списка и попробуйте снова.');
+			return;
+		}
+		var delId = currentItemId;
+		var isFileView = document.getElementById('galleryFileView') !== null;
+		if (confirm(isFileView ? 'Удалить файл?' : 'Удалить элемент со всеми фото?')) {
+			var delUrl = isFileView
+				? '/api/gallery/file/' + delId
+				: '/api/gallery/item/' + delId;
+			fetch(delUrl, { method: 'DELETE' })
 				.then(r => r.json())
 				.then(d => {
 					if (d.success) {
