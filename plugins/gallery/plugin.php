@@ -22,17 +22,15 @@ return function ($routes) {
         '_method'     => 'uploadToItem',
     ], ['id' => '\d+'], [], '', [], ['POST']));
 
-    // Удаление файла: DELETE + POST (POST — запасной путь на случай,
-    // если сервер или прокси блокирует DELETE-запросы)
     $routes->add('gallery_delete_file', new Route('/api/gallery/file/{id}', [
         '_controller' => GalleryController::class,
         '_method'     => 'deleteFile',
-    ], ['id' => '\d+'], [], '', [], ['DELETE', 'POST']));
+    ], ['id' => '\d+'], [], '', [], ['DELETE']));
 
     $routes->add('gallery_delete_item', new Route('/api/gallery/item/{id}', [
         '_controller' => GalleryController::class,
         '_method'     => 'deleteItem',
-    ], ['id' => '\d+'], [], '', [], ['DELETE', 'POST']));
+    ], ['id' => '\d+'], [], '', [], ['DELETE']));
 
     // API: информация об item
     $routes->add('gallery_item', new Route('/api/gallery/item/{id}', [

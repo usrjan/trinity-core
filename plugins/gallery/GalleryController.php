@@ -315,7 +315,7 @@ class GalleryController
 				'photos'  => $photos,
 				'isAdmin' => $isAdmin,
 				'breadcrumbs' => $breadcrumbs,
-				'rootId'      => ($galleryRoot = $this->neuronRepo->findBySlug('gallery')) ? $galleryRoot['id'] : 0,
+				'rootId'      => $galleryRoot['id'] ?? 0,
 			]);
 
 			return ApiResponse::success(['html' => $html]);
