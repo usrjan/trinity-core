@@ -118,7 +118,7 @@ class SynapseRepository
         $conn = $this->db->getConnection();
 
         $sql = "SELECT s.*, 
-                (SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as child_name
+                (SELECT t.name FROM `text` t WHERE t.`key` = n.text AND t.lang = 'ru' LIMIT 1) as child_name
                 FROM synapse s
                 JOIN neuron n ON s.child = n.id
                 WHERE s.parent = ?";
@@ -147,7 +147,7 @@ class SynapseRepository
         $conn = $this->db->getConnection();
 
         $sql = "SELECT s.*, 
-                (SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as parent_name
+                (SELECT t.name FROM `text` t WHERE t.`key` = n.text AND t.lang = 'ru' LIMIT 1) as parent_name
                 FROM synapse s
                 JOIN neuron n ON s.parent = n.id
                 WHERE s.child = ?";

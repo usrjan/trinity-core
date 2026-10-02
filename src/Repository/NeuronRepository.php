@@ -106,21 +106,29 @@ class NeuronRepository
 		if (is_string($data)) {
 			$data = json_decode($data, true);
 		}
-		$data['deleted_at'] = date('Y-m-d H:i:s');
+		// Если нейрон уже помечен удалённым — повторное удаление не нужно,
+		// но синапсы подчищаем идемпотентно.
+		$alreadyDeleted = isset($data['deleted_at']);
 
-		$conn->update('neuron', [
-			'data' => json_encode($data, JSON_UNESCAPED_UNICODE)
-		], ['id' => $id]);
+		if (!$alreadyDeleted) {
+			$data['deleted_at'] = date('Y-m-d H:i:s');
+
+			$conn->update('neuron', [
+				'data' => json_encode($data, JSON_UNESCAPED_UNICODE)
+			], ['id' => $id]);
+		}
 
 		if ($deleteSynapses) {
 			$conn->executeStatement('DELETE FROM synapse WHERE parent = ? OR child = ?', [$id, $id]);
 		}
 
 		// Логируем
-		$this->logAdminAction('delete', [
-			'neuron_id' => $id,
-			'type'      => $neuron['type'] ?? 'unknown',
-		]);
+		if (!$alreadyDeleted) {
+			$this->logAdminAction('delete', [
+				'neuron_id' => $id,
+				'type'      => $neuron['type'] ?? 'unknown',
+			]);
+		}
 	}
 
 	/**
@@ -173,8 +181,10 @@ class NeuronRepository
 	public function findByName(string $name, string $lang = 'ru'): ?array
 	{
 		return $this->db->getConnection()->executeQuery(
+			// neuron.text хранит ссылку на text.key, а не на text.id —
+			// связь всегда строится по ключу текста.
 			"SELECT n.* FROM neuron n 
-			 JOIN text t ON n.text = t.key 
+			 JOIN `text` t ON n.text = t.`key` 
 			 WHERE t.name = ? AND t.lang = ? AND n.is_deleted = 0 
 			 LIMIT 1",
 			[$name, $lang]
@@ -194,7 +204,7 @@ class NeuronRepository
 		$conn = $this->db->getConnection();
 
 		$sql = "SELECT n.* FROM neuron n 
-				JOIN text t ON n.text = t.key 
+				JOIN `text` t ON n.text = t.`key` 
 				WHERE t.name = ? AND t.lang = ? AND n.is_deleted = 0 
 				AND n.pid " . ($pid === null ? "IS NULL" : "= ?") . "
 				LIMIT 1";
@@ -216,7 +226,7 @@ class NeuronRepository
 		$conn = $this->db->getConnection();
 
 		$sql = "SELECT n.*, 
-				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as name,
+				(SELECT t.name FROM `text` t WHERE t.`key` = n.text AND t.lang = 'ru' LIMIT 1) as name,
 				(SELECT COUNT(*) FROM neuron c WHERE c.pid = n.id AND c.is_deleted = 0) as child_count
 				FROM neuron n
 				WHERE n.pid " . ($parentId === null ? "IS NULL" : "= ?") . "
@@ -239,7 +249,7 @@ class NeuronRepository
 		$conn = $this->db->getConnection();
 		
 		$sql = "SELECT n.*, 
-				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = ? AND t.is_active = 1 LIMIT 1) as name,
+				(SELECT t.name FROM `text` t WHERE t.`key` = n.text AND t.lang = ? AND t.is_active = 1 LIMIT 1) as name,
 				(SELECT COUNT(*) FROM neuron c WHERE c.pid = n.id AND c.is_deleted = 0) as child_count
 				FROM neuron n
 				WHERE n.pid " . ($parentId === null ? "IS NULL" : "= ?") . "
@@ -287,7 +297,7 @@ class NeuronRepository
 		return $this->db->getConnection()->executeQuery(
 			"SELECT n.*, t.name, t.text as description
 			FROM neuron n
-			LEFT JOIN text t ON n.text = t.key AND t.lang = ? AND t.is_active = 1
+			LEFT JOIN `text` t ON n.text = t.`key` AND t.lang = ? AND t.is_active = 1
 			WHERE n.id = ? AND n.is_deleted = 0",
 			[$lang, $id]
 		)->fetchAssociative() ?: null;
@@ -332,7 +342,7 @@ class NeuronRepository
 		$conn = $this->db->getConnection();
 		
 		$sql = "SELECT n.id, n.data, n.type,
-				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as display_name
+				(SELECT t.name FROM `text` t WHERE t.`key` = n.text AND t.lang = 'ru' LIMIT 1) as display_name
 				FROM neuron n
 				WHERE JSON_EXTRACT(n.data, '$.geometry') IS NOT NULL
 				AND n.is_deleted = 0";
