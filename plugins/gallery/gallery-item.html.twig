@@ -145,6 +145,9 @@
 		{% else %}
 			<div class="gallery-full-item">
 				<img src="{{ photo.full }}" alt="{{ photo.title }}" loading="lazy">
+				{% if isAdmin and photo.id is defined %}
+					<button type="button" class="gallery-photo-delete" id="deletePhoto{{ photo.id }}" title="Удалить файл">&times;</button>
+				{% endif %}
 			</div>
 		{% endif %}
 	{% endfor %}
