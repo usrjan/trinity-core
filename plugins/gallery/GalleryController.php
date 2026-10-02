@@ -54,6 +54,60 @@ class GalleryController
 {
 	use AuthMiddleware;
 
+	/**
+	 * Публичный URL-префикс хранилища галереи (берётся из .env).
+	 * GALLERY_URL_PATH=/uploads/gallery
+	 */
+	private static string $urlPath;
+
+	/**
+	 * Физический путь к корню хранилища галереи (берётся из .env).
+	 * GALLERY_UPLOADS_DIR=/var/www/www/xxx/uploads/gallery
+	 */
+	private static string $rootDir;
+
+	/**
+	 * Загружает пути из .env один раз при создании контроллера.
+	 * Значения по умолчанию позволяют работать и без .env.
+	 */
+	private static function loadPaths(): void
+	{
+		if (isset(self::$urlPath)) return;
+
+		$dotenv = new \Symfony\Component\Dotenv\Dotenv();
+		$env = $dotenv->populate([
+			'GALLERY_UPLOADS_DIR' => __DIR__ . '/../../../../../www/uploads/gallery',
+			'GALLERY_URL_PATH'    => '/uploads/gallery',
+		]);
+
+		self::$rootDir = rtrim((string) ($env['GALLERY_UPLOADS_DIR'] ?? ''), '/');
+		self::$urlPath = '/' . trim((string) ($env['GALLERY_URL_PATH'] ?? '/uploads/gallery'), '/');
+	}
+
+	/**
+	 * Полный физический путь к файлу внутри хранилища галереи.
+	 * Путь из БД (storage_path / thumb_path) очищается от «..» и ведущих слэшей,
+	 * чтобы нельзя было выйти за пределы GALLERY_UPLOADS_DIR.
+	 */
+	private function storageFile(string $relativePath): string
+	{
+		$relative = ltrim(str_replace('\\', '/', $relativePath), '/');
+		$relative = preg_replace('#(^|/)\.\.(/|$)#', '$1', $relative);
+		$relative = ltrim($relative, '/');
+
+		return self::$rootDir . '/' . $relative;
+	}
+
+	/**
+	 * Публичный URL файла галереи.
+	 */
+	private function fileUrl(?string $relativePath): ?string
+	{
+		if ($relativePath === null || $relativePath === '') return null;
+
+		return self::$urlPath . '/' . ltrim(str_replace('\\', '/', $relativePath), '/');
+	}
+
 	/** @var Environment — шаблонизатор Twig */
 	private Environment $twig;
 
@@ -73,6 +127,9 @@ class GalleryController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo
 	) {
+		// Пути к хранилищу — из .env (GALLERY_UPLOADS_DIR / GALLERY_URL_PATH)
+		self::loadPaths();
+
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
@@ -192,7 +249,7 @@ class GalleryController
 				// Превьюшка самого файла
 				$thumbPath = $childData['thumb_path'] ?? null;
 				if ($thumbPath) {
-					$firstThumb = '/uploads/gallery/' . $thumbPath;
+					$firstThumb = $this->fileUrl($thumbPath);
 				}
 				$isVideo = $childData['is_video'] ?? false;
 				$isAudio = $childData['is_audio'] ?? false;
@@ -201,7 +258,7 @@ class GalleryController
 				// Приоритет: ручная обложка → первый файл среди детей
 				$coverThumb = $childData['cover_thumb'] ?? null;
 				if ($coverThumb) {
-					$firstThumb = '/uploads/gallery/' . $coverThumb;
+					$firstThumb = $this->fileUrl($coverThumb);
 				} elseif ($child['child_count'] > 0) {
 					$files = $this->neuronRepo->findChildren($child['id'], 'file');
 					if (!empty($files)) {
@@ -210,7 +267,7 @@ class GalleryController
 							: ($files[0]['data'] ?? []);
 						$thumbPath = $fileData['thumb_path'] ?? null;
 						if ($thumbPath) {
-							$firstThumb = '/uploads/gallery/' . $thumbPath;
+							$firstThumb = $this->fileUrl($thumbPath);
 						}
 					}
 				}
@@ -297,8 +354,8 @@ class GalleryController
 			if ($storagePath) {
 				$photos[] = [
 					'id'     => $item['id'],
-					'thumb'  => '/uploads/gallery/' . $thumbPath,
-					'full'   => '/uploads/gallery/' . $storagePath,
+					'thumb'  => $this->fileUrl($thumbPath),
+					'full'   => $this->fileUrl($storagePath),
 					'width'  => $fileData['width'] ?? 800,
 					'height' => $fileData['height'] ?? 600,
 					'aspect' => ($fileData['width'] > 0 && $fileData['height'] > 0) 
@@ -333,8 +390,8 @@ class GalleryController
 
 			$photos[] = [
 				'id'     => $file['id'],
-				'thumb'  => '/uploads/gallery/' . ($fileData['thumb_path'] ?? ''),
-				'full'   => '/uploads/gallery/' . ($fileData['storage_path'] ?? ''),
+				'thumb'  => $this->fileUrl($fileData['thumb_path'] ?? ''),
+				'full'   => $this->fileUrl($fileData['storage_path'] ?? ''),
 				'width'  => $fileData['width'] ?? 800,
 				'height' => $fileData['height'] ?? 600,
 				'aspect' => ($fileData['width'] ?? 800) / ($fileData['height'] ?? 600),
@@ -379,7 +436,7 @@ class GalleryController
 			: ($file['data'] ?? []);
 
 		// Путь к файлу в хранилище
-		$storagePath = __DIR__ . '/../../../../../www/uploads/gallery/' . ($fileData['storage_path'] ?? '');
+		$storagePath = $this->storageFile($fileData['storage_path'] ?? '');
 		$originalName = $fileData['original_name'] ?? 'download';
 
 		if (!file_exists($storagePath)) {
@@ -563,23 +620,15 @@ class GalleryController
 
 		// Удаляем все файлы элемента
 		$files = $this->neuronRepo->findChildren($id, 'file');
-		$galleryDir = __DIR__ . '/../../../../../www/uploads/gallery/';
+		$failed = [];
 
 		foreach ($files as $file) {
 			$fileData = is_string($file['data'] ?? null)
 				? json_decode($file['data'], true)
 				: ($file['data'] ?? []);
 
-			// Удаляем оригинал
-			if (!empty($fileData['storage_path'])) {
-				$path = $galleryDir . $fileData['storage_path'];
-				if (file_exists($path)) unlink($path);
-			}
-			// Удаляем миниатюру
-			if (!empty($fileData['thumb_path'])) {
-				$path = $galleryDir . $fileData['thumb_path'];
-				if (file_exists($path)) unlink($path);
-			}
+			// Удаляем оригинал и миниатюру с диска
+			$failed = array_merge($failed, $this->removeStoredFiles($fileData));
 
 			$this->neuronRepo->delete($file['id'], false);
 		}
@@ -587,7 +636,11 @@ class GalleryController
 		// Удаляем сам элемент
 		$this->neuronRepo->delete($id, false);
 
-		return ApiResponse::success(['id' => $id], 'Элемент удалён');
+		$message = empty($failed)
+			? 'Элемент удалён'
+			: 'Элемент удалён, но часть файлов осталась на диске (нет прав на удаление)';
+
+		return ApiResponse::success(['id' => $id, 'undeleted_files' => $failed], $message);
 	}
 
 	// ============================================
@@ -616,20 +669,15 @@ class GalleryController
 			? json_decode($file['data'], true)
 			: ($file['data'] ?? []);
 
-		$galleryDir = __DIR__ . '/../../../../../www/uploads/gallery/';
-
-		if (!empty($fileData['storage_path'])) {
-			$path = $galleryDir . $fileData['storage_path'];
-			if (file_exists($path)) unlink($path);
-		}
-		if (!empty($fileData['thumb_path'])) {
-			$path = $galleryDir . $fileData['thumb_path'];
-			if (file_exists($path)) unlink($path);
-		}
+		$failed = $this->removeStoredFiles($fileData);
 
 		$this->neuronRepo->delete($id, false);
 
-		return ApiResponse::success(['id' => $id], 'Файл удалён');
+		$message = empty($failed)
+			? 'Файл удалён'
+			: 'Файл удалён из базы, но остался на диске (нет прав на удаление)';
+
+		return ApiResponse::success(['id' => $id, 'undeleted_files' => $failed], $message);
 	}
 
 	// ============================================
@@ -684,9 +732,9 @@ class GalleryController
 		$extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
 		$datePath = date('Y/m/d');
-		$storageDir = __DIR__ . '/../../../../../www/uploads/gallery/' . $datePath;
+		$storageDir = self::$rootDir . '/' . $datePath;
 		if (!is_dir($storageDir)) {
-			mkdir($storageDir, 0775, true);
+			@mkdir($storageDir, 0775, true);
 		}
 
 		$storageName = md5($originalName . time()) . '.' . $extension;
@@ -734,9 +782,9 @@ class GalleryController
 		$extension = pathinfo($originalName, PATHINFO_EXTENSION);
 
 		$datePath = date('Y/m/d');
-		$storageDir = __DIR__ . '/../../../../../www/uploads/gallery/' . $datePath;
+		$storageDir = self::$rootDir . '/' . $datePath;
 		if (!is_dir($storageDir)) {
-			mkdir($storageDir, 0775, true);
+			@mkdir($storageDir, 0775, true);
 		}
 
 		$storageName = md5($originalName . time()) . '.' . $extension;
@@ -838,16 +886,49 @@ class GalleryController
 	}
 
 	/**
+	 * Удаляет с диска оригинал и миниатюру, указанные в data file-нейрона.
+	 * Возвращает список файлов, которые не удалось удалить (нет прав и т.п.).
+	 */
+	private function removeStoredFiles(array $fileData): array
+	{
+		$failed = [];
+
+		foreach (['storage_path', 'thumb_path'] as $field) {
+			$relative = $fileData[$field] ?? null;
+			if (empty($relative)) continue;
+
+			$path = $this->storageFile((string) $relative);
+
+			if (!is_file($path)) {
+				continue; // файла уже нет — считать удалённым
+			}
+
+			if (@unlink($path)) {
+				clearstatcache(true, $path);
+				continue;
+			}
+
+			// Пробуем сначала изменить права, потом удалить повторно
+			@chmod($path, 0666);
+			if (!@unlink($path)) {
+				$failed[] = $relative;
+				error_log('[Gallery] Не удалось удалить файл с диска: ' . $path);
+			} else {
+				clearstatcache(true, $path);
+			}
+		}
+
+		return $failed;
+	}
+
+	/**
 	 * Проверяет и создаёт структуру папок для галереи.
 	 */
 	private function ensureDirectories(): void
 	{
-		$baseDir = __DIR__ . '/../../../../../www/uploads/gallery';
-
-		foreach (['', '/_import'] as $dir) {
-			$fullPath = $baseDir . $dir;
+		foreach ([self::$rootDir, self::$rootDir . '/_import'] as $fullPath) {
 			if (!is_dir($fullPath)) {
-				mkdir($fullPath, 0775, true);
+				@mkdir($fullPath, 0775, true);
 			}
 		}
 	}
@@ -972,7 +1053,7 @@ class GalleryController
 
 		$this->neuronRepo->update($id, ['data' => $currentData]);
 
-		return ApiResponse::success(['thumb' => '/uploads/gallery/' . $thumbPath], 'Превьюшка установлена');
+		return ApiResponse::success(['thumb' => $this->fileUrl($thumbPath)], 'Превьюшка установлена');
 	}
 
 	/**
