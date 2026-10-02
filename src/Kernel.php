@@ -168,15 +168,22 @@ class Kernel
 				$plugin($routes);
 			}
 
-			// Шаг 3: Загружаем роуты из базы (самые низкоприоритетные)
-			$this->loadRoutesFromDatabase($routes);
-
-			// Ищем подходящий маршрут
+			// Ищем подходящий маршрут среди файловых и плагиновых роутов.
+			// Шаг 3: роуты из базы — самые низкоприоритетные, поэтому
+			// проверяются только если файловые маршруты не совпали.
 			$context = new RequestContext();
 			$context->fromRequest($request);
 
-			$matcher = new UrlMatcher($routes, $context);
-			$parameters = $matcher->match($context->getPathInfo());
+			try {
+				$matcher = new UrlMatcher($routes, $context);
+				$parameters = $matcher->match($context->getPathInfo());
+			} catch (ResourceNotFoundException $e) {
+				$parameters = $this->matchDatabaseRoute($request);
+
+				if ($parameters === null) {
+					throw $e;
+				}
+			}
 
 			// Извлекаем контроллер и метод
 			$controllerClass = $parameters['_controller'];
