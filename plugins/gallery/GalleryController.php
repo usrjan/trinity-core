@@ -311,11 +311,12 @@ class GalleryController
 			$isAdmin = $this->isAdmin();
 
 			$html = $this->twig->render('gallery-item.html.twig', [
-				'item'    => $item,
-				'photos'  => $photos,
-				'isAdmin' => $isAdmin,
-				'breadcrumbs' => $breadcrumbs,
-				'rootId'      => $galleryRoot['id'] ?? 0,
+					'item'    => $item,
+					'photos'  => $photos,
+					'isAdmin' => $isAdmin,
+					'breadcrumbs' => $breadcrumbs,
+					'rootId'      => $galleryRoot['id'] ?? 0,
+					'is_file'     => ($item['type'] === 'file'),
 			]);
 
 			return ApiResponse::success(['html' => $html]);
