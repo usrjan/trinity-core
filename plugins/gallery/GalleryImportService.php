@@ -16,7 +16,7 @@ class GalleryImportService
 	{
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
-		$this->galleryDir = __DIR__ . '/../../public/uploads/gallery';
+		$this->galleryDir = __DIR__ . '/../../../../../www/uploads/gallery';
 		$this->importDir = $this->galleryDir . '/_import';
 	}
 
