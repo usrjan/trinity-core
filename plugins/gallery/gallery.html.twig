@@ -227,6 +227,16 @@ function loadItem(id, name) {
 		});
 }
 
+function refreshSection() {
+	fetch('/api/gallery/section/' + currentParentId)
+		.then(function(r) { return r.json(); })
+		.then(function(sectionData) {
+			if (sectionData.success) {
+				renderContent(sectionData.data.html);
+			}
+		});
+}
+
 function loadFileItem(id) {
 	fetch('/api/gallery/item/' + id)
 		.then(function(r) { return r.json(); })
@@ -434,36 +444,51 @@ document.addEventListener('change', function(e) {
 	}
 });
 
+// Универсальный DELETE-запрос с запасным POST
+// (некоторые серверы/прокси блокируют HTTP-метод DELETE)
+function galleryDelete(id, kind) {
+	var url = '/api/gallery/' + kind + '/' + id;
+
+	fetch(url, { method: 'DELETE' })
+		.then(function(r) {
+			if (r.status === 405 || r.status === 404) {
+				return fetch(url, { method: 'POST' }).then(function(r2) { return r2.json(); });
+			}
+			return r.json();
+		})
+		.then(function(d) {
+			if (d && d.success) {
+				if (kind === 'file') {
+					// Обновляем просмотр: файл мог быть открыт через loadItem или из раздела
+					if (currentItemId) {
+						loadItem(currentItemId);
+					} else {
+						refreshSection();
+					}
+				} else {
+					goBack();
+				}
+			} else {
+				alert((d && d.message) || 'Ошибка');
+			}
+		})
+		.catch(function() { alert('Ошибка соединения'); });
+}
+
 // Удаление фото
 document.addEventListener('click', function(e) {
 	var btn = e.target.closest('[id^="deletePhoto"]');
 	if (btn) {
 		var photoId = btn.id.replace('deletePhoto', '');
 		if (confirm('Удалить фото?')) {
-			fetch('/api/gallery/file/' + photoId, { method: 'DELETE' })
-				.then(r => r.json())
-				.then(d => {
-					if (d.success) {
-						loadItem(currentItemId);
-					} else {
-						alert(d.message || 'Ошибка');
-					}
-				});
+			galleryDelete(photoId, 'file');
 		}
 	}
-	
+
 	// Удаление item
 	if (e.target.closest('#galleryDeleteItemButton')) {
 		if (confirm('Удалить элемент со всеми фото?')) {
-			fetch('/api/gallery/item/' + currentItemId, { method: 'DELETE' })
-				.then(r => r.json())
-				.then(d => {
-					if (d.success) {
-						goBack();
-					} else {
-						alert(d.message || 'Ошибка');
-					}
-				});
+			galleryDelete(currentItemId, 'item');
 		}
 	}
 });
