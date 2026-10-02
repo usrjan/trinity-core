@@ -311,12 +311,11 @@ class GalleryController
 			$isAdmin = $this->isAdmin();
 
 			$html = $this->twig->render('gallery-item.html.twig', [
-					'item'    => $item,
-					'photos'  => $photos,
-					'isAdmin' => $isAdmin,
-					'breadcrumbs' => $breadcrumbs,
-					'rootId'      => $galleryRoot['id'] ?? 0,
-					'is_file'     => ($item['type'] === 'file'),
+				'item'    => $item,
+				'photos'  => $photos,
+				'isAdmin' => $isAdmin,
+				'breadcrumbs' => $breadcrumbs,
+				'rootId'      => $galleryRoot['id'] ?? 0,
 			]);
 
 			return ApiResponse::success(['html' => $html]);
@@ -380,7 +379,7 @@ class GalleryController
 			: ($file['data'] ?? []);
 
 		// Путь к файлу в хранилище
-		$storagePath = __DIR__ . '/../../public/uploads/gallery/' . ($fileData['storage_path'] ?? '');
+		$storagePath = __DIR__ . '/../../../../../www/uploads/gallery/' . ($fileData['storage_path'] ?? '');
 		$originalName = $fileData['original_name'] ?? 'download';
 
 		if (!file_exists($storagePath)) {
@@ -564,7 +563,7 @@ class GalleryController
 
 		// Удаляем все файлы элемента
 		$files = $this->neuronRepo->findChildren($id, 'file');
-		$galleryDir = __DIR__ . '/../../public/uploads/gallery/';
+		$galleryDir = __DIR__ . '/../../../../../www/uploads/gallery/';
 
 		foreach ($files as $file) {
 			$fileData = is_string($file['data'] ?? null)
@@ -617,7 +616,7 @@ class GalleryController
 			? json_decode($file['data'], true)
 			: ($file['data'] ?? []);
 
-		$galleryDir = __DIR__ . '/../../public/uploads/gallery/';
+		$galleryDir = __DIR__ . '/../../../../../www/uploads/gallery/';
 
 		if (!empty($fileData['storage_path'])) {
 			$path = $galleryDir . $fileData['storage_path'];
@@ -685,7 +684,7 @@ class GalleryController
 		$extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
 		$datePath = date('Y/m/d');
-		$storageDir = __DIR__ . '/../../public/uploads/gallery/' . $datePath;
+		$storageDir = __DIR__ . '/../../../../../www/uploads/gallery/' . $datePath;
 		if (!is_dir($storageDir)) {
 			mkdir($storageDir, 0775, true);
 		}
@@ -735,7 +734,7 @@ class GalleryController
 		$extension = pathinfo($originalName, PATHINFO_EXTENSION);
 
 		$datePath = date('Y/m/d');
-		$storageDir = __DIR__ . '/../../public/uploads/gallery/' . $datePath;
+		$storageDir = __DIR__ . '/../../../../../www/uploads/gallery/' . $datePath;
 		if (!is_dir($storageDir)) {
 			mkdir($storageDir, 0775, true);
 		}
@@ -843,7 +842,7 @@ class GalleryController
 	 */
 	private function ensureDirectories(): void
 	{
-		$baseDir = __DIR__ . '/../../public/uploads/gallery';
+		$baseDir = __DIR__ . '/../../../../../www/uploads/gallery';
 
 		foreach (['', '/_import'] as $dir) {
 			$fullPath = $baseDir . $dir;

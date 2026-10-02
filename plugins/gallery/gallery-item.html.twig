@@ -1,29 +1,6 @@
-<div id="galleryFileView" data-id="{{ item.id }}"></div>
-{% if isAdmin %}
-<div class="mb-3">
-	<button class="btn btn-sm btn-outline-gold" id="galleryDeleteItemButton">
-		<i class="bi bi-trash"></i> Удалить
-	</button>
-</div>
-{% endif %}
-{% else %}
-{% if isAdmin %}
-<div class="mb-3">
-	<button class="btn btn-sm btn-outline-gold" id="galleryEditButton">
-		<i class="bi bi-pencil"></i> Редактировать
-	</button>
-	<button class="btn btn-sm btn-outline-gold" id="galleryDeleteItemButton">
-		<i class="bi bi-trash"></i> Удалить
-	</button>
-	<button class="btn btn-sm btn-outline-gold" id="galleryAddPhotoButton">
-		<i class="bi bi-plus-lg"></i> Добавить фото
-	</button>
-	<input type="file" id="galleryAddPhotoInput" multiple accept="image/*" style="display:none">
-</div>
-{% endif %}
-{% if not is_file %}
 {# Кнопки админа #}
-{% if isAdmin %}
+{# Хлебные крошки #}
+{% if breadcrumbs is not empty %}
     <div class="mb-3">
 		<a href="#" class="gold-text" onclick="galleryGoHome()">Главная</a>
         {% for bc in breadcrumbs %}
