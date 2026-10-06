@@ -132,19 +132,19 @@
 		{% if item.data.is_video %}
 			<div class="gallery-full-item">
 				<video controls autoplay muted loop style="width:100%; max-height:80vh;">
-					<source src="{{ photo.full }}" type="{{ item.data.mime }}">
+					<source src="{{ gallery_url }}/{{ photo.full }}" type="{{ item.data.mime }}">
 					Ваш браузер не поддерживает видео.
 				</video>
 			</div>
 		{% elseif item.data.is_audio %}
 			<div class="p-4">
 				<audio controls autoplay style="width:100%;">
-					<source src="{{ photo.full }}" type="{{ item.data.mime }}">
+					<source src="{{ gallery_url }}/{{ photo.full }}" type="{{ item.data.mime }}">
 				</audio>
 			</div>
 		{% else %}
 			<div class="gallery-full-item">
-				<img src="{{ photo.full }}" alt="{{ photo.title }}" loading="lazy">
+				<img src="{{ gallery_url }}/{{ photo.full }}" alt="{{ photo.title }}" loading="lazy">
 			</div>
 		{% endif %}
 	{% endfor %}

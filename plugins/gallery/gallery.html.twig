@@ -64,86 +64,141 @@
 </div>
 
 <script>
+// ============================================
+// СОСТОЯНИЕ ГАЛЕРЕИ
+// ============================================
+// currentParentId — id текущего открытого раздела.
+//   Изначально — корень галереи (rootId из Twig).
+//   Меняется при navigateTo / goToSection / jumpTo / galleryGoHome.
+//
+// currentItemId — id текущего открытого элемента (item или file).
+//   Устанавливается в loadItem() и loadFileItem().
+//   Нужен для updateItem / deleteItem / uploadToItem.
+//   null — если элемент не открыт.
+//
+// navigationHistory — стек пройденных разделов.
+//   Используется для хлебных крошек и goBack().
+//   Не содержит текущий раздел — только родительские.
+//
+// currentParentName — название текущего раздела.
+//   Используется для хлебных крошек.
+// ============================================
 var currentParentId = {{ rootId }};
+var currentItemId = null;
 var navigationHistory = [];
 var currentParentName = 'Главная';
 
+// ============================================
+// ЗАГРУЗКА МЕНЮ И TOPBAR
+// ============================================
 fetch('/api/menu/sidebar?current_url=/gallery').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
 fetch('/api/menu/topbar').then(r => r.text()).then(html => {
 	document.getElementById('topBar').innerHTML = html;
 	setTimeout(initUserDropdown, 100);
 });
 
-function navigateTo(id, name) {
-	if (id === currentParentId) return;
-	
-	// Добавляем в историю только если мы не на корне
-	if (currentParentId !== {{ rootId }}) {
-		navigationHistory.push({ id: currentParentId, name: currentParentName });
-	}
-	
-	currentParentId = id;
-	currentParentName = name || '...';
-
+// ============================================
+// loadSection(id)
+// ============================================
+// Загружает HTML содержимого раздела и вставляет в #galleryContent.
+// Это — единая точка входа для всех переходов между разделами.
+// Раньше мы вызывали fetch напрямую в navigateTo / goToSection /
+// jumpTo / galleryGoHome. Теперь — через loadSection().
+// Это позволяет после удаления элемента просто вызвать
+// loadSection(currentParentId) — и раздел перерисуется.
+// ============================================
+function loadSection(id) {
 	fetch('/api/gallery/section/' + id)
-		.then(r => r.json())
-		.then(d => {
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
 			if (d.success) {
 				renderContent(d.data.html);
+			} else {
+				alert(d.message || 'Ошибка загрузки раздела');
 			}
+		})
+		.catch(function() {
+			alert('Ошибка сети при загрузке раздела');
 		});
 }
 
+// ============================================
+// navigateTo(id, name)
+// ============================================
+// Переход в дочерний раздел.
+// Текущий раздел пушится в navigationHistory.
+// ============================================
+function navigateTo(id, name) {
+	if (id === currentParentId) return;
+
+	// Пушим текущий раздел в историю, если мы не на корне.
+	if (currentParentId !== {{ rootId }}) {
+		navigationHistory.push({ id: currentParentId, name: currentParentName });
+	}
+
+	currentParentId = id;
+	currentParentName = name || '...';
+
+	loadSection(id);
+}
+
+// ============================================
+// goBack()
+// ============================================
+// Возврат к предыдущему разделу из истории.
+// Если история пуста — возвращаемся на главную галереи.
+// Это исправляет баг: раньше при пустой истории ничего
+// не происходило, и UI не обновлялся.
+// ============================================
 function goBack() {
-	if (navigationHistory.length === 0) return;
-	
+	if (navigationHistory.length === 0) {
+		galleryGoHome();
+		return;
+	}
+
 	var prev = navigationHistory.pop();
 	currentParentId = prev.id;
 	currentParentName = prev.name;
 
-	fetch('/api/gallery/section/' + prev.id)
-		.then(r => r.json())
-		.then(d => {
-			if (d.success) {
-				renderContent(d.data.html);
-			}
-		});
+	loadSection(prev.id);
 }
 
+// ============================================
+// goToSection(id, name)
+// ============================================
+// Принудительный переход в раздел (например, из хлебных крошек).
+// Обрезает navigationHistory до этого раздела, если он там есть.
+// ============================================
 function goToSection(id, name) {
-    // Очищаем историю до этого раздела
-    // Находим индекс в истории, если есть
-    var foundIndex = -1;
-    for (var i = 0; i < navigationHistory.length; i++) {
-        if (navigationHistory[i].id === id) {
-            foundIndex = i;
-            break;
-        }
-    }
-    
-    if (foundIndex >= 0) {
-        // Обрезаем историю до этого раздела
-        navigationHistory = navigationHistory.slice(0, foundIndex);
-    }
+	var foundIndex = -1;
+	for (var i = 0; i < navigationHistory.length; i++) {
+		if (navigationHistory[i].id === id) {
+			foundIndex = i;
+			break;
+		}
+	}
 
-	// Принудительный переход, даже если id совпадает с currentParentId
+	if (foundIndex >= 0) {
+		navigationHistory = navigationHistory.slice(0, foundIndex);
+	}
+
 	currentParentId = id;
 	currentParentName = name;
 
-	fetch('/api/gallery/section/' + id)
-		.then(r => r.json())
-		.then(d => {
-			if (d.success) {
-				renderContent(d.data.html);
-			}
-		});
+	loadSection(id);
 }
 
+// ============================================
+// renderContent(html)
+// ============================================
+// Вставляет HTML раздела в #galleryContent.
+// Строит хлебные крошки из navigationHistory и currentParentName.
+// ============================================
 function renderContent(html) {
 	var isHome = (currentParentId === {{ rootId }});
-	
+
 	var breadcrumb = '<div id="galleryBreadcrumb" class="mb-3">';
-	
+
 	if (isHome) {
 		breadcrumb += '<span class="text-muted">Главная</span>';
 	} else {
@@ -164,43 +219,54 @@ function renderContent(html) {
 	breadcrumb += '</div>';
 
 	document.getElementById('galleryContent').innerHTML = breadcrumb + html;
+
+	// Сбрасываем currentItemId — мы ушли из элемента в раздел.
+	currentItemId = null;
 }
 
+// ============================================
+// galleryGoHome()
+// ============================================
+// Возврат на главную галереи.
+// Очищает историю и currentItemId.
+// ============================================
 function galleryGoHome() {
 	navigationHistory = [];
+	currentItemId = null;
 	currentParentId = {{ rootId }};
 	currentParentName = 'Главная';
 
-	fetch('/api/gallery/section/' + currentParentId)
-		.then(function(r) { return r.json(); })
-		.then(function(d) {
-			if (d.success) {
-				renderContent(d.data.html);
-			}
-		});
+	loadSection(currentParentId);
 }
 
+// ============================================
+// jumpTo(index)
+// ============================================
+// Переход к разделу по индексу в navigationHistory.
+// Обрезает историю после этого раздела.
+// ============================================
 function jumpTo(index) {
-	// Удаляем историю после выбранного элемента
 	var target = navigationHistory[index];
 	navigationHistory = navigationHistory.slice(0, index);
 	currentParentId = target.id;
 	currentParentName = target.name;
 
-	fetch('/api/gallery/section/' + target.id)
-		.then(r => r.json())
-		.then(d => {
-			if (d.success) {
-				renderContent(d.data.html);
-			}
-		});
+	loadSection(target.id);
 }
 
+// ============================================
+// loadItem(id, name)
+// ============================================
+// Открывает элемент (item) — например, коллекцию фото.
+// Устанавливает currentItemId — чтобы работали
+// updateItem / deleteItem / uploadToItem.
+// ============================================
 function loadItem(id, name) {
 	currentItemId = id;
+
 	fetch('/api/gallery/item/' + id)
-		.then(r => r.json())
-		.then(d => {
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
 			if (d.success) {
 				var breadcrumb = '<div id="galleryBreadcrumb" class="mb-3">' +
 					'<a href="#" class="gold-text" onclick="galleryGoHome()">Главная</a>';
@@ -224,155 +290,172 @@ function loadItem(id, name) {
 
 				document.getElementById('galleryContent').innerHTML = breadcrumb + d.data.html;
 			}
+		})
+		.catch(function() {
+			alert('Ошибка загрузки элемента');
 		});
 }
 
+// ============================================
+// loadFileItem(id)
+// ============================================
+// Открывает файл (file) — одиночное фото или видео.
+// ВАЖНО: устанавливает currentItemId. Без этого
+// deleteFile / deleteItem / updateItem не знают,
+// с каким нейроном работать. Раньше это было багом:
+// после loadFileItem currentItemId оставался null,
+// и удаление отправляло /api/gallery/item/null → 404.
+// ============================================
 function loadFileItem(id) {
+	currentItemId = id;
+
 	fetch('/api/gallery/item/' + id)
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
 			if (d.success) {
 				document.getElementById('galleryContent').innerHTML = d.data.html;
 			}
+		})
+		.catch(function() {
+			alert('Ошибка загрузки файла');
 		});
 }
 
+// ============================================
+// uploadFiles(files)
+// ============================================
+// Загрузка файлов в текущий раздел.
+// После успеха — перерисовываем раздел через loadSection.
+// ============================================
 function uploadFiles(files) {
-    if (!files.length) return;
+	if (!files.length) return;
 
-    var formData = new FormData();
-    formData.append('parent_id', currentParentId);
-    for (var i = 0; i < files.length; i++) {
-        formData.append('files[]', files[i]);
-    }
+	var formData = new FormData();
+	formData.append('parent_id', currentParentId);
+	for (var i = 0; i < files.length; i++) {
+		formData.append('files[]', files[i]);
+	}
 
-    fetch('/api/gallery/upload', { method: 'POST', body: formData })
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.success) {
-                // Обновляем текущий раздел
-                fetch('/api/gallery/section/' + currentParentId)
-                    .then(function(r) { return r.json(); })
-                    .then(function(sectionData) {
-                        if (sectionData.success) {
-                            renderContent(sectionData.data.html);
-                        }
-                    });
-            } else {
-                alert(d.message || 'Ошибка загрузки');
-            }
-        });
+	fetch('/api/gallery/upload', { method: 'POST', body: formData })
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
+			if (d.success) {
+				loadSection(currentParentId);
+			} else {
+				alert(d.message || 'Ошибка загрузки');
+			}
+		});
 
-    document.getElementById('uploadInput').value = '';
+	document.getElementById('uploadInput').value = '';
 }
 
+// ============================================
+// importFromFolder()
+// ============================================
+// Импорт из папки _import.
+// После успеха — перерисовываем текущий раздел.
+// ============================================
 function importFromFolder() {
-    if (!confirm('Импортировать файлы из папки _import?')) return;
+	if (!confirm('Импортировать файлы из папки _import?')) return;
 
-    fetch('/api/gallery/import', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.success) {
-                alert('Импортировано: ' + (d.data.created || 0));
-                // Обновляем текущий раздел
-                fetch('/api/gallery/section/' + currentParentId)
-                    .then(function(r) { return r.json(); })
-                    .then(function(sectionData) {
-                        if (sectionData.success) {
-                            renderContent(sectionData.data.html);
-                        }
-                    });
-            } else {
-                alert(d.message || 'Ошибка импорта');
-            }
-        });
+	fetch('/api/gallery/import', { method: 'POST' })
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
+			if (d.success) {
+				alert('Импортировано: ' + (d.data.created || 0));
+				loadSection(currentParentId);
+			} else {
+				alert(d.message || 'Ошибка импорта');
+			}
+		});
 }
 
+// ============================================
+// setSectionThumb(fileId)
+// ============================================
+// Устанавливает превьюшку раздела из файла.
+// После успеха — перерисовываем текущий раздел,
+// чтобы увидеть новую обложку.
+// ============================================
 function setSectionThumb(fileId) {
-    fetch('/api/gallery/section/' + currentParentId + '/set-thumb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: fileId })
-    })
-    .then(r => r.json())
-    .then(d => {
-        if (d.success) {
-            // Обновляем раздел чтобы увидеть новую превьюшку
-            fetch('/api/gallery/section/' + currentParentId)
-                .then(r => r.json())
-                .then(sectionData => {
-                    if (sectionData.success) {
-                        renderContent(sectionData.data.html);
-                    }
-                });
-        } else {
-            alert(d.message || 'Ошибка');
-        }
-    });
+	fetch('/api/gallery/section/' + currentParentId + '/set-thumb', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ file_id: fileId })
+	})
+	.then(function(r) { return r.json(); })
+	.then(function(d) {
+		if (d.success) {
+			loadSection(currentParentId);
+		} else {
+			alert(d.message || 'Ошибка');
+		}
+	});
 }
 
+// ============================================
+// МОДАЛЬНОЕ ОКНО СОЗДАНИЯ РАЗДЕЛА
+// ============================================
 function showCreateSectionModal() {
-    document.getElementById('createSectionModal').style.display = 'flex';
+	document.getElementById('createSectionModal').style.display = 'flex';
 }
 
 function closeCreateSectionModal() {
-    document.getElementById('createSectionModal').style.display = 'none';
+	document.getElementById('createSectionModal').style.display = 'none';
 }
 
 function createSection() {
-    var name = document.getElementById('sectionName').value.trim();
-    if (!name) {
-        alert('Введите название раздела');
-        return;
-    }
+	var name = document.getElementById('sectionName').value.trim();
+	if (!name) {
+		alert('Введите название раздела');
+		return;
+	}
 
-    fetch('/api/gallery/section/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name, parent_id: currentParentId })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) {
-            closeCreateSectionModal();
-            document.getElementById('sectionName').value = '';
-            // Обновляем текущий раздел
-            fetch('/api/gallery/section/' + currentParentId)
-                .then(function(r) { return r.json(); })
-                .then(function(sectionData) {
-                    if (sectionData.success) {
-                        renderContent(sectionData.data.html);
-                    }
-                });
-        } else {
-            alert(d.message || 'Ошибка');
-        }
-    });
+	fetch('/api/gallery/section/create', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: name, parent_id: currentParentId })
+	})
+	.then(function(r) { return r.json(); })
+	.then(function(d) {
+		if (d.success) {
+			closeCreateSectionModal();
+			document.getElementById('sectionName').value = '';
+			loadSection(currentParentId);
+		} else {
+			alert(d.message || 'Ошибка');
+		}
+	});
 }
 
-// Делегирование кликов для галереи
+// ============================================
+// ДЕЛЕГИРОВАНИЕ КЛИКОВ
+// ============================================
 document.addEventListener('click', function(e) {
-	// Редактировать
+
+	// --- РЕДАКТИРОВАТЬ ---
 	if (e.target.closest('#galleryEditButton')) {
 		var form = document.getElementById('galleryEditForm');
 		var info = document.getElementById('galleryItemInfo');
 		if (form) form.style.display = 'block';
 		if (info) info.style.display = 'none';
 	}
-	
-	// Отмена
+
+	// --- ОТМЕНА РЕДАКТИРОВАНИЯ ---
 	if (e.target.closest('#galleryCancelButton')) {
 		var form = document.getElementById('galleryEditForm');
 		var info = document.getElementById('galleryItemInfo');
 		if (form) form.style.display = 'none';
 		if (info) info.style.display = 'block';
 	}
-	
-	// Сохранить
+
+	// --- СОХРАНИТЬ ---
 	if (e.target.closest('#gallerySaveButton')) {
-		var form = document.getElementById('galleryEditForm');
-		if (!form) return;
-		
+		if (!currentItemId) {
+			alert('Не удалось определить элемент');
+			return;
+		}
+
 		var name = document.getElementById('editName').value;
 		var description = document.getElementById('editDescription').value;
 		var meta = {
@@ -390,25 +473,97 @@ document.addEventListener('click', function(e) {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: name, description: description, meta: meta })
 		})
-		.then(r => r.json())
-		.then(d => {
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
 			if (d.success) {
-				loadItem(currentItemId);
+				// Перерисовываем текущий элемент (item или file).
+				// Мы не знаем, что именно открыто — но loadItem
+				// и loadFileItem делают одно и то же по эффекту.
+				// Используем loadItem — он обновит и breadcrumbs.
+				loadItem(currentItemId, name);
 			} else {
 				alert(d.message || 'Ошибка');
 			}
 		});
 	}
-	
-	// Добавить фото
+
+	// --- ДОБАВИТЬ ФОТО ---
 	if (e.target.closest('#galleryAddPhotoButton')) {
+		if (!currentItemId) {
+			alert('Не удалось определить элемент');
+			return;
+		}
 		document.getElementById('galleryAddPhotoInput').click();
+	}
+
+	// --- УДАЛИТЬ ФОТО ---
+	var delPhotoBtn = e.target.closest('[id^="deletePhoto"]');
+	if (delPhotoBtn) {
+		if (!currentItemId) {
+			alert('Не удалось определить элемент');
+			return;
+		}
+		var photoId = delPhotoBtn.id.replace('deletePhoto', '');
+		if (confirm('Удалить фото?')) {
+			fetch('/api/gallery/file/' + photoId, { method: 'DELETE' })
+				.then(function(r) {
+					if (!r.ok) throw new Error('HTTP ' + r.status);
+					return r.json();
+				})
+				.then(function(d) {
+					if (d.success) {
+						// Перерисовываем элемент — фото исчезнет
+						loadItem(currentItemId);
+					} else {
+						alert(d.message || 'Ошибка');
+					}
+				})
+				.catch(function(err) {
+					alert('Ошибка удаления: ' + err.message);
+				});
+		}
+	}
+
+	// --- УДАЛИТЬ ЭЛЕМЕНТ ---
+	if (e.target.closest('#galleryDeleteItemButton')) {
+		if (!currentItemId) {
+			alert('Не удалось определить элемент');
+			return;
+		}
+		if (confirm('Удалить элемент со всеми фото?')) {
+			fetch('/api/gallery/item/' + currentItemId, { method: 'DELETE' })
+				.then(function(r) {
+					if (!r.ok) throw new Error('HTTP ' + r.status);
+					return r.json();
+				})
+				.then(function(d) {
+					if (d.success) {
+						// Подход C: после удаления элемента
+						// возвращаемся к родительскому разделу
+						// и перерисовываем его.
+						currentItemId = null;
+						loadSection(currentParentId);
+					} else {
+						alert(d.message || 'Ошибка');
+					}
+				})
+				.catch(function(err) {
+					alert('Ошибка удаления: ' + err.message);
+				});
+		}
 	}
 });
 
-// Загрузка фото
+// ============================================
+// ЗАГРУЗКА ФОТО В ЭЛЕМЕНТ
+// ============================================
 document.addEventListener('change', function(e) {
 	if (e.target.id === 'galleryAddPhotoInput') {
+		if (!currentItemId) {
+			alert('Не удалось определить элемент');
+			return;
+		}
+
 		var files = e.target.files;
 		if (!files.length) return;
 
@@ -421,8 +576,8 @@ document.addEventListener('change', function(e) {
 			method: 'POST',
 			body: formData
 		})
-		.then(r => r.json())
-		.then(d => {
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
 			if (d.success) {
 				loadItem(currentItemId);
 			} else {
@@ -434,81 +589,46 @@ document.addEventListener('change', function(e) {
 	}
 });
 
-// Удаление фото
-document.addEventListener('click', function(e) {
-	var btn = e.target.closest('[id^="deletePhoto"]');
-	if (btn) {
-		var photoId = btn.id.replace('deletePhoto', '');
-		if (confirm('Удалить фото?')) {
-			fetch('/api/gallery/file/' + photoId, { method: 'DELETE' })
-				.then(r => r.json())
-				.then(d => {
-					if (d.success) {
-						loadItem(currentItemId);
-					} else {
-						alert(d.message || 'Ошибка');
-					}
-				});
-		}
-	}
-	
-	// Удаление item
-	if (e.target.closest('#galleryDeleteItemButton')) {
-		if (confirm('Удалить элемент со всеми фото?')) {
-			fetch('/api/gallery/item/' + currentItemId, { method: 'DELETE' })
-				.then(r => r.json())
-				.then(d => {
-					if (d.success) {
-						goBack();
-					} else {
-						alert(d.message || 'Ошибка');
-					}
-				});
-		}
-	}
-});
-
-// Контекстное меню для превьюшек (правая кнопка)
+// ============================================
+// КОНТЕКСТНОЕ МЕНЮ (правая кнопка на превьюшке)
+// ============================================
 document.addEventListener('contextmenu', function(e) {
-    var card = e.target.closest('.gallery-card');
-    if (!card) return;
+	var card = e.target.closest('.gallery-card');
+	if (!card) return;
 
-    // Определяем тип элемента
-    var onclick = card.getAttribute('onclick');
-    if (!onclick) return;
+	var onclick = card.getAttribute('onclick');
+	if (!onclick) return;
 
-    // Извлекаем id файла
-    var match = onclick.match(/loadFileItem\((\d+)\)/);
-    if (!match) return;
+	var match = onclick.match(/loadFileItem\((\d+)\)/);
+	if (!match) return;
 
-    e.preventDefault();
-    var fileId = match[1];
+	e.preventDefault();
+	var fileId = match[1];
 
-    // Удаляем старое меню
-    var oldMenu = document.getElementById('galleryContextMenu');
-    if (oldMenu) oldMenu.remove();
+	var oldMenu = document.getElementById('galleryContextMenu');
+	if (oldMenu) oldMenu.remove();
 
-    var menu = document.createElement('div');
-    menu.id = 'galleryContextMenu';
-    menu.className = 'menu-context-menu';
-    menu.style.cssText =
-        'position:fixed; left:' + e.pageX + 'px; top:' + e.pageY + 'px; ' +
-        'background:#1a1a1a; border:1px solid rgba(255,170,0,0.3); ' +
-        'border-radius:8px; padding:0.5rem 0; min-width:200px; ' +
-        'z-index:10000; box-shadow:0 10px 30px rgba(0,0,0,0.5);';
+	var menu = document.createElement('div');
+	menu.id = 'galleryContextMenu';
+	menu.className = 'menu-context-menu';
+	menu.style.cssText =
+		'position:fixed; left:' + e.pageX + 'px; top:' + e.pageY + 'px; ' +
+		'background:#1a1a1a; border:1px solid rgba(255,170,0,0.3); ' +
+		'border-radius:8px; padding:0.5rem 0; min-width:200px; ' +
+		'z-index:10000; box-shadow:0 10px 30px rgba(0,0,0,0.5);';
 
-    menu.innerHTML =
-        '<a class="topbar-dropdown-item" href="#" onclick="setSectionThumb(' + fileId + '); return false;">' +
-        '<i class="bi bi-image gold-icon" style="width:20px;margin-right:8px;"></i>Сделать превью для раздела' +
-        '</a>';
+	menu.innerHTML =
+		'<a class="topbar-dropdown-item" href="#" onclick="setSectionThumb(' + fileId + '); return false;">' +
+		'<i class="bi bi-image gold-icon" style="width:20px;margin-right:8px;"></i>Сделать превью для раздела' +
+		'</a>';
 
-    document.body.appendChild(menu);
+	document.body.appendChild(menu);
 
-    setTimeout(function() {
-        document.addEventListener('click', function() {
-            if (menu.parentNode) menu.remove();
-        }, { once: true });
-    }, 50);
+	setTimeout(function() {
+		document.addEventListener('click', function() {
+			if (menu.parentNode) menu.remove();
+		}, { once: true });
+	}, 50);
 });
 </script>
 

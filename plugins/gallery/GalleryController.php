@@ -64,18 +64,58 @@ class GalleryController
 	private NeuronRepository $neuronRepo;
 
 	/**
+	 * @var string Физический путь к папке загрузок галереи.
+	 *             Берётся из .env (GALLERY_UPLOAD_DIR).
+	 *             Без завершающего слэша.
+	 *             Пример: /home/web/www/uploads/gallery
+	 */
+	private string $galleryUploadDir;
+
+	/**
+	 * @var string Веб-путь (URL) к папке загрузок галереи.
+	 *             Берётся из .env (GALLERY_UPLOAD_URL).
+	 *             Без завершающего слэша.
+	 *             Пример: /uploads/gallery
+	 */
+	private string $galleryUploadUrl;
+
+	/**
+	 * @var GalleryImportService — сервис импорта из папки.
+	 *                             Внедряется через DI, чтобы
+	 *                             не создавать вручную и не
+	 *                             дублировать пути.
+	 */
+	private GalleryImportService $galleryImport;
+
+	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
+	 *
+	 * @param Environment          $twig              шаблонизатор
+	 * @param Session              $session           сессия пользователя
+	 * @param TextRepository       $textRepo          работа с текстами
+	 * @param NeuronRepository     $neuronRepo        работа с нейронами
+	 * @param GalleryImportService $galleryImport     сервис импорта
+	 * @param string               $galleryUploadDir  физический путь к uploads/gallery
+	 * @param string               $galleryUploadUrl  веб-путь к uploads/gallery
 	 */
 	public function __construct(
 		Environment $twig,
 		Session $session,
 		TextRepository $textRepo,
-		NeuronRepository $neuronRepo
+		NeuronRepository $neuronRepo,
+		GalleryImportService $galleryImport,
+		string $galleryUploadDir,
+		string $galleryUploadUrl
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
+		$this->galleryImport = $galleryImport;
+
+		// Убираем завершающий слэш, чтобы не было двойных слэшей при склейке.
+		$this->galleryUploadDir = rtrim($galleryUploadDir, '/');
+		$this->galleryUploadUrl = rtrim($galleryUploadUrl, '/');
 
 		// Инициализация middleware авторизации
 		$this->initAuth($session);
@@ -184,6 +224,8 @@ class GalleryController
 			// ПРЕВЬЮШКА
 			// ============================================
 			$firstThumb = null;
+			$isVideo = false;
+			$isAudio = false;
 
 			if ($child['type'] === 'file') {
 				// Название из data
@@ -192,7 +234,7 @@ class GalleryController
 				// Превьюшка самого файла
 				$thumbPath = $childData['thumb_path'] ?? null;
 				if ($thumbPath) {
-					$firstThumb = '/uploads/gallery/' . $thumbPath;
+					$firstThumb = $thumbPath;
 				}
 				$isVideo = $childData['is_video'] ?? false;
 				$isAudio = $childData['is_audio'] ?? false;
@@ -201,7 +243,7 @@ class GalleryController
 				// Приоритет: ручная обложка → первый файл среди детей
 				$coverThumb = $childData['cover_thumb'] ?? null;
 				if ($coverThumb) {
-					$firstThumb = '/uploads/gallery/' . $coverThumb;
+					$firstThumb = $coverThumb;
 				} elseif ($child['child_count'] > 0) {
 					$files = $this->neuronRepo->findChildren($child['id'], 'file');
 					if (!empty($files)) {
@@ -210,7 +252,7 @@ class GalleryController
 							: ($files[0]['data'] ?? []);
 						$thumbPath = $fileData['thumb_path'] ?? null;
 						if ($thumbPath) {
-							$firstThumb = '/uploads/gallery/' . $thumbPath;
+							$firstThumb = $thumbPath;
 						}
 					}
 				}
@@ -297,8 +339,8 @@ class GalleryController
 			if ($storagePath) {
 				$photos[] = [
 					'id'     => $item['id'],
-					'thumb'  => '/uploads/gallery/' . $thumbPath,
-					'full'   => '/uploads/gallery/' . $storagePath,
+					'thumb'  => $thumbPath,
+					'full'   => $storagePath,
 					'width'  => $fileData['width'] ?? 800,
 					'height' => $fileData['height'] ?? 600,
 					'aspect' => ($fileData['width'] > 0 && $fileData['height'] > 0) 
@@ -315,7 +357,6 @@ class GalleryController
 				'photos'  => $photos,
 				'isAdmin' => $isAdmin,
 				'breadcrumbs' => $breadcrumbs,
-				'rootId'      => $galleryRoot['id'] ?? 0,
 			]);
 
 			return ApiResponse::success(['html' => $html]);
@@ -333,8 +374,8 @@ class GalleryController
 
 			$photos[] = [
 				'id'     => $file['id'],
-				'thumb'  => '/uploads/gallery/' . ($fileData['thumb_path'] ?? ''),
-				'full'   => '/uploads/gallery/' . ($fileData['storage_path'] ?? ''),
+				'thumb'  => ($fileData['thumb_path'] ?? ''),
+				'full'   => ($fileData['storage_path'] ?? ''),
 				'width'  => $fileData['width'] ?? 800,
 				'height' => $fileData['height'] ?? 600,
 				'aspect' => ($fileData['width'] ?? 800) / ($fileData['height'] ?? 600),
@@ -379,7 +420,7 @@ class GalleryController
 			: ($file['data'] ?? []);
 
 		// Путь к файлу в хранилище
-		$storagePath = __DIR__ . '/../../../../../www/uploads/gallery/' . ($fileData['storage_path'] ?? '');
+		$storagePath = $this->galleryUploadDir . '/' . ($fileData['storage_path'] ?? '');
 		$originalName = $fileData['original_name'] ?? 'download';
 
 		if (!file_exists($storagePath)) {
@@ -563,7 +604,6 @@ class GalleryController
 
 		// Удаляем все файлы элемента
 		$files = $this->neuronRepo->findChildren($id, 'file');
-		$galleryDir = __DIR__ . '/../../../../../www/uploads/gallery/';
 
 		foreach ($files as $file) {
 			$fileData = is_string($file['data'] ?? null)
@@ -572,13 +612,20 @@ class GalleryController
 
 			// Удаляем оригинал
 			if (!empty($fileData['storage_path'])) {
-				$path = $galleryDir . $fileData['storage_path'];
-				if (file_exists($path)) unlink($path);
+				$path = $this->galleryUploadDir . '/' . $fileData['storage_path'];
+				if (file_exists($path) && !unlink($path)) {
+					// Логируем — это важно. Если unlink не сработал,
+					// значит либо права, либо файл занят, либо путь неверный.
+					error_log("[Gallery] Failed to unlink storage: {$path}");
+				}
 			}
+
 			// Удаляем миниатюру
 			if (!empty($fileData['thumb_path'])) {
-				$path = $galleryDir . $fileData['thumb_path'];
-				if (file_exists($path)) unlink($path);
+				$path = $this->galleryUploadDir . '/' . $fileData['thumb_path'];
+				if (file_exists($path) && !unlink($path)) {
+					error_log("[Gallery] Failed to unlink thumb: {$path}");
+				}
 			}
 
 			$this->neuronRepo->delete($file['id'], false);
@@ -602,9 +649,16 @@ class GalleryController
 	 * @param int $id — id нейрона type='file'
 	 * @return JsonResponse
 	 */
-	public function deleteFile(int $id): JsonResponse
+	public function deleteFile(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
+
+		// CSRF-защита. Без неё любой сайт мог бы отправить DELETE
+		// от имени админа, если он залогинен.
+		$csrfToken = $request->headers->get('X-CSRF-Token', '');
+		if (!$this->guard->validateCsrfToken($csrfToken)) {
+			return ApiResponse::error('Недействительный CSRF-токен', 419);
+		}
 
 		$file = $this->neuronRepo->findById($id);
 		if (!$file || $file['type'] !== 'file') {
@@ -616,15 +670,17 @@ class GalleryController
 			? json_decode($file['data'], true)
 			: ($file['data'] ?? []);
 
-		$galleryDir = __DIR__ . '/../../../../../www/uploads/gallery/';
-
 		if (!empty($fileData['storage_path'])) {
-			$path = $galleryDir . $fileData['storage_path'];
-			if (file_exists($path)) unlink($path);
+			$path = $this->galleryUploadDir . '/' . $fileData['storage_path'];
+			if (file_exists($path) && !unlink($path)) {
+				error_log("[Gallery] Failed to unlink storage: {$path}");
+			}
 		}
 		if (!empty($fileData['thumb_path'])) {
-			$path = $galleryDir . $fileData['thumb_path'];
-			if (file_exists($path)) unlink($path);
+			$path = $this->galleryUploadDir . '/' . $fileData['thumb_path'];
+			if (file_exists($path) && !unlink($path)) {
+				error_log("[Gallery] Failed to unlink thumb: {$path}");
+			}
 		}
 
 		$this->neuronRepo->delete($id, false);
@@ -655,8 +711,7 @@ class GalleryController
 		$parentId = $galleryRoot ? (int) $galleryRoot['id'] : null;
 
 		// Запускаем импорт
-		$importer = new GalleryImportService($this->textRepo, $this->neuronRepo);
-		$result = $importer->import($parentId);
+		$result = $this->galleryImport->import($parentId);
 
 		$this->neuronRepo->logAdminAction('gallery_import', [
 			'created' => $result['created'],
@@ -684,19 +739,24 @@ class GalleryController
 		$extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
 		$datePath = date('Y/m/d');
-		$storageDir = __DIR__ . '/../../../../../www/uploads/gallery/' . $datePath;
+		$storageDir = $this->galleryUploadDir . '/' . $datePath;
 		if (!is_dir($storageDir)) {
 			mkdir($storageDir, 0775, true);
 		}
 
-		$storageName = md5($originalName . time()) . '.' . $extension;
+		// Уникальное имя: md5 от имени + uniqid + расширение.
+		// uniqid() защищает от коллизий, если два файла загружены
+		// в одну секунду. time() — оставляем для читаемости.
+		$unique = md5($originalName . time() . uniqid('', true));
+		$storageName = $unique . '.' . $extension;
+
 		$uploadedFile->move($storageDir, $storageName);
 
 		$imageInfo = [];
 		$thumbName = null;
 
 		if ($this->isImageExtension($extension)) {
-			$thumbName = md5($originalName . time()) . '_thumb.' . $extension;
+			$thumbName = $unique . '_thumb.' . $extension;
 			$imageInfo = $this->createThumbnail(
 				$storageDir . '/' . $storageName,
 				$storageDir . '/' . $thumbName
@@ -714,7 +774,7 @@ class GalleryController
 			'thumb_path'    => $thumbName ? ($datePath . '/' . $thumbName) : null,
 			'uploaded_at'   => date('Y-m-d H:i:s'),
 			'is_video'      => $this->isVideoFile($extension),
-			'is_audio'		=> $this->isAudioExtension($extension),
+			'is_audio'      => $this->isAudioExtension($extension),
 		], $parentId);
 	}
 
@@ -734,13 +794,14 @@ class GalleryController
 		$extension = pathinfo($originalName, PATHINFO_EXTENSION);
 
 		$datePath = date('Y/m/d');
-		$storageDir = __DIR__ . '/../../../../../www/uploads/gallery/' . $datePath;
+		$storageDir = $this->galleryUploadDir . '/' . $datePath;
 		if (!is_dir($storageDir)) {
 			mkdir($storageDir, 0775, true);
 		}
 
-		$storageName = md5($originalName . time()) . '.' . $extension;
-		$thumbName = md5($originalName . time()) . '_thumb.' . $extension;
+		$unique = md5($originalName . time() . uniqid('', true));
+		$storageName = $unique . '.' . $extension;
+		$thumbName = $unique . '_thumb.' . $extension;
 
 		$uploadedFile->move($storageDir, $storageName);
 
@@ -842,10 +903,10 @@ class GalleryController
 	 */
 	private function ensureDirectories(): void
 	{
-		$baseDir = __DIR__ . '/../../../../../www/uploads/gallery';
-
+		// Физический путь берётся из .env (GALLERY_UPLOAD_DIR).
+		// _import — временная папка для импорта из архива/папки.
 		foreach (['', '/_import'] as $dir) {
-			$fullPath = $baseDir . $dir;
+			$fullPath = $this->galleryUploadDir . $dir;
 			if (!is_dir($fullPath)) {
 				mkdir($fullPath, 0775, true);
 			}
@@ -972,7 +1033,7 @@ class GalleryController
 
 		$this->neuronRepo->update($id, ['data' => $currentData]);
 
-		return ApiResponse::success(['thumb' => '/uploads/gallery/' . $thumbPath], 'Превьюшка установлена');
+		return ApiResponse::success(['thumb' => $thumbPath], 'Превьюшка установлена');
 	}
 
 	/**

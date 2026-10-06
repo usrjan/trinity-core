@@ -34,6 +34,7 @@ use Jan\Trinity\Plugin\Guard\GuardController;
 use Jan\Trinity\Plugin\Map\MapController;
 use Jan\Trinity\Plugin\Tools\ToolsController;
 use Jan\Trinity\Plugin\Gallery\GalleryController;
+use Jan\Trinity\Plugin\Gallery\GalleryImportService;
 
 
 use Twig\Environment;
@@ -109,6 +110,8 @@ return [
 		// CSRF-токен как глобальная переменная
 		$twig->addGlobal('csrf_token', $_SESSION['csrf_token'] ?? '');
 
+		$twig->addGlobal('gallery_url', rtrim($_ENV['GALLERY_UPLOAD_URL'] ?? '/uploads/gallery', '/'));
+
 		return $twig;
 	},
 
@@ -140,5 +143,46 @@ return [
 	ProfileController::class => \DI\autowire(),
 	MapController::class => \DI\autowire(),
 	ToolsController::class => \DI\autowire(),
-	GalleryController::class => \DI\autowire(),
+
+	// ============================================
+	// 9. ГАЛЕРЕЯ — ПУТИ К ФАЙЛАМ
+	// ============================================
+	// GALLERY_UPLOAD_DIR — физический путь на диске.
+	//   Используется GalleryController и GalleryImportService
+	//   для сохранения, удаления и перемещения файлов.
+	//   Пример: /home/web/www/uploads/gallery
+	//
+	// GALLERY_UPLOAD_URL — веб-путь (URL).
+	//   Используется в шаблонах Twig для генерации ссылок
+	//   на превью и полноразмерные изображения.
+	//   Пример: /uploads/gallery
+	//
+	// Если переменные не заданы в .env — используем значения
+	// по умолчанию, вычисленные от корня проекта. Это нужно
+	// для разработки, когда .env ещё не заполнен.
+	// ============================================
+	'gallery.upload_dir' => $_ENV['GALLERY_UPLOAD_DIR'] ?? (dirname(__DIR__) . '/../../../www/uploads/gallery'),
+	'gallery.upload_url' => $_ENV['GALLERY_UPLOAD_URL'] ?? '/uploads/gallery',
+
+	// ============================================
+	// 10. GALLERY CONTROLLER
+	// ============================================
+	// Внедряем пути через конструктор.
+	// galleryUploadDir — физический путь (для unlink, move, mkdir).
+	// galleryUploadUrl — веб-путь (для передачи в Twig, если нужно).
+	// ============================================
+	GalleryController::class => \DI\autowire()
+		->constructorParameter('galleryUploadDir', \DI\get('gallery.upload_dir'))
+		->constructorParameter('galleryUploadUrl', \DI\get('gallery.upload_url')),
+
+	// ============================================
+	// 11. GALLERY IMPORT SERVICE
+	// ============================================
+	// Сервис импорта тоже нуждается в физическом пути.
+	// Он не работает с URL — только с диском.
+	// Регистрируем его в DI, чтобы GalleryController
+	// получал готовый экземпляр, а не создавал вручную.
+	// ============================================
+	GalleryImportService::class => \DI\autowire()
+		->constructorParameter('galleryDir', \DI\get('gallery.upload_dir')),
 ];

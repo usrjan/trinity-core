@@ -7,16 +7,45 @@ use Jan\Trinity\Core\Repository\NeuronRepository;
 
 class GalleryImportService
 {
+	/** @var TextRepository — работа с текстами */
 	private TextRepository $textRepo;
+
+	/** @var NeuronRepository — работа с нейронами */
 	private NeuronRepository $neuronRepo;
-	private string $importDir;
+
+	/**
+	 * @var string Физический путь к папке загрузок галереи.
+	 *             Берётся из .env (GALLERY_UPLOAD_DIR).
+	 *             Без завершающего слэша.
+	 */
 	private string $galleryDir;
 
-	public function __construct(TextRepository $textRepo, NeuronRepository $neuronRepo)
-	{
+	/**
+	 * @var string Путь к папке _import внутри галереи.
+	 *             Сюда попадают файлы для импорта.
+	 *             После импорта папка очищается.
+	 */
+	private string $importDir;
+
+	/**
+	 * Конструктор.
+	 *
+	 * @param TextRepository   $textRepo    работа с текстами
+	 * @param NeuronRepository $neuronRepo  работа с нейронами
+	 * @param string           $galleryDir  физический путь к uploads/gallery
+	 */
+	public function __construct(
+		TextRepository $textRepo,
+		NeuronRepository $neuronRepo,
+		string $galleryDir
+	) {
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
-		$this->galleryDir = __DIR__ . '/../../../../../www/uploads/gallery';
+
+		// Убираем завершающий слэш, чтобы не было двойных.
+		$this->galleryDir = rtrim($galleryDir, '/');
+
+		// _import всегда внутри gallery — это правило Trinity.
 		$this->importDir = $this->galleryDir . '/_import';
 	}
 
@@ -199,18 +228,21 @@ class GalleryImportService
 			mkdir($storageDir, 0775, true);
 		}
 
-		$storageName = md5($originalName . time()) . '.' . $extension;
-		$thumbName = md5($originalName . time()) . '_thumb.' . $extension;
+		$unique = md5($originalName . time() . uniqid('', true));
+		$storageName = $unique . '.' . $extension;
+		$thumbName = $unique . '_thumb.' . $extension;
 		$storagePath = $storageDir . '/' . $storageName;
 		$thumbPath = $storageDir . '/' . $thumbName;
 
-		if (!rename($sourcePath, $storagePath)) {
-			throw new \RuntimeException('Не удалось переместить файл: ' . $originalName);
+		if (!@rename($sourcePath, $storagePath)) {
+			if (!@copy($sourcePath, $storagePath)) {
+				throw new \RuntimeException('Не удалось переместить файл: ' . $originalName);
+			}
+			@unlink($sourcePath);
 		}
 
 		$imageInfo = $this->createThumbnail($storagePath, $thumbPath);
 
-		// Создаём file-нейрон с текстом
 		$this->neuronRepo->create('file', [
 			'original_name' => $originalName,
 			'mime'          => $mimeType,
@@ -404,13 +436,19 @@ class GalleryImportService
 			mkdir($storageDir, 0775, true);
 		}
 
-		$storageName = md5($originalName . time()) . '.' . $extension;
-		$thumbName = md5($originalName . time()) . '_thumb.' . $extension;
+		$unique = md5($originalName . time() . uniqid('', true));
+		$storageName = $unique . '.' . $extension;
+		$thumbName = $unique . '_thumb.' . $extension;
 		$storagePath = $storageDir . '/' . $storageName;
 		$thumbPath = $storageDir . '/' . $thumbName;
 
-		if (!rename($sourcePath, $storagePath)) {
-			throw new \RuntimeException('Не удалось переместить файл: ' . $originalName);
+		// rename() работает только в пределах одной ФС.
+		// Если _import и gallery на разных дисках — используем copy+unlink.
+		if (!@rename($sourcePath, $storagePath)) {
+			if (!@copy($sourcePath, $storagePath)) {
+				throw new \RuntimeException('Не удалось переместить файл: ' . $originalName);
+			}
+			@unlink($sourcePath);
 		}
 
 		$imageInfo = $this->createThumbnail($storagePath, $thumbPath);
