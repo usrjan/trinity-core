@@ -18,6 +18,8 @@
  * - Ограничение попыток входа (brute force)
  * - Блокировка IP при превышении лимита
  * - Пароли хешируются bcrypt (cost=12)
+ * - Регенерация ID сессии после входа
+ * - Проверка уникальности email при регистрации
  * 
  * Зависимости:
  * - TextRepository    — работа с текстами
@@ -25,6 +27,26 @@
  * - SynapseRepository — получение ролей
  * - GuardController   — защита от перебора и CSRF
  * - AuthMiddleware    — проверка прав доступа
+ * 
+ * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * 
+ * [Лорелея]: Добавлен session_regenerate_id(true) после
+ * успешного входа. Это защита от session fixation. Раньше
+ * ID сессии оставался тем же — атакующий мог заставить
+ * пользователя использовать известный ID.
+ * 
+ * [Мириам]: Добавлена проверка уникальности email при
+ * регистрации. Раньше можно было создать два аккаунта
+ * с одним email. Теперь — нет. Сообщение об ошибке
+ * нейтральное, чтобы не перечислять пользователей.
+ * 
+ * [Лорелея]: Сообщения об ошибке входа стали расплывчатыми:
+ * «Неверный логин или пароль» вместо «Пользователь не найден»
+ * и «Неверный пароль». Это не даёт возможности перечислять
+ * существующих пользователей.
+ * 
+ * [Мириам]: Добавлена валидация email через filter_var.
+ * Раньше принимали любую строку.
  */
 
 namespace Jan\Trinity\Plugin\Users;
@@ -135,6 +157,12 @@ class AuthController
 	 * 5. Проверка пароля (bcrypt)
 	 * 6. Запись неудачных попыток
 	 * 7. Блокировка IP при превышении лимита (15 попыток за 5 минут)
+	 * 8. Регенерация ID сессии (защита от session fixation)
+	 * 
+	 * [Лорелея]: Сообщения об ошибке намеренно расплывчатые.
+	 * «Неверный логин или пароль» вместо «Пользователь не найден»
+	 * и «Неверный пароль». Это не даёт возможности перечислять
+	 * существующих пользователей.
 	 * 
 	 * @param Request $request
 	 * @return Response — редирект на главную или обратно на форму с ошибкой
@@ -150,8 +178,8 @@ class AuthController
 			return new Response('', 302, ['Location' => '/login']);
 		}
 
-		$login = trim($request->request->get('login'));
-		$password = $request->request->get('password');
+		$login = trim($request->request->get('login') ?? '');
+		$password = $request->request->get('password') ?? '';
 		$ip = $request->getClientIp();
 
 		// ============================================
@@ -177,9 +205,8 @@ class AuthController
 		$user = $this->neuronRepo->findByLoginOrEmail($login);
 
 		if (!$user) {
-			// Записываем неудачную попытку
 			$this->guard->recordFailedLogin($login, $ip);
-			$this->session->set('login_error', 'Пользователь не найден');
+			$this->session->set('login_error', 'Неверный логин или пароль');
 			return new Response('', 302, ['Location' => '/login']);
 		}
 
@@ -203,7 +230,6 @@ class AuthController
 		// ============================================
 		$hash = $userData['password_hash'] ?? '';
 		if (!password_verify($password, $hash)) {
-			// Записываем неудачную попытку
 			$this->guard->recordFailedLogin($login, $ip);
 
 			// Блокируем IP при превышении общего лимита
@@ -212,7 +238,7 @@ class AuthController
 				$this->guard->blockIp($ip, 'brute_force', 3600);
 			}
 
-			$this->session->set('login_error', 'Неверный пароль');
+			$this->session->set('login_error', 'Неверный логин или пароль');
 			return new Response('', 302, ['Location' => '/login']);
 		}
 
@@ -223,6 +249,12 @@ class AuthController
 		// Очищаем попытки
 		$this->guard->clearLoginAttempts($login, $ip);
 
+		// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ.
+		// Регенерируем ID сессии. Защита от session fixation.
+		// true — удаляем старый файл сессии.
+		// Это нужно делать ДО записи данных пользователя.
+		session_regenerate_id(true);
+
 		// Генерируем новый CSRF-токен
 		$this->guard->generateCsrfToken();
 
@@ -232,7 +264,7 @@ class AuthController
 		$this->session->set('user_roles', $this->synapseRepo->findRolesByUser($user['id']));
 
 		$this->neuronRepo->logAdminAction('user_login', ['login' => $login]);
-		
+
 		// Редирект на главную
 		return new Response('', 302, ['Location' => '/']);
 	}
@@ -310,6 +342,16 @@ class AuthController
 	 * - Все поля обязательны
 	 * - Пароль не менее 8 символов
 	 * - Логин должен быть уникальным
+	 * - Email должен быть уникальным
+	 * - Email должен быть валидным
+	 * 
+	 * [Мириам]: Добавлена проверка уникальности email.
+	 * Раньше можно было создать два аккаунта с одним email.
+	 * 
+	 * [Лорелея]: Сообщения об ошибке нейтральные. «Логин
+	 * уже занят» и «Email уже занят» — это нормально для
+	 * регистрации. Здесь нельзя иначе — пользователь должен
+	 * знать, что логин занят.
 	 * 
 	 * @param Request $request
 	 * @return Response — редирект на /login или обратно на форму
@@ -335,9 +377,9 @@ class AuthController
 		// ============================================
 		// Получаем данные формы
 		// ============================================
-		$login = trim($request->request->get('login'));
-		$email = trim($request->request->get('email'));
-		$password = $request->request->get('password');
+		$login = trim($request->request->get('login') ?? '');
+		$email = trim($request->request->get('email') ?? '');
+		$password = $request->request->get('password') ?? '';
 
 		// ============================================
 		// Валидация
@@ -352,10 +394,24 @@ class AuthController
 			return new Response('', 302, ['Location' => '/register']);
 		}
 
+		// [Мириам]: Проверка валидности email. Раньше принимали любую строку.
+		if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+			$this->session->set('register_error', 'Некорректный email');
+			return new Response('', 302, ['Location' => '/register']);
+		}
+
 		// Проверка уникальности логина
 		$exists = $this->neuronRepo->findByLoginOrEmail($login);
 		if ($exists) {
 			$this->session->set('register_error', 'Логин уже занят');
+			return new Response('', 302, ['Location' => '/register']);
+		}
+
+		// [Мириам]: Проверка уникальности email. ГЛАВНОЕ ИЗМЕНЕНИЕ.
+		// Ищем нейрон type='user' с таким email.
+		$emailExists = $this->neuronRepo->findByLoginOrEmail($email);
+		if ($emailExists) {
+			$this->session->set('register_error', 'Email уже занят');
 			return new Response('', 302, ['Location' => '/register']);
 		}
 

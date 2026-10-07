@@ -16,7 +16,7 @@ return function ($routes) {
 	$routes->add('monitor_logs', new Route('/api/monitor/logs', [
 		'_controller' => MonitorController::class,
 		'_method'     => 'getLogs',
-	]));
+	], [], [], '', [], ['GET']));
 
 	$routes->add('monitor_clear_logs', new Route('/api/monitor/logs', [
 		'_controller' => MonitorController::class,

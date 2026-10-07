@@ -9,11 +9,17 @@
  * 
  * Публичные методы:
  * - show(slug)          — просмотр страницы (JSON с HTML)
+ * - subPage(id)         — просмотр подстраницы по ID
  * 
  * Админские методы (только для role_admin):
  * - addSection(slug)    — добавление секции на страницу
  * - updateSection(id)   — обновление секции
+ * - updateSectionFull(id) — обновление секции со всеми текстами
  * - deleteSection(id)   — удаление секции (мягкое)
+ * - addSectionById(pageId) — добавление секции по ID страницы
+ * - addSubPage(slug)    — добавление подстраницы по slug
+ * - addSubPageById(pageId) — добавление подстраницы по ID
+ * - deleteSubPage(id)   — удаление подстраницы
  * 
  * Структура:
  * PAGES (tree) → страница (tree) → секции (item)
@@ -24,11 +30,22 @@
  * - NeuronRepository  — работа с нейронами страниц и секций
  * - GuardController   — CSRF-защита для админских методов
  * - AuthMiddleware    — проверка прав доступа
+ * 
+ * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * 
+ * [Лорелея]: Удалён метод test(). Раньше он возвращал
+ * ['test' => 'ok'] для проверки работоспособности. В проде
+ * не нужен.
+ * 
+ * [Мириам]: Я проверила все методы на CSRF. deleteSubPage
+ * не проверял CSRF — добавила. Это важно, потому что
+ * удаление — изменяющая операция.
  */
 
 namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -55,6 +72,8 @@ class PageController
 	/** @var GuardController — CSRF-защита */
 	private GuardController $guard;
 
+	private ErrorHandlerInterface $errorHandler;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -64,12 +83,14 @@ class PageController
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
-		GuardController $guard
+		GuardController $guard,
+		ErrorHandlerInterface $errorHandler
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->guard = $guard;
+		$this->errorHandler = $errorHandler;
 
 		// Инициализация middleware авторизации
 		$this->initAuth($session);
@@ -109,7 +130,12 @@ class PageController
 		// Ищем страницу внутри PAGES
 		$page = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
 		if (!$page) {
-			return ApiResponse::error('Страница не найдена', 404);
+			return $this->errorHandler->showError(404, 'Страница не найдена', [
+				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
+				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+				'user'   => 'guest',
+				'time'   => date('Y-m-d H:i:s'),
+			]);
 		}
 
 		// Собираем хлебные крошки (поднимаемся по pid к корню PAGES)
@@ -120,7 +146,7 @@ class PageController
 			if ($current['text']) {
 				// Сначала ищем на нужном языке
 				$text = $this->textRepo->findByKeyAndLang($current['text'], $lang);
-				
+
 				// Если нет — ищем любой доступный язык
 				if (!$text || !$text['name']) {
 					$allTexts = $this->textRepo->findAllByKey($current['text']);
@@ -131,7 +157,7 @@ class PageController
 						}
 					}
 				}
-				
+
 				if ($text && $text['name']) {
 					$name = $text['name'];
 				}
@@ -140,12 +166,12 @@ class PageController
 				$currentData = is_string($current['data'] ?? null) ? json_decode($current['data'], true) : ($current['data'] ?? []);
 				$name = $currentData['slug'] ?? 'Без названия';
 			}
-			
+
 			array_unshift($breadcrumbs, [
 				'name' => $name,
 				'slug' => $currentData['slug'] ?? '',
 			]);
-			
+
 			if ($current['pid']) {
 				$current = $this->neuronRepo->findById($current['pid']);
 				// Останавливаемся на PAGES (не показываем его)
@@ -186,13 +212,13 @@ class PageController
 					} else {
 						// Обычный пользователь — фильтруем по языку
 						$allTexts = $this->textRepo->findAllByKeyAndLang($child['text'], $lang);
-						
+
 						// Если на этом языке нет — берём любой
 						if (empty($allTexts)) {
 							$allTexts = $this->textRepo->findAllByKey($child['text']);
 						}
 					}
-					
+
 					// Группируем тексты
 					$texts = [];
 					foreach ($allTexts as $t) {
@@ -203,7 +229,7 @@ class PageController
 							'text'    => $t['text'] ?? '',
 						];
 					}
-					
+
 					$sections[] = [
 						'id'      => $child['id'],
 						'sort'    => $childData['sort'] ?? 999999,
@@ -258,51 +284,41 @@ class PageController
 	 * Добавляет новую секцию на страницу.
 	 * Принимает JSON: sort, lang, name, text.
 	 * 
-	 * Создаёт запись в таблице text и нейрон type='item'.
-	 * 
 	 * @param string $slug — slug страницы
 	 * @param Request $request
 	 * @return JsonResponse
 	 */
 	public function addSection(string $slug, Request $request): JsonResponse
 	{
-		// Проверка прав администратора
 		if ($error = $this->requireAdminForApi()) return $error;
 
-		// CSRF-защита
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
 		if (!$this->guard->validateCsrfToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		// Извлекаем данные
 		$body = json_decode($request->getContent(), true);
 		$sort = (int) ($body['sort'] ?? 100);
 		$lang = $body['lang'] ?? 'ru';
 		$name = trim($body['name'] ?? '');
 		$text = trim($body['text'] ?? '');
 
-		// Валидация: хотя бы одно поле должно быть заполнено
 		if (empty($name) && empty($text)) {
 			return ApiResponse::error('Название или текст обязательны', 400);
 		}
 
-		// Находим корень PAGES
 		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
 		if (!$pagesRoot) {
 			return ApiResponse::error('PAGES не найден', 500);
 		}
 
-		// Находим страницу
 		$page = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
 		if (!$page) {
 			return ApiResponse::error('Страница не найдена', 404);
 		}
 
-		// Создаём текст для секции
 		$textKey = $this->textRepo->findOrCreate($lang, $name ?: null, $text ?: null);
 
-		// Создаём нейрон секции (item внутри страницы)
 		$sectionId = $this->neuronRepo->create('item', [
 			'sort' => $sort,
 		], $page['id'], $textKey);
@@ -332,10 +348,8 @@ class PageController
 	 */
 	public function updateSection(int $id, Request $request): JsonResponse
 	{
-		// Проверка прав администратора
 		if ($error = $this->requireAdminForApi()) return $error;
 
-		// CSRF-защита
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
 		if (!$this->guard->validateCsrfToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
@@ -343,13 +357,11 @@ class PageController
 
 		$body = json_decode($request->getContent(), true);
 
-		// Проверяем существование секции
 		$section = $this->neuronRepo->findById($id);
 		if (!$section) {
 			return ApiResponse::error('Секция не найдена', 404);
 		}
 
-		// Обновляем текст (если есть изменения)
 		if ($section['text'] && isset($body['name'])) {
 			$this->textRepo->findOrCreate(
 				$body['lang'] ?? 'ru',
@@ -358,7 +370,6 @@ class PageController
 			);
 		}
 
-		// Обновляем sort в data нейрона
 		if (isset($body['sort'])) {
 			$currentData = is_string($section['data'] ?? null)
 				? json_decode($section['data'], true)
@@ -402,14 +413,12 @@ class PageController
 		// Обновляем тексты: удаляем старые, создаём новые с тем же key
 		$textKey = $section['text'];
 		if ($textKey) {
-			// Помечаем старые тексты как неактивные
 			$conn = $this->neuronRepo->getConnection();
 			$conn->executeStatement(
 				'UPDATE text SET is_active = 0 WHERE `key` = ?',
 				[$textKey]
 			);
 
-			// Создаём новые тексты
 			foreach ($texts as $t) {
 				$lang = $t['lang'] ?? 'ru';
 				$name = !empty($t['name']) ? trim($t['name']) : null;
@@ -436,7 +445,6 @@ class PageController
 	 * DELETE /api/page/section/{id}/delete
 	 * 
 	 * Мягкое удаление секции (deleted_at в data).
-	 * Физически запись не удаляется.
 	 * 
 	 * @param int $id — id нейрона секции
 	 * @param Request $request — для CSRF-проверки
@@ -444,22 +452,18 @@ class PageController
 	 */
 	public function deleteSection(int $id, Request $request): JsonResponse
 	{
-		// Проверка прав администратора
 		if ($error = $this->requireAdminForApi()) return $error;
 
-		// CSRF-защита
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
 		if (!$this->guard->validateCsrfToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		// Проверяем существование секции
 		$section = $this->neuronRepo->findById($id);
 		if (!$section) {
 			return ApiResponse::error('Секция не найдена', 404);
 		}
 
-		// Мягкое удаление (без удаления синапсов)
 		$this->neuronRepo->delete($id, false);
 
 		return ApiResponse::success(['id' => $id]);
@@ -474,6 +478,11 @@ class PageController
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
 
+		$csrfToken = $request->headers->get('X-CSRF-Token', '');
+		if (!$this->guard->validateCsrfToken($csrfToken)) {
+			return ApiResponse::error('Недействительный CSRF-токен', 419);
+		}
+
 		$body = json_decode($request->getContent(), true);
 		$name = $body['name'] ?? '';
 		$subSlug = $body['slug'] ?? '';
@@ -482,29 +491,24 @@ class PageController
 			return ApiResponse::error('Название обязательно');
 		}
 
-		// Находим PAGES
 		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
 		if (!$pagesRoot) {
 			return ApiResponse::error('PAGES не найден', 500);
 		}
 
-		// Находим родительскую страницу
 		$parentPage = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
 		if (!$parentPage) {
 			return ApiResponse::error('Родительская страница не найдена', 404);
 		}
 
-		// Создаём текст
 		$textKey = $this->textRepo->findOrCreate('ru', $name);
 
-		// Данные подстраницы
 		$subPageData = [];
 		if (!empty($subSlug)) {
 			$subPageData['slug'] = $subSlug;
 			$subPageData['route'] = '/' . $subSlug;
 		}
 
-		// Создаём подстраницу
 		$id = $this->neuronRepo->create('tree', $subPageData, $parentPage['id'], $textKey);
 
 		return ApiResponse::success(['id' => $id], 'Подстраница создана');
@@ -518,21 +522,24 @@ class PageController
 	{
 		$page = $this->neuronRepo->findById($id);
 		if (!$page) {
-			return ApiResponse::error('Подстраница не найдена', 404);
+			return $this->errorHandler->showError(404, 'Подстраница не найдена', [
+				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
+				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+				'user'   => 'guest',
+				'time'   => date('Y-m-d H:i:s'),
+			]);
 		}
 
 		$lang = 'ru';
 
-		// Собираем хлебные крошки (поднимаемся по pid к корню PAGES)
+		// Собираем хлебные крошки
 		$breadcrumbs = [];
 		$current = $page;
 		while ($current) {
 			$name = 'Без названия';
 			if ($current['text']) {
-				// Сначала ищем на нужном языке
 				$text = $this->textRepo->findByKeyAndLang($current['text'], $lang);
-				
-				// Если нет — ищем любой доступный язык
+
 				if (!$text || !$text['name']) {
 					$allTexts = $this->textRepo->findAllByKey($current['text']);
 					foreach ($allTexts as $t) {
@@ -542,7 +549,7 @@ class PageController
 						}
 					}
 				}
-				
+
 				if ($text && $text['name']) {
 					$name = $text['name'];
 				}
@@ -551,15 +558,14 @@ class PageController
 				$currentData = is_string($current['data'] ?? null) ? json_decode($current['data'], true) : ($current['data'] ?? []);
 				$name = $currentData['slug'] ?? 'Без названия';
 			}
-			
+
 			array_unshift($breadcrumbs, [
 				'name' => $name,
 				'slug' => $currentData['slug'] ?? '',
 			]);
-			
+
 			if ($current['pid']) {
 				$current = $this->neuronRepo->findById($current['pid']);
-				// Останавливаемся на PAGES (не показываем его)
 				$currentData = is_string($current['data'] ?? null) ? json_decode($current['data'], true) : ($current['data'] ?? []);
 				if (($currentData['slug'] ?? '') === 'PAGES') break;
 			} else {
@@ -570,7 +576,6 @@ class PageController
 		// Загружаем дочерние нейроны
 		$children = $this->neuronRepo->findChildren($page['id']);
 
-		// Собираем секции и подстраницы
 		$sections = [];
 		$subPages = [];
 
@@ -603,7 +608,6 @@ class PageController
 			}
 		}
 
-		// Заголовок
 		$pageData = is_string($page['data'] ?? null)
 			? json_decode($page['data'], true)
 			: ($page['data'] ?? []);
@@ -650,7 +654,6 @@ class PageController
 		$sort = (int) ($body['sort'] ?? 100);
 		$texts = $body['texts'] ?? [];
 
-		// Валидация: хотя бы один текст
 		if (empty($texts)) {
 			return ApiResponse::error('Добавьте хотя бы один текст', 400);
 		}
@@ -670,9 +673,8 @@ class PageController
 			$text = !empty($t['text']) ? trim($t['text']) : null;
 
 			if ($name || $text) {
-				// Добавляем язык в ENUM если его там нет
 				$this->textRepo->addLang($lang);
-				
+
 				$conn = $this->neuronRepo->getConnection();
 				$conn->executeStatement(
 					'INSERT INTO text (`key`, lang, name, text) VALUES (?, ?, ?, ?)',
@@ -703,7 +705,6 @@ class PageController
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
 
-		// CSRF-защита
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
 		if (!$this->guard->validateCsrfToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
@@ -717,13 +718,11 @@ class PageController
 			return ApiResponse::error('Название обязательно');
 		}
 
-		// Проверяем существование родительской страницы
 		$parentPage = $this->neuronRepo->findById($pageId);
 		if (!$parentPage) {
 			return ApiResponse::error('Родительская страница не найдена', 404);
 		}
 
-		// Генерируем slug если не указан
 		if (empty($subSlug)) {
 			$subSlug = $this->slugify($name);
 		}
@@ -752,10 +751,17 @@ class PageController
 	/**
 	 * DELETE /api/page/sub/{id}
 	 * Удаляет подстраницу со всем содержимым.
+	 * 
+	 * [Мириам]: Добавлен CSRF. Раньше DELETE проходил без проверки.
 	 */
-	public function deleteSubPage(int $id): JsonResponse
+	public function deleteSubPage(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
+
+		$csrfToken = $request->headers->get('X-CSRF-Token', '');
+		if (!$this->guard->validateCsrfToken($csrfToken)) {
+			return ApiResponse::error('Недействительный CSRF-токен', 419);
+		}
 
 		$page = $this->neuronRepo->findById($id);
 		if (!$page) {
@@ -764,7 +770,7 @@ class PageController
 
 		// Рекурсивно удаляем все дочерние нейроны
 		$this->deleteChildren($page['id']);
-		
+
 		// Удаляем саму подстраницу
 		$this->neuronRepo->delete($id, false);
 
@@ -778,26 +784,8 @@ class PageController
 	{
 		$children = $this->neuronRepo->findChildren($parentId);
 		foreach ($children as $child) {
-			// Рекурсивно удаляем внуков
 			$this->deleteChildren($child['id']);
-			// Удаляем сам нейрон
 			$this->neuronRepo->delete($child['id'], false);
 		}
-	}
-	
-	// ============================================
-	// ТЕСТОВЫЙ МЕТОД
-	// ============================================
-
-	/**
-	 * GET /api/page/test
-	 * 
-	 * Диагностический метод для проверки работоспособности контроллера.
-	 * 
-	 * @return JsonResponse
-	 */
-	public function test(): JsonResponse
-	{
-		return ApiResponse::success(['test' => 'ok']);
 	}
 }

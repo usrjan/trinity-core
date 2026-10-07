@@ -1,6 +1,57 @@
 {% extends 'base.html.twig' %}
 
 {% block body %}
+
+{% if error %}
+<div id="errorToast" style="
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    background: #dc3545;
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    font-size: 14px;
+    max-width: 320px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: slideIn 0.3s ease;
+">
+    <i class="bi bi-exclamation-triangle"></i>
+    <span>{{ error }}</span>
+    <button onclick="document.getElementById('errorToast').remove()" style="
+        background: none;
+        border: none;
+        color: #fff;
+        font-size: 18px;
+        cursor: pointer;
+        margin-left: auto;
+        padding: 0 4px;
+    ">×</button>
+</div>
+
+<style>
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+</style>
+
+<script>
+    setTimeout(function() {
+        var toast = document.getElementById('errorToast');
+        if (toast) {
+            toast.style.transition = 'opacity 0.3s';
+            toast.style.opacity = '0';
+            setTimeout(function() { toast.remove(); }, 300);
+        }
+    }, 5000);
+</script>
+{% endif %}
+
 <div class="d-flex">
 	<aside class="sidebar" id="sidebar"></aside>
 	<div class="main-content">
@@ -31,6 +82,10 @@
 							</div>
 							<hr>
 							<p class="text-muted small">Оставьте пустым если не хотите менять пароль</p>
+							<div class="mb-3">
+								<label class="form-label">Текущий пароль</label>
+								<input type="password" class="form-control" name="current_password">
+							</div>
 							<div class="mb-3">
 								<label class="form-label">Новый пароль</label>
 								<input type="password" class="form-control" name="new_password" minlength="8">

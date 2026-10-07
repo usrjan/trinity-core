@@ -13,7 +13,7 @@
  *   "message": "...",
  *   "meta": {
  *     "timestamp": "2026-06-27T10:00:00Z",
- *     "version": "1.2.3",
+ *     "version": "1.0.2",
  *     "request_id": "abc123"
  *   },
  *   "error": null или {code, message}
@@ -38,7 +38,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 class ApiResponse
 {
     /** @var string Версия системы */
-    const VERSION = '1.2.3';
+    const VERSION = '1.0.2';
 
     /**
      * Успешный ответ.

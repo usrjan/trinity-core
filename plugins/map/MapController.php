@@ -34,6 +34,7 @@
 namespace Jan\Trinity\Plugin\Map;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
@@ -56,6 +57,8 @@ class MapController
 	/** @var SynapseRepository — работа с синапсами */
 	private SynapseRepository $synapseRepo;
 
+	private ErrorHandlerInterface $errorHandler;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -64,12 +67,14 @@ class MapController
 		Environment $twig,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
-		SynapseRepository $synapseRepo
+		SynapseRepository $synapseRepo,
+		ErrorHandlerInterface $errorHandler
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
+		$this->errorHandler = $errorHandler;
 	}
 
 	// ============================================
@@ -349,12 +354,17 @@ class MapController
 	 * @param int $id — id нейрона-учреждения
 	 * @return JsonResponse
 	 */
-	public function info(int $id): JsonResponse
+	public function info(int $id): Response
 	{
 		// Ищем нейрон
 		$neuron = $this->neuronRepo->findById($id);
 		if (!$neuron) {
-			return ApiResponse::error('Объект не найден', 404);
+			return $this->errorHandler->showError(404, 'Объект не найден', [
+				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
+				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+				'user'   => 'guest',
+				'time'   => date('Y-m-d H:i:s'),
+			]);
 		}
 
 		$data = is_string($neuron['data'] ?? null)

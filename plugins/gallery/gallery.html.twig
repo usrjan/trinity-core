@@ -65,24 +65,71 @@
 
 <script>
 // ============================================
+// CSRF-ЗАЩИТА
+// ============================================
+// [Лорелея]: Раньше в gallery.html.twig не было обёртки fetch.
+// Поэтому POST-запросы (upload, delete, update) уходили без
+// X-CSRF-Token. После того как мы добавили requireCsrf() в
+// GalleryController, эти запросы стали падать с 419.
+// 
+// [Мириам]: Эта обёртка — копия той, что в spa.js. Но локальная.
+// Потому что gallery.html.twig не подключает spa.js — он тащит
+// за собой много лишнего. А нам нужна только одна функция:
+// автоматически добавлять X-CSRF-Token ко всем POST/PUT/DELETE.
+// ============================================
+
+// Читает CSRF-токен из cookie
+function getCsrfToken() {
+    var cookies = document.cookie.split(';');
+    for (var i = 0; i < cookies.length; i++) {
+        var cookie = cookies[i].trim();
+        if (cookie.startsWith('csrf_token=')) {
+            return cookie.substring('csrf_token='.length);
+        }
+    }
+    return '';
+}
+
+// Обёртка fetch: автоматически добавляет X-CSRF-Token
+var originalFetch = window.fetch;
+window.fetch = function(url, options) {
+    options = options || {};
+    var method = (options.method || 'GET').toUpperCase();
+
+    // [Лорелея]: Только для изменяющих методов. GET и HEAD — без токена.
+    if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+        options.headers = options.headers || {};
+
+        // [Мириам]: Не перезаписываем, если токен уже передан вручную.
+        if (!options.headers['X-CSRF-Token']) {
+            var token = getCsrfToken();
+            if (token) {
+                options.headers['X-CSRF-Token'] = token;
+            }
+        }
+    }
+
+    return originalFetch(url, options);
+};
+
+// ============================================
+// URL ГАЛЕРЕИ ДЛЯ JS
+// ============================================
+// [Мириам]: gallery_url приходит из Twig (глобальная переменная).
+// В шаблоне он используется как {{ gallery_url }}. А в JS — как
+// window.galleryUrl. Это Вариант 2 из нашего обсуждения.
+// 
+// [Лорелея]: Сейчас JS не использует galleryUrl напрямую —
+// все URL приходят из API уже готовыми. Но если понадобится
+// склеивать путь в JS — он есть. Лучше заранее.
+var galleryUrl = '{{ gallery_url }}';
+
+// ============================================
 // СОСТОЯНИЕ ГАЛЕРЕИ
 // ============================================
-// currentParentId — id текущего открытого раздела.
-//   Изначально — корень галереи (rootId из Twig).
-//   Меняется при navigateTo / goToSection / jumpTo / galleryGoHome.
-//
-// currentItemId — id текущего открытого элемента (item или file).
-//   Устанавливается в loadItem() и loadFileItem().
-//   Нужен для updateItem / deleteItem / uploadToItem.
-//   null — если элемент не открыт.
-//
-// navigationHistory — стек пройденных разделов.
-//   Используется для хлебных крошек и goBack().
-//   Не содержит текущий раздел — только родительские.
-//
-// currentParentName — название текущего раздела.
-//   Используется для хлебных крошек.
-// ============================================
+// [Мириам]: currentItemId — обязательная переменная. Без неё
+// deletePhoto, deleteItem, uploadToItem падают с ReferenceError.
+// Раньше её не было — это был баг. Теперь она объявлена.
 var currentParentId = {{ rootId }};
 var currentItemId = null;
 var navigationHistory = [];
@@ -100,13 +147,10 @@ fetch('/api/menu/topbar').then(r => r.text()).then(html => {
 // ============================================
 // loadSection(id)
 // ============================================
-// Загружает HTML содержимого раздела и вставляет в #galleryContent.
-// Это — единая точка входа для всех переходов между разделами.
-// Раньше мы вызывали fetch напрямую в navigateTo / goToSection /
-// jumpTo / galleryGoHome. Теперь — через loadSection().
-// Это позволяет после удаления элемента просто вызвать
-// loadSection(currentParentId) — и раздел перерисуется.
-// ============================================
+// [Лорелея]: Единая точка загрузки раздела. Раньше fetch был
+// раскидан по navigateTo, goToSection, jumpTo, galleryGoHome.
+// Теперь — одна функция. И после удаления элемента мы просто
+// вызываем loadSection(currentParentId). Это Подход C.
 function loadSection(id) {
 	fetch('/api/gallery/section/' + id)
 		.then(function(r) { return r.json(); })
@@ -125,13 +169,10 @@ function loadSection(id) {
 // ============================================
 // navigateTo(id, name)
 // ============================================
-// Переход в дочерний раздел.
-// Текущий раздел пушится в navigationHistory.
-// ============================================
 function navigateTo(id, name) {
 	if (id === currentParentId) return;
 
-	// Пушим текущий раздел в историю, если мы не на корне.
+	// [Мириам]: Пушим текущий раздел в историю, если мы не на корне.
 	if (currentParentId !== {{ rootId }}) {
 		navigationHistory.push({ id: currentParentId, name: currentParentName });
 	}
@@ -145,11 +186,8 @@ function navigateTo(id, name) {
 // ============================================
 // goBack()
 // ============================================
-// Возврат к предыдущему разделу из истории.
-// Если история пуста — возвращаемся на главную галереи.
-// Это исправляет баг: раньше при пустой истории ничего
-// не происходило, и UI не обновлялся.
-// ============================================
+// [Лорелея]: Если история пуста — возвращаемся на главную.
+// Раньше goBack() просто ничего не делал. UI не обновлялся.
 function goBack() {
 	if (navigationHistory.length === 0) {
 		galleryGoHome();
@@ -165,9 +203,6 @@ function goBack() {
 
 // ============================================
 // goToSection(id, name)
-// ============================================
-// Принудительный переход в раздел (например, из хлебных крошек).
-// Обрезает navigationHistory до этого раздела, если он там есть.
 // ============================================
 function goToSection(id, name) {
 	var foundIndex = -1;
@@ -191,9 +226,8 @@ function goToSection(id, name) {
 // ============================================
 // renderContent(html)
 // ============================================
-// Вставляет HTML раздела в #galleryContent.
-// Строит хлебные крошки из navigationHistory и currentParentName.
-// ============================================
+// [Мириам]: Строим хлебные крошки и вставляем HTML раздела.
+// Сбрасываем currentItemId — мы ушли из элемента в раздел.
 function renderContent(html) {
 	var isHome = (currentParentId === {{ rootId }});
 
@@ -220,15 +254,12 @@ function renderContent(html) {
 
 	document.getElementById('galleryContent').innerHTML = breadcrumb + html;
 
-	// Сбрасываем currentItemId — мы ушли из элемента в раздел.
+	// [Лорелея]: Сбрасываем currentItemId — мы ушли из элемента.
 	currentItemId = null;
 }
 
 // ============================================
 // galleryGoHome()
-// ============================================
-// Возврат на главную галереи.
-// Очищает историю и currentItemId.
 // ============================================
 function galleryGoHome() {
 	navigationHistory = [];
@@ -242,9 +273,6 @@ function galleryGoHome() {
 // ============================================
 // jumpTo(index)
 // ============================================
-// Переход к разделу по индексу в navigationHistory.
-// Обрезает историю после этого раздела.
-// ============================================
 function jumpTo(index) {
 	var target = navigationHistory[index];
 	navigationHistory = navigationHistory.slice(0, index);
@@ -257,10 +285,9 @@ function jumpTo(index) {
 // ============================================
 // loadItem(id, name)
 // ============================================
-// Открывает элемент (item) — например, коллекцию фото.
-// Устанавливает currentItemId — чтобы работали
-// updateItem / deleteItem / uploadToItem.
-// ============================================
+// [Мириам]: Открывает элемент (item). Устанавливает currentItemId.
+// Это критично — без него deleteItem и updateItem не знают,
+// с каким нейроном работать.
 function loadItem(id, name) {
 	currentItemId = id;
 
@@ -299,13 +326,9 @@ function loadItem(id, name) {
 // ============================================
 // loadFileItem(id)
 // ============================================
-// Открывает файл (file) — одиночное фото или видео.
-// ВАЖНО: устанавливает currentItemId. Без этого
-// deleteFile / deleteItem / updateItem не знают,
-// с каким нейроном работать. Раньше это было багом:
-// после loadFileItem currentItemId оставался null,
-// и удаление отправляло /api/gallery/item/null → 404.
-// ============================================
+// [Лорелея]: Открывает файл (file). Тоже устанавливает currentItemId.
+// Раньше это было багом — currentItemId оставался null, и
+// удаление отправляло /api/gallery/item/null → 404.
 function loadFileItem(id) {
 	currentItemId = id;
 
@@ -324,9 +347,6 @@ function loadFileItem(id) {
 // ============================================
 // uploadFiles(files)
 // ============================================
-// Загрузка файлов в текущий раздел.
-// После успеха — перерисовываем раздел через loadSection.
-// ============================================
 function uploadFiles(files) {
 	if (!files.length) return;
 
@@ -336,6 +356,8 @@ function uploadFiles(files) {
 		formData.append('files[]', files[i]);
 	}
 
+	// [Мириам]: fetch здесь — уже обёрнутый. X-CSRF-Token добавится
+	// автоматически. Это важно, потому что upload() теперь требует CSRF.
 	fetch('/api/gallery/upload', { method: 'POST', body: formData })
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
@@ -351,9 +373,6 @@ function uploadFiles(files) {
 
 // ============================================
 // importFromFolder()
-// ============================================
-// Импорт из папки _import.
-// После успеха — перерисовываем текущий раздел.
 // ============================================
 function importFromFolder() {
 	if (!confirm('Импортировать файлы из папки _import?')) return;
@@ -372,10 +391,6 @@ function importFromFolder() {
 
 // ============================================
 // setSectionThumb(fileId)
-// ============================================
-// Устанавливает превьюшку раздела из файла.
-// После успеха — перерисовываем текущий раздел,
-// чтобы увидеть новую обложку.
 // ============================================
 function setSectionThumb(fileId) {
 	fetch('/api/gallery/section/' + currentParentId + '/set-thumb', {
@@ -451,6 +466,8 @@ document.addEventListener('click', function(e) {
 
 	// --- СОХРАНИТЬ ---
 	if (e.target.closest('#gallerySaveButton')) {
+		// [Лорелея]: Проверка currentItemId. Если null — не отправляем.
+		// Раньше была ошибка /api/gallery/item/null.
 		if (!currentItemId) {
 			alert('Не удалось определить элемент');
 			return;
@@ -476,10 +493,6 @@ document.addEventListener('click', function(e) {
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
 			if (d.success) {
-				// Перерисовываем текущий элемент (item или file).
-				// Мы не знаем, что именно открыто — но loadItem
-				// и loadFileItem делают одно и то же по эффекту.
-				// Используем loadItem — он обновит и breadcrumbs.
 				loadItem(currentItemId, name);
 			} else {
 				alert(d.message || 'Ошибка');
@@ -512,7 +525,6 @@ document.addEventListener('click', function(e) {
 				})
 				.then(function(d) {
 					if (d.success) {
-						// Перерисовываем элемент — фото исчезнет
 						loadItem(currentItemId);
 					} else {
 						alert(d.message || 'Ошибка');
@@ -538,9 +550,9 @@ document.addEventListener('click', function(e) {
 				})
 				.then(function(d) {
 					if (d.success) {
-						// Подход C: после удаления элемента
-						// возвращаемся к родительскому разделу
-						// и перерисовываем его.
+						// [Мириам]: Подход C — после удаления элемента
+						// возвращаемся к родительскому разделу и
+						// перерисовываем его.
 						currentItemId = null;
 						loadSection(currentParentId);
 					} else {

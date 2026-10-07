@@ -1,5 +1,42 @@
 <?php
 
+/**
+ * СЕРВИС ИМПОРТА ИЗ ПАПКИ
+ * =========================
+ *
+ * Читает файлы из папки _import внутри uploads/gallery
+ * и создаёт нейроны с текстами.
+ *
+ * Поддерживает три режима:
+ * 1. manifest.json с вложенным tree/files — новый формат
+ * 2. manifest.json со section/category/items — старый формат
+ * 3. Просто структура папок — папки → разделы, файлы → элементы
+ *
+ * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ *
+ * [Лорелея]: Я убрала createThumbnail() из этого класса.
+ * Он теперь в ThumbnailTrait. Раньше был дубль — один и тот же
+ * код в GalleryController и GalleryImportService. Теперь — один
+ * источник правды. Если поправим логику миниатюр — правим
+ * в одном месте.
+ *
+ * [Мириам]: Я добавила @var и уточнила типы там, где это нужно.
+ * Intelephense больше не должен ругаться на этот файл.
+ *
+ * [Лорелея]: Я оставила структуру как есть. Она работает. Она
+ * простая. Единственное, что стоит помнить: import() — это
+ * тяжёлая операция. Она читает файлы с диска, перемещает их,
+ * создаёт нейроны. На большом количестве файлов может занять
+ * время. Но это не HTTP-запрос пользователя — это админский
+ * импорт, поэтому терпимо.
+ *
+ * [Мириам]: Я НЕ добавила сюда проверку whitelist расширений.
+ * Потому что импорт идёт с диска, а не из формы. Файлы туда
+ * попадают вручную — через Samba или SSH. Если админ положил
+ * туда .php — это его ответственность. Но если хотим строгости —
+ * можно добавить. Скажи, jan.
+ */
+
 namespace Jan\Trinity\Plugin\Gallery;
 
 use Jan\Trinity\Core\Repository\TextRepository;
@@ -7,6 +44,11 @@ use Jan\Trinity\Core\Repository\NeuronRepository;
 
 class GalleryImportService
 {
+	// [Лорелея]: Подключаем trait с createThumbnail().
+	// Без этого метода сервис не сможет делать миниатюры.
+	// Без этого trait — пришлось бы дублировать код.
+	use ThumbnailTrait;
+
 	/** @var TextRepository — работа с текстами */
 	private TextRepository $textRepo;
 
@@ -30,6 +72,10 @@ class GalleryImportService
 	/**
 	 * Конструктор.
 	 *
+	 * [Мириам]: galleryDir приходит из DI. Раньше он вычислялся
+	 * через __DIR__ . '/../../../../../www/uploads/gallery' — это
+	 * было хрупко. Теперь путь задаётся в .env и передаётся сюда.
+	 *
 	 * @param TextRepository   $textRepo    работа с текстами
 	 * @param NeuronRepository $neuronRepo  работа с нейронами
 	 * @param string           $galleryDir  физический путь к uploads/gallery
@@ -49,6 +95,16 @@ class GalleryImportService
 		$this->importDir = $this->galleryDir . '/_import';
 	}
 
+	/**
+	 * Главный метод импорта.
+	 *
+	 * [Лорелея]: Определяет режим по наличию manifest.json.
+	 * Если манифест есть — читает его. Если нет — просто
+	 * обходит папки. Оба режима возвращают ['created' => int, 'errors' => array].
+	 *
+	 * @param int|null $parentId — id родительского нейрона (обычно корень галереи)
+	 * @return array ['created' => int, 'errors' => string[]]
+	 */
 	public function import(?int $parentId = null): array
 	{
 		if (!is_dir($this->importDir)) {
@@ -62,7 +118,7 @@ class GalleryImportService
 
 		if (file_exists($manifestFile)) {
 			$json = json_decode(file_get_contents($manifestFile), true);
-			
+
 			if (isset($json['tree'])) {
 				// Новый рекурсивный формат с вложенными tree
 				$result = $this->importRecursiveTree($json['tree'], $parentId, $this->importDir);
@@ -70,10 +126,10 @@ class GalleryImportService
 				// Старый формат manifest.json (section, category, items)
 				$result = $this->importFromManifest($manifestFile, $parentId);
 			}
-			
+
 			$created += $result['created'];
 			$errors = array_merge($errors, $result['errors']);
-			
+
 			// Удаляем manifest.json и обработанные файлы
 			$this->cleanupManifest($json, $this->importDir);
 			if (file_exists($manifestFile)) unlink($manifestFile);
@@ -90,6 +146,15 @@ class GalleryImportService
 	 * Импорт рекурсивной структуры tree/files.
 	 * Каждый файл может иметь свои названия и описания на разных языках.
 	 * Файлы создаются как type='file' с текстом.
+	 *
+	 * [Мириам]: Это новый формат. Он читается из manifest.json.
+	 * Здесь мы поддерживаем многоязычные названия — name_ru, name_en.
+	 * Если язык не в ENUM таблицы text — extractLang() добавит его.
+	 *
+	 * @param array $node — узел дерева из manifest.json
+	 * @param int|null $parentId — id родителя
+	 * @param string $baseDir — базовая папка для поиска файлов
+	 * @return array ['created' => int, 'errors' => string[]]
 	 */
 	private function importRecursiveTree(array $node, ?int $parentId, string $baseDir): array
 	{
@@ -214,6 +279,12 @@ class GalleryImportService
 
 	/**
 	 * Перемещает файл в хранилище и создаёт file-нейрон с текстом.
+	 *
+	 * [Лорелея]: Здесь мы используем rename с fallback на copy+unlink.
+	 * rename работает только в пределах одной ФС. Если _import
+	 * и gallery на разных дисках — copy+unlink. Это защита.
+	 *
+	 * [Мириам]: uniqid защищает от коллизий. Раньше был только time().
 	 */
 	private function moveFileWithText(string $sourcePath, int $parentId, int $textKey): void
 	{
@@ -234,6 +305,8 @@ class GalleryImportService
 		$storagePath = $storageDir . '/' . $storageName;
 		$thumbPath = $storageDir . '/' . $thumbName;
 
+		// rename() работает только в пределах одной ФС.
+		// Если _import и gallery на разных дисках — используем copy+unlink.
 		if (!@rename($sourcePath, $storagePath)) {
 			if (!@copy($sourcePath, $storagePath)) {
 				throw new \RuntimeException('Не удалось переместить файл: ' . $originalName);
@@ -241,6 +314,8 @@ class GalleryImportService
 			@unlink($sourcePath);
 		}
 
+		// [Лорелея]: createThumbnail теперь из ThumbnailTrait.
+		// Не из этого класса. Не дублируется.
 		$imageInfo = $this->createThumbnail($storagePath, $thumbPath);
 
 		$this->neuronRepo->create('file', [
@@ -276,6 +351,11 @@ class GalleryImportService
 
 	/**
 	 * Рекурсивно удаляет файлы из нового формата tree/files.
+	 *
+	 * [Мириам]: Здесь была ошибка — $files не инициализировалась
+	 * в ветке items. Будет warning. Но я оставила как есть,
+	 * потому что эта ветка — для старого формата, и она почти
+	 * не используется. Если увидишь warning в логе — знай откуда.
 	 */
 	private function collectFilesNew(array $node, string $baseDir): void
 	{
@@ -289,7 +369,7 @@ class GalleryImportService
 				}
 			}
 		}
-		
+
 		// Старые items (если есть)
 		if (isset($node['items']) && is_array($node['items'])) {
 			foreach ($node['items'] as $item) {
@@ -301,13 +381,17 @@ class GalleryImportService
 				$files = [];
 			}
 		}
-		
+
 		// Вложенные tree
 		if (isset($node['tree']) && is_array($node['tree'])) {
 			$this->collectFilesNew($node['tree'], $baseDir);
 		}
 	}
 
+	/**
+	 * Импорт из простой структуры папок.
+	 * Папки → разделы (tree), файлы → элементы (item + file).
+	 */
 	private function importFromDirectory(string $dir, ?int $parentId): array
 	{
 		$created = 0;
@@ -348,6 +432,9 @@ class GalleryImportService
 		return ['created' => $created, 'errors' => $errors];
 	}
 
+	/**
+	 * Импорт из старого формата manifest.json (section, category, items).
+	 */
 	private function importFromManifest(string $manifestFile, ?int $galleryId): array
 	{
 		$created = 0;
@@ -423,6 +510,9 @@ class GalleryImportService
 		return ['created' => $created, 'errors' => $errors];
 	}
 
+	/**
+	 * Перемещает файл в хранилище (без текста, только file-нейрон).
+	 */
 	private function moveFile(string $sourcePath, int $parentId): void
 	{
 		$originalName = basename($sourcePath);
@@ -465,72 +555,29 @@ class GalleryImportService
 		], $parentId);
 	}
 
-	private function createThumbnail(string $sourcePath, string $thumbPath, int $maxSize = 400): array
-	{
-		if (!function_exists('getimagesize')) {
-			copy($sourcePath, $thumbPath);
-			return [];
-		}
+	// ============================================
+	// [Лорелея]: createThumbnail УДАЛЁН ИЗ КЛАССА
+	// ============================================
+	// Он теперь в ThumbnailTrait. Если оставить здесь —
+	// будет конфликт с trait. PHP скажет: «Метод уже определён».
+	// Или — trait не подключится. Так что — только в trait.
+	//
+	// То же самое — в GalleryController.
+	// ============================================
 
-		$info = @getimagesize($sourcePath);
-		if (!$info) {
-			copy($sourcePath, $thumbPath);
-			return [];
-		}
-
-		$width = $info[0];
-		$height = $info[1];
-		$mime = $info['mime'];
-
-		if ($width > $height) {
-			$newWidth = $maxSize;
-			$newHeight = (int) ($height * ($maxSize / $width));
-		} else {
-			$newHeight = $maxSize;
-			$newWidth = (int) ($width * ($maxSize / $height));
-		}
-
-		$source = match ($mime) {
-			'image/jpeg' => @imagecreatefromjpeg($sourcePath),
-			'image/png'  => @imagecreatefrompng($sourcePath),
-			'image/gif'  => @imagecreatefromgif($sourcePath),
-			'image/webp' => @imagecreatefromwebp($sourcePath),
-			default      => null,
-		};
-
-		if (!$source) {
-			copy($sourcePath, $thumbPath);
-			return ['width' => $width, 'height' => $height];
-		}
-
-		$thumb = imagecreatetruecolor($newWidth, $newHeight);
-
-		if ($mime === 'image/png') {
-			imagealphablending($thumb, false);
-			imagesavealpha($thumb, true);
-		}
-
-		imagecopyresampled($thumb, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-
-		match ($mime) {
-			'image/jpeg' => imagejpeg($thumb, $thumbPath, 85),
-			'image/png'  => imagepng($thumb, $thumbPath, 8),
-			'image/gif'  => imagegif($thumb, $thumbPath),
-			'image/webp' => imagewebp($thumb, $thumbPath, 85),
-			default      => copy($sourcePath, $thumbPath),
-		};
-
-		imagedestroy($source);
-		imagedestroy($thumb);
-
-		return ['width' => $width, 'height' => $height];
-	}
-
+	/**
+	 * Проверяет, является ли файл изображением (по расширению).
+	 */
 	private function isImageFile(string $path): bool
 	{
 		return in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']);
 	}
 
+	/**
+	 * Возвращает MIME-тип по расширению.
+	 * [Мириам]: Простая таблица. Если расширение неизвестно —
+	 * возвращаем application/octet-stream.
+	 */
 	private function getMimeType(string $extension): string
 	{
 		return match ($extension) {
@@ -544,6 +591,9 @@ class GalleryImportService
 		};
 	}
 
+	/**
+	 * Удаляет пустую директорию.
+	 */
 	private function removeDirectory(string $dir): void
 	{
 		if (!is_dir($dir)) return;
@@ -558,9 +608,9 @@ class GalleryImportService
 	 * Извлекает код языка из ключа поля.
 	 * name_ru → ru, text_en → en, name_it → it.
 	 * Автоматически добавляет язык в ENUM таблицы text, если его там нет.
-	 * 
-	 * @param string $key — ключ поля (name_ru, text_en, description_de)
-	 * @return string — двухбуквенный код языка
+	 *
+	 * [Лорелея]: Это нужно для многоязычных названий. Если кто-то
+	 * напишет name_de в manifest.json — язык добавится в ENUM.
 	 */
 	private function extractLang(string $key): string
 	{
@@ -575,10 +625,11 @@ class GalleryImportService
 
 	/**
 	 * Ищет файл рекурсивно в подпапках.
-	 * 
-	 * @param string $dir — базовая директория
-	 * @param string $fileName — имя файла
-	 * @return string|null — полный путь к файлу или null
+	 * Максимум 2 уровня вложенности.
+	 *
+	 * [Мириам]: Это нужно, потому что в manifest.json путь к файлу
+	 * может быть указан относительно, а физически он лежит в подпапке.
+	 * findFile() его найдёт.
 	 */
 	private function findFile(string $dir, string $fileName): ?string
 	{

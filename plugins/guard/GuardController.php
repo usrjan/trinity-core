@@ -25,17 +25,35 @@
  * У входа в Амбер стоит Страж.
  * Он знает кто друг, а кто враг.
  * И он никогда не спит.
+ * 
+ * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * 
+ * [Лорелея]: Методы blockIpApi(), unblockIpApi() и getBlockedIpsApi()
+ * теперь требуют роль администратора. Раньше любой авторизованный
+ * пользователь мог заблокировать любого IP. Это была дыра.
+ * 
+ * [Мириам]: В blockIpApi() и unblockIpApi() добавлена проверка CSRF.
+ * Это POST-запросы, они меняют состояние. Без CSRF любой сайт мог
+ * заблокировать IP от имени админа, если он залогинен.
+ * 
+ * [Лорелея]: Добавлен trait AuthMiddleware и Session в конструктор.
+ * Это нужно для requireAdminForApi() и проверки CSRF.
  */
 
 namespace Jan\Trinity\Plugin\Guard;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Session\Session;
 
 class GuardController
 {
+	use AuthMiddleware;
+
 	private NeuronRepository $neuronRepo;
 
 	/** @var string Путь к корню проекта */
@@ -44,28 +62,43 @@ class GuardController
 	/** @var array Настройки плагина из базы */
 	private array $config;
 
+    /**
+     * @var LoggerInterface — логгер.
+     * [Лорелея]: Теперь через LoggerInterface. Вместо file_put_contents.
+     * Это даёт ротацию, уровни, формат. И — единый подход с Monitor.
+     */
+    private LoggerInterface $logger;
+
 	/**
 	 * Конструктор.
 	 */
-	public function __construct(NeuronRepository $neuronRepo, string $basePath)
-    {
-        $this->neuronRepo = $neuronRepo;
-        $this->basePath = $basePath;
-        $this->config = $this->loadConfig();
-    }
+	public function __construct(
+        NeuronRepository $neuronRepo,
+        Session $session,
+        string $basePath,
+        LoggerInterface $logger
+	) {
+		$this->neuronRepo = $neuronRepo;
+		$this->basePath = $basePath;
+		$this->logger = $logger;
+		$this->config = $this->loadConfig();
+
+		// Инициализация middleware авторизации
+		$this->initAuth($session);
+	}
 
 	/**
 	 * Загружает настройки из базы.
 	 */
-    private function loadConfig(): array
-    {
-        $keys = ['max_attempts', 'decay_seconds', 'block_duration'];
-        $result = [];
-        foreach ($keys as $key) {
-            $result[$key] = $this->neuronRepo->findConfigValue('guard.' . $key);
-        }
-        return $result;
-    }
+	private function loadConfig(): array
+	{
+		$keys = ['max_attempts', 'decay_seconds', 'block_duration'];
+		$result = [];
+		foreach ($keys as $key) {
+			$result[$key] = $this->neuronRepo->findConfigValue('guard.' . $key);
+		}
+		return $result;
+	}
 
 	/**
 	 * Получить значение настройки.
@@ -81,11 +114,6 @@ class GuardController
 
 	/**
 	 * Проверить не превышен ли лимит запросов.
-	 * 
-	 * @param string $key — ключ (например, 'login', 'api')
-	 * @param int $maxAttempts — максимальное количество попыток
-	 * @param int $decaySeconds — за сколько секунд
-	 * @return bool — true если лимит превышен
 	 */
 	public function tooManyAttempts(string $key, int $maxAttempts = 5, int $decaySeconds = 60): bool
 	{
@@ -95,18 +123,14 @@ class GuardController
 
 	/**
 	 * Записать попытку.
-	 * 
-	 * @param string $key — ключ
 	 */
 	public function hit(string $key): void
 	{
 		$file = $this->getAttemptsFile($key);
 		$data = $this->readAttemptsFile($file);
-		
-		// Добавляем текущую попытку
+
 		$data[] = time();
-		
-		// Оставляем только попытки за последний интервал
+
 		$decaySeconds = (int) $this->getConfig('decay_seconds', 60);
 		$data = array_filter($data, function($timestamp) use ($decaySeconds) {
 			return $timestamp > (time() - $decaySeconds);
@@ -117,15 +141,12 @@ class GuardController
 
 	/**
 	 * Получить количество попыток.
-	 * 
-	 * @param string $key — ключ
-	 * @return int
 	 */
 	private function getAttempts(string $key): int
 	{
 		$file = $this->getAttemptsFile($key);
 		$data = $this->readAttemptsFile($file);
-		
+
 		$decaySeconds = (int) $this->getConfig('decay_seconds', 60);
 		$data = array_filter($data, function($timestamp) use ($decaySeconds) {
 			return $timestamp > (time() - $decaySeconds);
@@ -135,9 +156,7 @@ class GuardController
 	}
 
 	/**
-	 * Очистить попытки (после успешного входа).
-	 * 
-	 * @param string $key — ключ
+	 * Очистить попытки.
 	 */
 	public function clear(string $key): void
 	{
@@ -180,14 +199,9 @@ class GuardController
 
 	/**
 	 * Проверить попытку входа.
-	 * 
-	 * @param string $login — логин пользователя
-	 * @param string $ip — IP-адрес
-	 * @return array — [success => bool, message => string]
 	 */
 	public function checkLoginAttempt(string $login, string $ip): array
 	{
-		// Проверяем лимит по IP
 		$ipKey = 'login_ip_' . $ip;
 		if ($this->tooManyAttempts($ipKey, 10, 300)) {
 			return [
@@ -196,7 +210,6 @@ class GuardController
 			];
 		}
 
-		// Проверяем лимит по логину
 		$loginKey = 'login_user_' . md5($login);
 		if ($this->tooManyAttempts($loginKey, 5, 300)) {
 			return [
@@ -210,16 +223,12 @@ class GuardController
 
 	/**
 	 * Записать неудачную попытку входа.
-	 * 
-	 * @param string $login — логин
-	 * @param string $ip — IP-адрес
 	 */
 	public function recordFailedLogin(string $login, string $ip): void
 	{
 		$this->hit('login_ip_' . $ip);
 		$this->hit('login_user_' . md5($login));
 
-		// Логируем попытку
 		$this->logSecurityEvent('failed_login', [
 			'login' => $login,
 			'ip'    => $ip,
@@ -228,9 +237,6 @@ class GuardController
 
 	/**
 	 * Очистить попытки после успешного входа.
-	 * 
-	 * @param string $login — логин
-	 * @param string $ip — IP-адрес
 	 */
 	public function clearLoginAttempts(string $login, string $ip): void
 	{
@@ -244,10 +250,6 @@ class GuardController
 
 	/**
 	 * Заблокировать IP-адрес.
-	 * 
-	 * @param string $ip — IP-адрес
-	 * @param string $reason — причина
-	 * @param int $duration — на сколько секунд (0 = навсегда)
 	 */
 	public function blockIp(string $ip, string $reason = 'blocked', int $duration = 3600): void
 	{
@@ -265,8 +267,6 @@ class GuardController
 
 	/**
 	 * Разблокировать IP-адрес.
-	 * 
-	 * @param string $ip — IP-адрес
 	 */
 	public function unblockIp(string $ip): void
 	{
@@ -280,9 +280,6 @@ class GuardController
 
 	/**
 	 * Проверить заблокирован ли IP.
-	 * 
-	 * @param string $ip — IP-адрес
-	 * @return bool
 	 */
 	public function isIpBlocked(string $ip): bool
 	{
@@ -295,22 +292,20 @@ class GuardController
 
 		$expiresAt = $blocked[$ip]['expires_at'] ?? null;
 		if ($expiresAt === null) {
-			return true; // Заблокирован навсегда
+			return true;
 		}
 
 		if (strtotime($expiresAt) < time()) {
 			unset($blocked[$ip]);
 			file_put_contents($file, json_encode($blocked, JSON_PRETTY_PRINT));
-			return false; // Блокировка истекла
+			return false;
 		}
 
 		return true;
 	}
 
 	/**
-	 * Получить список заблокированных IP (для админки).
-	 * 
-	 * @return array
+	 * Получить список заблокированных IP.
 	 */
 	public function getBlockedIps(): array
 	{
@@ -324,36 +319,30 @@ class GuardController
 
 	/**
 	 * Сгенерировать CSRF-токен.
-	 * 
-	 * @return string
 	 */
 	public function generateCsrfToken(): string
 	{
 		$token = bin2hex(random_bytes(32));
 		$_SESSION['csrf_token'] = $token;
 
-		// Записываем в cookie, доступный для JavaScript (не HttpOnly)
 		setcookie(
 			'csrf_token',
 			$token,
 			[
-				'expires' => 0,        // до закрытия браузера
+				'expires' => 0,
 				'path' => '/',
 				'domain' => '',
-				'secure' => false,     // true для HTTPS
-				'httponly' => false,   // ДОЛЖЕН быть false, чтобы JS мог читать
+				'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+				'httponly' => false,
 				'samesite' => 'Lax'
 			]
 		);
-		
+
 		return $token;
 	}
 
 	/**
 	 * Проверить CSRF-токен.
-	 * 
-	 * @param string $token — токен из формы
-	 * @return bool
 	 */
 	public function validateCsrfToken(string $token): bool
 	{
@@ -368,31 +357,23 @@ class GuardController
 	// 5. ЛОГИРОВАНИЕ БЕЗОПАСНОСТИ
 	// ============================================
 
-	/**
-	 * Записать событие безопасности.
-	 * 
-	 * @param string $event — тип события
-	 * @param array $context — контекст
-	 */
-	private function logSecurityEvent(string $event, array $context = []): void
-	{
-		$logDir = $this->basePath . '/var/log';
-		if (!is_dir($logDir)) {
-			mkdir($logDir, 0775, true);
-		}
+    /**
+     * Записать событие безопасности.
+     * [Лорелея]: Вместо file_put_contents — $this->logger->info().
+     * Monolog сам добавит дату, уровень, отформатирует контекст.
+     * И — ротация. И — уровни. И — канал security.
+     */
+    private function logSecurityEvent(string $event, array $context = []): void
+    {
+        if (!isset($context['ip'])) {
+            $context['ip'] = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        }
+        if (!isset($context['login'])) {
+            $context['login'] = 'unknown';
+        }
 
-		$logFile = $logDir . '/security.log';
-		$entry = sprintf(
-			"[%s] %s: %s\n  Context: %s\n  IP: %s\n\n",
-			date('Y-m-d H:i:s'),
-			$event,
-			$context['login'] ?? 'unknown',
-			json_encode($context, JSON_UNESCAPED_UNICODE),
-			$context['ip'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown'
-		);
-
-		file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
-	}
+        $this->logger->info($event, $context);
+    }
 
 	// ============================================
 	// 6. API ДЛЯ АДМИНКИ
@@ -400,19 +381,31 @@ class GuardController
 
 	/**
 	 * GET /api/guard/blocked-ips
-	 * Получить список заблокированных IP.
+	 * 
+	 * [Лорелея]: Теперь требует роль администратора.
+	 * Раньше список заблокированных IP видел любой.
 	 */
 	public function getBlockedIpsApi(): JsonResponse
 	{
+		if ($error = $this->requireAdminForApi()) {
+			return $error;
+		}
+
 		return ApiResponse::success($this->getBlockedIps());
 	}
 
 	/**
 	 * POST /api/guard/block-ip
-	 * Заблокировать IP.
+	 * 
+	 * [Мириам]: Теперь требует роль администратора и CSRF.
+	 * Раньше любой авторизованный пользователь мог заблокировать IP.
 	 */
 	public function blockIpApi(Request $request): JsonResponse
 	{
+		if ($error = $this->requireAdminForApi()) {
+			return $error;
+		}
+
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
 		if (!$this->validateCsrfToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
@@ -433,10 +426,15 @@ class GuardController
 
 	/**
 	 * POST /api/guard/unblock-ip
-	 * Разблокировать IP.
+	 * 
+	 * [Мириам]: Теперь требует роль администратора и CSRF.
 	 */
 	public function unblockIpApi(Request $request): JsonResponse
 	{
+		if ($error = $this->requireAdminForApi()) {
+			return $error;
+		}
+
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
 		if (!$this->validateCsrfToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
@@ -455,7 +453,6 @@ class GuardController
 
 	/**
 	 * Прочитать JSON-файл и вернуть массив.
-	 * Если файла нет — вернуть пустой массив.
 	 */
 	private function readJsonFile(string $file): array
 	{
