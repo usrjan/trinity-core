@@ -60,6 +60,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Twig\Environment;
+use Psr\Log\LoggerInterface;
 
 class AuthController
 {
@@ -80,6 +81,9 @@ class AuthController
 	/** @var GuardController — защита от перебора и CSRF */
 	private GuardController $guard;
 
+	/** @var LoggerInterface — логгер */
+	private LoggerInterface $logger;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -90,13 +94,15 @@ class AuthController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
-		GuardController $guard
+		GuardController $guard,
+		LoggerInterface $logger
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
 		$this->guard = $guard;
+		$this->logger = $logger;
 
 		// Инициализация middleware авторизации
 		$this->initAuth($session);
@@ -274,21 +280,45 @@ class AuthController
 	// ============================================
 
 	/**
-	 * GET /logout
+	 * POST /logout
 	 * 
-	 * Очищает сессию и перенаправляет на главную.
+	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Теперь logout — POST.
+	 * Раньше был GET. И любой сайт мог через <img src="/logout">
+	 * разлогинить пользователя. Теперь — только POST. И — с CSRF.
 	 * 
-	 * @return Response
+	 * [Мириам]: Плюс — удаляем куки PHPSESSID. Чтобы клиент
+	 * не слал старый ID. И — session_destroy. Чтобы сессия
+	 * на сервере тоже исчезла.
 	 */
-	public function logout(): Response
+	public function logout(Request $request): Response
 	{
+		// CSRF-проверка
+		$token = $request->request->get('_csrf_token', '');
+
+		//$this->logger->info("[Logout] Token received: '" . $token . "'. Session token: '" . ($_SESSION['csrf_token'] ?? 'NULL') . "'");
+
+
+		if (!$this->guard->validateCsrfToken($token)) {
+			$this->session->set('logout_error', 'Недействительный токен безопасности.');
+			return new Response('', 302, ['Location' => '/']);
+		}
+
 		// Логируем выход (пока сессия ещё жива)
 		$login = $this->session->get('user_login');
 		if ($login) {
 			$this->neuronRepo->logAdminAction('user_logout', ['login' => $login]);
 		}
 
+		// [Лорелея]: Сначала очищаем данные сессии.
+		// Потому что session_regenerate_id НЕ очищает данные.
+		// Он только переносит их в новую сессию с новым ID.
+		// А нам надо, чтобы пользователь был разлогинен.
 		$this->session->clear();
+
+		// [Мириам]: Потом регенерируем ID и удаляем старый файл.
+		// Теперь сессия пустая. И с новым ID.
+		$this->session->invalidate();
+
 		return new Response('', 302, ['Location' => '/']);
 	}
 
@@ -319,6 +349,7 @@ class AuthController
 		// Flash-сообщение об ошибке
 		$error = $this->session->get('register_error');
 		$this->session->remove('register_error');
+		error_log("[Register] FORM. error=" . var_export($error, true));
 
 		// Рендерим форму
 		$html = $this->twig->render('register.html.twig', [
@@ -373,6 +404,23 @@ class AuthController
 			$this->session->set('register_error', 'Регистрация недоступна с вашего IP.');
 			return new Response('', 302, ['Location' => '/register']);
 		}
+
+		// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Rate limit для регистрации.
+		// Не больше 5 попыток за 10 минут с одного IP.
+		// Это защищает от скриптов, которые создают аккаунты пачками.
+		$registerKey = 'register_ip_' . $ip;
+		if ($this->guard->tooManyAttempts($registerKey, 5, 120)) {
+			error_log("[Register] LIMIT HIT. ip={$ip}, key={$registerKey}");
+			$this->session->set('register_error', 'Слишком много попыток регистрации. Попробуйте через 10 минут.');
+			$check = $this->session->get('register_error');
+			error_log("[Register] Session set result: " . var_export($check, true));
+			return new Response('', 302, ['Location' => '/register']);
+		}
+
+		// [Мириам]: Записываем попытку. ДО создания аккаунта.
+		// Потому что если создание упадёт — попытка уже учтена.
+		// И это правильно. Потому что попытка была.
+		$this->guard->hit($registerKey, 120);
 
 		// ============================================
 		// Получаем данные формы

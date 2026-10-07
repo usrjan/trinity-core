@@ -63,7 +63,7 @@
 				<div class="card bg-dark border-gold">
 					<div class="card-body">
 						<form method="POST" action="/profile/edit">
-							<input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+							<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 							<div class="mb-3">
 								<label class="form-label">Язык интерфейса</label>
 								<select name="lang" class="form-select">

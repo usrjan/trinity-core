@@ -21,10 +21,11 @@ return function ($routes) {
 		'_method'     => 'login',
 	], [], [], '', [], ['POST']));
 
+	// [Лорелея]: logout теперь POST. И — с CSRF-токеном.
 	$routes->add('logout', new Route('/logout', [
 		'_controller' => AuthController::class,
 		'_method'     => 'logout',
-	]));
+	], [], [], '', [], ['POST']));
 
 	$routes->add('register_form', new Route('/register', [
 		'_controller' => AuthController::class,

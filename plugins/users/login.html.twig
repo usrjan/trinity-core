@@ -17,7 +17,7 @@
 			<div class="auth-error"><i class="bi bi-exclamation-triangle"></i> {{ error }}</div>
 			{% endif %}
 			<form method="POST" action="/login" class="auth-form">
-				<input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+				<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 				<div class="mb-3">
 					<label class="form-label"><i class="bi bi-person"></i> Логин или Email</label>
 					<input type="text" class="form-control" name="login" placeholder="jan" required autofocus>

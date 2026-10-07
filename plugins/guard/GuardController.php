@@ -115,7 +115,7 @@ class GuardController
 	/**
 	 * Проверить не превышен ли лимит запросов.
 	 */
-	public function tooManyAttempts(string $key, int $maxAttempts = 5, int $decaySeconds = 60): bool
+	public function tooManyAttempts(string $key, int $maxAttempts = 5, int $decaySeconds = 120): bool
 	{
 		$attempts = $this->getAttempts($key);
 		return $attempts >= $maxAttempts;
@@ -124,18 +124,27 @@ class GuardController
 	/**
 	 * Записать попытку.
 	 */
-	public function hit(string $key): void
+	public function hit(string $key, ?int $decaySeconds = null): void
 	{
 		$file = $this->getAttemptsFile($key);
 		$data = $this->readAttemptsFile($file);
 
 		$data[] = time();
 
-		$decaySeconds = (int) $this->getConfig('decay_seconds', 60);
+		// [Лорелея]: Если decaySeconds не передан — берём из конфига.
+		// Если передан — используем его. Это нужно, чтобы hit() и
+		// tooManyAttempts() работали с одним интервалом.
+		if ($decaySeconds === null) {
+			$decaySeconds = (int) $this->getConfig('decay_seconds', 120);
+		}
+
+		error_log("[Guard] hit: key={$key}, decaySeconds={$decaySeconds}, before=" . count($data));
+
 		$data = array_filter($data, function($timestamp) use ($decaySeconds) {
 			return $timestamp > (time() - $decaySeconds);
 		});
 
+		error_log("[Guard] hit: after=" . count($data));
 		file_put_contents($file, implode("\n", $data));
 	}
 
@@ -147,7 +156,7 @@ class GuardController
 		$file = $this->getAttemptsFile($key);
 		$data = $this->readAttemptsFile($file);
 
-		$decaySeconds = (int) $this->getConfig('decay_seconds', 60);
+		$decaySeconds = (int) $this->getConfig('decay_seconds', 120);
 		$data = array_filter($data, function($timestamp) use ($decaySeconds) {
 			return $timestamp > (time() - $decaySeconds);
 		});
