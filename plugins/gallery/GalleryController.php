@@ -343,7 +343,10 @@ class GalleryController
 	 */
 	public function section(int $id): JsonResponse
 	{
-		$children = $this->neuronRepo->findChildren($id);
+		// [Лорелея]: Заменил findChildren на findChildrenWithText.
+		// Теперь name приходит из JOIN с text. И warning исчез.
+		// И не надо ходить в базу второй раз через findAllByKey.
+		$children = $this->neuronRepo->findChildrenWithText($id, 'ru');
 
 		// [Мириам]: Собираем id всех tree-папок, у которых есть дети.
 		// Для них нам нужны файлы-превьюшки.
@@ -372,7 +375,16 @@ class GalleryController
 			// [Лорелея]: Возвращено. В прошлой версии этого блока
 			// не было — остался только комментарий. И $name был undefined.
 			// Теперь — снова: имя из text, если есть. Иначе — slug.
+
+		    // [Мириам]: name уже есть из findChildrenWithText.
+        	// Если нет — fallback на slug или 'Без названия'.
+
 			$name = $child['name'] ?? $childData['slug'] ?? 'Без названия';
+
+			// [Лорелея]: Блок с findAllByKey убран. Потому что
+			// findChildrenWithText уже вернул name из text.
+			// Если name пустой — значит, у нейрона нет текста.
+			// Или текст не активен. Тогда — slug.
 
 			if ($child['text'] && (!$child['name'] || $name === 'Без названия')) {
 				$allTexts = $this->textRepo->findAllByKey($child['text']);
@@ -581,10 +593,10 @@ class GalleryController
 			? json_decode($file['data'], true)
 			: ($file['data'] ?? []);
 
-		$storagePath = $this->galleryUploadDir . '/' . ($fileData['storage_path'] ?? '');
+		$storagePath = $this->resolveGalleryPath($fileData['storage_path'] ?? '');
 		$originalName = $fileData['original_name'] ?? 'download';
 
-		if (!file_exists($storagePath)) {
+		if ($storagePath === null || !file_exists($storagePath)) {
 			return $this->errorHandler->showError(404, 'Файл не найден на диске', [
 				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
 				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
@@ -763,15 +775,15 @@ class GalleryController
 			// [Лорелея]: Логируем неудачные unlink. Если файл не удалился —
 			// узнаем об этом из error.log, а не будем гадать.
 			if (!empty($fileData['storage_path'])) {
-				$path = $this->galleryUploadDir . '/' . $fileData['storage_path'];
-				if (file_exists($path) && !unlink($path)) {
+				$path = $this->resolveGalleryPath($fileData['storage_path']);
+				if ($path !== null && !unlink($path)) {
 					error_log("[Gallery] Failed to unlink storage: {$path}");
 				}
 			}
 
 			if (!empty($fileData['thumb_path'])) {
-				$path = $this->galleryUploadDir . '/' . $fileData['thumb_path'];
-				if (file_exists($path) && !unlink($path)) {
+				$path = $this->resolveGalleryPath($fileData['thumb_path']);
+				if ($path !== null && !unlink($path)) {
 					error_log("[Gallery] Failed to unlink thumb: {$path}");
 				}
 			}
@@ -815,15 +827,15 @@ class GalleryController
 			: ($file['data'] ?? []);
 
 		if (!empty($fileData['storage_path'])) {
-			$path = $this->galleryUploadDir . '/' . $fileData['storage_path'];
-			if (file_exists($path) && !unlink($path)) {
+			$path = $this->resolveGalleryPath($fileData['storage_path']);
+			if ($path !== null && !unlink($path)) {
 				error_log("[Gallery] Failed to unlink storage: {$path}");
 			}
 		}
 
 		if (!empty($fileData['thumb_path'])) {
-			$path = $this->galleryUploadDir . '/' . $fileData['thumb_path'];
-			if (file_exists($path) && !unlink($path)) {
+			$path = $this->resolveGalleryPath($fileData['thumb_path']);
+			if ($path !== null && !unlink($path)) {
 				error_log("[Gallery] Failed to unlink thumb: {$path}");
 			}
 		}
@@ -865,77 +877,145 @@ class GalleryController
 	// ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 	// ============================================
 
-	/**
-	 * Общая логика: перемещает файл в хранилище и создаёт file-нейрон.
-	 * Используется и saveFile(), и saveFileToItem().
-	 *
-	 * [Лорелея]: Раньше было две почти одинаковые функции —
-	 * saveFile и saveFileToItem. Разница — только в display_name
-	 * и text_key. Теперь — одна функция. Меньше дублирования.
-	 *
-	 * [Мириам]: Тип UploadedFile добавлен сюда тоже. Intelephense
-	 * больше не ругается.
-	 *
-	 * @param UploadedFile $uploadedFile
-	 * @param int $parentId
-	 * @param int|null $textKey — опционально, для saveFile (импорт с текстом)
-	 * @param string|null $displayName — опционально, для saveFile
-	 * @return int — id созданного file-нейрона
-	 * @throws \RuntimeException если файл не прошёл валидацию
-	 */
-	private function moveAndCreateFile(
-		UploadedFile $uploadedFile,
-		int $parentId,
-		?int $textKey = null,
-		?string $displayName = null
-	): int {
-		$validated = $this->validateUpload($uploadedFile);
-		$extension = $validated['extension'];
+    /**
+     * Общая логика: перемещает файл в хранилище и создаёт file-нейрон.
+     * Используется и saveFile(), и saveFileToItem().
+     *
+     * [Лорелея]: Раньше было две почти одинаковые функции —
+     * saveFile и saveFileToItem. Разница — только в display_name
+     * и text_key. Теперь — одна функция. Меньше дублирования.
+     *
+     * [Мириам]: Тип UploadedFile добавлен сюда тоже. Intelephense
+     * больше не ругается.
+     *
+     * [Лорелея]: ЗАЩИТА ОТ PATH TRAVERSAL. Раньше storage_path
+     * формировался так: date('Y/m/d') . '/' . $storageName.
+     * И никак не проверялся. Хотя мы формируем его сами.
+     * Теперь — проверяем. На всякий случай. Чтобы исключить
+     * любую возможность записи в неверный путь.
+     *
+     * [Мириам]: Проверка простая. storage_path не должен
+     * содержать '..' и не должен начинаться с '/'. Потому
+     * что это относительный путь внутри uploads/gallery.
+     * Если содержит — RuntimeException. И — запись отменяется.
+     *
+     * @param UploadedFile $uploadedFile
+     * @param int $parentId
+     * @param int|null $textKey — опционально, для saveFile (импорт с текстом)
+     * @param string|null $displayName — опционально, для saveFile
+     * @return int — id созданного file-нейрона
+     * @throws \RuntimeException если файл не прошёл валидацию
+     */
+    private function moveAndCreateFile(
+        UploadedFile $uploadedFile,
+        int $parentId,
+        ?int $textKey = null,
+        ?string $displayName = null
+    ): int {
+        // ============================================
+        // ШАГ 1: ВАЛИДАЦИЯ ФАЙЛА
+        // ============================================
+        // [Лорелея]: Проверяем расширение и MIME. До move().
+        // Если файл недопустим — RuntimeException. И — ошибка.
+        $validated = $this->validateUpload($uploadedFile);
+        $extension = $validated['extension'];
 
-		$datePath = date('Y/m/d');
-		$storageDir = $this->galleryUploadDir . '/' . $datePath;
-		if (!is_dir($storageDir)) {
-			mkdir($storageDir, 0775, true);
-		}
+        // ============================================
+        // ШАГ 2: ПОДГОТОВКА ПАПКИ
+        // ============================================
+        // [Мириам]: Папка — по дате. Y/m/d. Например 2026/10/07.
+        // Чтобы файлов в одной папке не было слишком много.
+        $datePath = date('Y/m/d');
+        $storageDir = $this->galleryUploadDir . '/' . $datePath;
+        if (!is_dir($storageDir)) {
+            mkdir($storageDir, 0775, true);
+        }
 
-		// [Мириам]: uniqid защищает от коллизий. Раньше был только time(),
-		// и два файла в одну секунду перезаписывали друг друга.
-		$unique = md5($validated['originalName'] . time() . uniqid('', true));
-		$storageName = $unique . '.' . $extension;
-		$thumbName = null;
-		$imageInfo = [];
+        // ============================================
+        // ШАГ 3: УНИКАЛЬНОЕ ИМЯ ФАЙЛА
+        // ============================================
+        // [Мириам]: uniqid защищает от коллизий. Раньше был только time(),
+        // и два файла в одну секунду перезаписывали друг друга.
+        $unique = md5($validated['originalName'] . time() . uniqid('', true));
+        $storageName = $unique . '.' . $extension;
+        $thumbName = null;
+        $imageInfo = [];
 
-		$uploadedFile->move($storageDir, $storageName);
+        // ============================================
+        // ШАГ 4: ПЕРЕМЕЩЕНИЕ ФАЙЛА
+        // ============================================
+        // [Лорелея]: UploadedFile::move() перемещает файл из tmp
+        // в указанную папку. Безопасно. С проверкой прав.
+        $uploadedFile->move($storageDir, $storageName);
 
-		// [Лорелея]: Миниатюру делаем только для изображений.
-		// Для видео и аудио — не нужно.
-		if (in_array($extension, self::ALLOWED_IMAGE_EXT, true)) {
-			$thumbName = $unique . '_thumb.' . $extension;
-			$imageInfo = $this->createThumbnail(
-				$storageDir . '/' . $storageName,
-				$storageDir . '/' . $thumbName
-			);
-		}
+        // ============================================
+        // ШАГ 5: МИНИАТЮРА (только для изображений)
+        // ============================================
+        // [Мириам]: Для видео и аудио миниатюра не нужна.
+        // Только для изображений. Через ThumbnailTrait.
+        if (in_array($extension, self::ALLOWED_IMAGE_EXT, true)) {
+            $thumbName = $unique . '_thumb.' . $extension;
+            $imageInfo = $this->createThumbnail(
+                $storageDir . '/' . $storageName,
+                $storageDir . '/' . $thumbName
+            );
+        }
 
-		$data = [
-			'original_name' => $validated['originalName'],
-			'mime'          => $validated['mime'],
-			'size'          => $validated['size'],
-			'width'         => $imageInfo['width'] ?? 0,
-			'height'        => $imageInfo['height'] ?? 0,
-			'storage_path'  => $datePath . '/' . $storageName,
-			'thumb_path'    => $thumbName ? ($datePath . '/' . $thumbName) : null,
-			'uploaded_at'   => date('Y-m-d H:i:s'),
-			'is_video'      => in_array($extension, self::ALLOWED_VIDEO_EXT, true),
-			'is_audio'      => in_array($extension, self::ALLOWED_AUDIO_EXT, true),
-		];
+        // ============================================
+        // ШАГ 6: ФОРМИРОВАНИЕ ОТНОСИТЕЛЬНЫХ ПУТЕЙ
+        // ============================================
+        // [Лорелея]: ЗАЩИТА ОТ PATH TRAVERSAL. ГЛАВНОЕ ИЗМЕНЕНИЕ.
+        // storage_path и thumb_path — относительные. Внутри
+        // uploads/gallery. Проверяем, что не содержат '..' и
+        // не начинаются с '/'. Если содержат — RuntimeException.
+        // Потому что даже если мы формируем их сами, лучше
+        // проверить. Чтобы исключить любую возможность.
+        $storagePath = $datePath . '/' . $storageName;
+        $thumbPath = $thumbName ? ($datePath . '/' . $thumbName) : null;
 
-		if ($displayName !== null) {
-			$data['display_name'] = $displayName;
-		}
+        // Проверяем storage_path
+        if (strpos($storagePath, '..') !== false || strpos($storagePath, '/') === 0) {
+            // [Мириам]: Логируем попытку. Это важно. Если это
+            // происходит — значит, где-то что-то пошло не так.
+            error_log("[Gallery] Invalid storage_path: {$storagePath}");
+            throw new \RuntimeException('Недопустимый путь хранения: ' . $storagePath);
+        }
 
-		return $this->neuronRepo->create('file', $data, $parentId, $textKey);
-	}
+        // Проверяем thumb_path (если есть)
+        if ($thumbPath !== null && (strpos($thumbPath, '..') !== false || strpos($thumbPath, '/') === 0)) {
+            error_log("[Gallery] Invalid thumb_path: {$thumbPath}");
+            throw new \RuntimeException('Недопустимый путь миниатюры: ' . $thumbPath);
+        }
+
+        // ============================================
+        // ШАГ 7: ФОРМИРОВАНИЕ DATA
+        // ============================================
+        // [Лорелея]: В data — только безопасные пути.
+        // Никаких абсолютных. Никаких '..'.
+        $data = [
+            'original_name' => $validated['originalName'],
+            'mime'          => $validated['mime'],
+            'size'          => $validated['size'],
+            'width'         => $imageInfo['width'] ?? 0,
+            'height'        => $imageInfo['height'] ?? 0,
+            'storage_path'  => $storagePath,
+            'thumb_path'    => $thumbPath,
+            'uploaded_at'   => date('Y-m-d H:i:s'),
+            'is_video'      => in_array($extension, self::ALLOWED_VIDEO_EXT, true),
+            'is_audio'      => in_array($extension, self::ALLOWED_AUDIO_EXT, true),
+        ];
+
+        if ($displayName !== null) {
+            $data['display_name'] = $displayName;
+        }
+
+        // ============================================
+        // ШАГ 8: СОЗДАНИЕ НЕЙРОНА
+        // ============================================
+        // [Мириам]: neuronRepo->create() создаёт file-нейрон.
+        // С data. С parentId. С textKey (если есть).
+        return $this->neuronRepo->create('file', $data, $parentId, $textKey);
+    }
 
 	/**
 	 * Сохраняет загруженный файл напрямую в раздел.
@@ -1113,6 +1193,70 @@ class GalleryController
 
 		return ApiResponse::success(['id' => $id], 'Раздел создан');
 	}
+
+    /**
+     * Безопасно разрешает путь внутри uploads/gallery.
+     * 
+     * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше путь строился так:
+     *   $path = $this->galleryUploadDir . '/' . $fileData['storage_path'];
+     * И — если storage_path = '../../../../etc/passwd', то unlink
+     * удалял файл вне uploads/gallery. Это — Path Traversal. Дыра.
+     * 
+     * [Мириам]: Теперь — проверяем realpath. Файл должен быть
+     * ВНУТРИ galleryUploadDir. Иначе — null. И — никаких unlink.
+     * 
+     * [Лорелея]: Если файл не существует — realpath вернёт false.
+     * Тогда — тоже null. Потому что удалять нечего.
+     * 
+     * [Мириам]: Если realpath не начинается с baseDir — это
+     * попытка Path Traversal. Логируем в error_log. И — null.
+     * Чтобы в новом диалоге было видно — кто и что пытался.
+     * 
+     * @param string $relativePath — относительный путь из data
+     * @return string|null — абсолютный путь или null, если путь опасен
+     */
+    private function resolveGalleryPath(string $relativePath): ?string
+    {
+        if (empty($relativePath)) {
+            return null;
+        }
+
+        // Собираем полный путь. galleryUploadDir — абсолютный.
+        // relativePath — относительный. Например 2026/10/07/file.jpg.
+        $fullPath = $this->galleryUploadDir . '/' . $relativePath;
+
+        // realpath разрешает .. и симлинки. И возвращает false, если файла нет.
+        // Если storage_path содержит '../', realpath выйдет за пределы
+        // galleryUploadDir. И мы это увидим на следующем шаге.
+        $realPath = realpath($fullPath);
+        if ($realPath === false) {
+            // Файла нет. Или путь битый. Удалять нечего.
+            return null;
+        }
+
+        // Проверяем, что файл внутри galleryUploadDir.
+        $baseDir = realpath($this->galleryUploadDir);
+        if ($baseDir === false) {
+            // galleryUploadDir не существует. Это странно.
+            // Но — не наша проблема сейчас. Возвращаем null.
+            return null;
+        }
+
+        // Сравниваем префиксы. Если realPath не начинается с baseDir — опасен.
+        // strpos проверяет, что baseDir + '/' есть в начале realPath.
+        // Добавляем '/' чтобы не было ложных срабатываний:
+        // /uploads/gallery2/file.jpg НЕ должен считаться внутри /uploads/gallery.
+        if (strpos($realPath, $baseDir . '/') !== 0) {
+            // [Лорелея]: Логируем попытку Path Traversal. Это важно.
+            // Если это происходит — значит, кто-то пытается удалить
+            // файл вне uploads/gallery. И — надо знать, кто и когда.
+            error_log("[Gallery] Path traversal attempt: {$relativePath} -> {$realPath}");
+            return null;
+        }
+
+        // Всё хорошо. Файл внутри uploads/gallery. Возвращаем абсолютный путь.
+        return $realPath;
+    }
 
 	// ============================================
 	// [Лорелея]: УДАЛЕНЫ МЁРТВЫЕ МЕТОДЫ

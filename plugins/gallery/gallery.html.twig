@@ -236,13 +236,13 @@ function renderContent(html) {
 	if (isHome) {
 		breadcrumb += '<span class="text-muted">Главная</span>';
 	} else {
-		breadcrumb += '<a href="#" class="gold-text" onclick="galleryGoHome()">Главная</a>';
+		breadcrumb += '<a href="#" class="gold-text" onclick="galleryGoHome(); return false;">Главная</a>';
 	}
 
 	for (var i = 0; i < navigationHistory.length; i++) {
 		breadcrumb += ' <span class="text-muted">/</span> ' +
-			'<a href="#" class="gold-text" onclick="jumpTo(' + i + ')">' +
-			navigationHistory[i].name + '</a>';
+			'<a href="#" class="gold-text breadcrumb-link" data-index="' + i + '">' +
+			escapeHtml(navigationHistory[i].name) + '</a>';
 	}
 
 	if (!isHome) {
@@ -253,6 +253,13 @@ function renderContent(html) {
 	breadcrumb += '</div>';
 
 	document.getElementById('galleryContent').innerHTML = breadcrumb + html;
+
+	document.querySelectorAll('#galleryBreadcrumb .breadcrumb-link').forEach(function(link) {
+		link.addEventListener('click', function(e) {
+			e.preventDefault();
+			jumpTo(parseInt(this.dataset.index));
+		});
+	});
 
 	// [Лорелея]: Сбрасываем currentItemId — мы ушли из элемента.
 	currentItemId = null;
@@ -296,17 +303,17 @@ function loadItem(id, name) {
 		.then(function(d) {
 			if (d.success) {
 				var breadcrumb = '<div id="galleryBreadcrumb" class="mb-3">' +
-					'<a href="#" class="gold-text" onclick="galleryGoHome()">Главная</a>';
+					'<a href="#" class="gold-text" onclick="galleryGoHome(); return false;">Главная</a>';
 
 				for (var i = 0; i < navigationHistory.length; i++) {
 					breadcrumb += ' <span class="text-muted">/</span> ' +
-						'<a href="#" class="gold-text" onclick="jumpTo(' + i + ')">' +
+						'<a href="#" class="gold-text" onclick="jumpTo(' + i + '); return false;">' +
 						navigationHistory[i].name + '</a>';
 				}
 
 				if (currentParentId !== {{ rootId }}) {
 					breadcrumb += ' <span class="text-muted">/</span> ' +
-						'<a href="#" class="gold-text" onclick="goToSection(' + currentParentId + ', \'' + currentParentName + '\')">' +
+						'<a href="#" class="gold-text" onclick="goToSection(' + currentParentId + ', \'' + currentParentName + '\'); return false;">' +
 						currentParentName + '</a>';
 				}
 

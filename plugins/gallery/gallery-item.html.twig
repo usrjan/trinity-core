@@ -2,13 +2,13 @@
 {# Хлебные крошки #}
 {% if breadcrumbs is not empty %}
     <div class="mb-3">
-		<a href="#" class="gold-text" onclick="galleryGoHome()">Главная</a>
+		<a href="#" class="gold-text" onclick="galleryGoHome(); return false;">Главная</a>
         {% for bc in breadcrumbs %}
 			<span class="text-muted">/</span>
             {% if loop.last %}
                 <span class="text-muted">{{ bc.name }}</span>
             {% elseif bc.type == 'tree' %}
-                <a href="#" class="gold-text" onclick="goToSection({{ bc.id }}, '{{ bc.name|e('js') }}')">{{ bc.name }}</a>
+                <a href="#" class="gold-text" onclick="goToSection({{ bc.id }}, '{{ bc.name|e('js') }}'); return false;">{{ bc.name }}</a>
             {% endif %}
         {% endfor %}
     </div>

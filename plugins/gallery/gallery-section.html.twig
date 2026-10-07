@@ -1,6 +1,6 @@
 {% if currentParentId is defined and currentParentId != rootId %}
 	<div class="mb-3">
-		<a href="#" class="gold-text" onclick="goBackToParent({{ currentParentId }})">
+		<a href="#" class="gold-text" onclick="goBack(); return false;">
 			<i class="bi bi-arrow-left"></i> Назад
 		</a>
 	</div>
@@ -33,7 +33,11 @@
 				<div class="gallery-card-overlay"><span>{{ item.name }}</span></div>
 			</div>
 		{% elseif item.type == 'tree' %}
-			<div class="gallery-card tree-folder" onclick="navigateTo({{ item.id }}, '{{ item.name|e('js') }}')" title="{{ item.name }}">
+			<div class="gallery-card tree-folder" 
+				data-id="{{ item.id }}" 
+				data-name="{{ item.name|e('html_attr') }}"
+				onclick="navigateTo({{ item.id }}, '{{ item.name|e('js') }}')" 
+				title="{{ item.name }}">
 				{% if item.first_thumb %}
 					<img src="{{ gallery_url }}/{{ item.first_thumb }}" alt="{{ item.name }}" loading="lazy">
 				{% else %}
