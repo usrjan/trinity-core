@@ -75,6 +75,7 @@ namespace Jan\Trinity\Plugin\Gallery;
 
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -82,6 +83,7 @@ use Jan\Trinity\Plugin\Guard\GuardController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Twig\Environment;
@@ -107,6 +109,8 @@ class GalleryController
 	private GuardController $guard;
 
 	private ErrorHandlerInterface $errorHandler;
+
+	private Validator $validator;
 
 	/**
 	 * @var string Физический путь к папке загрузок галереи.
@@ -177,6 +181,7 @@ class GalleryController
 		GalleryImportService $galleryImport,
 		GuardController $guard,
 		ErrorHandlerInterface $errorHandler,
+		Validator $validator,
 		string $galleryUploadDir,
 		string $galleryUploadUrl
 	) {
@@ -186,6 +191,7 @@ class GalleryController
 		$this->galleryImport = $galleryImport;
 		$this->guard = $guard;
 		$this->errorHandler = $errorHandler;
+		$this->validator = $validator;
 
 		// [Мириам]: Убираем завершающий слэш, чтобы при склейке
 		// путей не получалось «//». Мелочь, но красиво.
@@ -635,8 +641,15 @@ class GalleryController
 		$parentId = (int) $request->request->get('parent_id', 0);
 		$files = $request->files->get('files');
 
-		if (!$files || !$parentId) {
-			return ApiResponse::error('Нет файлов или не указан родитель');
+		// [Лорелея]: Валидация parent_id. Через Validator.
+		if (!$this->validator->validate(['parent_id' => $parentId], [
+			'parent_id' => ['required', 'int', 'min:1'],
+		])) {
+			return ApiResponse::error('Некорректный parent_id', 400);
+		}
+
+		if (!$files) {
+			return ApiResponse::error('Нет файлов', 400);
 		}
 
 		$uploaded = [];
@@ -646,8 +659,49 @@ class GalleryController
 			try {
 				$id = $this->saveFile($file, $parentId);
 				$uploaded[] = $id;
-			} catch (\Exception $e) {
-				$errors[] = $file->getClientOriginalName() . ': ' . $e->getMessage();
+
+			} catch (\Throwable $e) {
+				// ============================================
+				// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
+				// ============================================
+				// Раньше здесь было:
+				//     $errors[] = $file->getClientOriginalName() . ': ' . $e->getMessage();
+				//
+				// И это — дыра. Потому что $e->getMessage() — это
+				// СЫРОЕ сообщение исключения. Оно уходило в JSON.
+				// Через ApiResponse::success(['errors' => $errors]).
+				// И — клиенту. В прод. Где APP_DEBUG=false.
+				//
+				// Что могло утечь:
+				//   - «Недопустимый MIME-тип: application/x-php»
+				//   - «Недопустимый путь хранения: ../../etc/passwd»
+				//   - «move_uploaded_file(): Unable to move '/tmp/phpXXXX'
+				//      to '/home/web/www/uploads/gallery/2026/10/09/...'»
+				//   - «mkdir(): Permission denied»
+				//   - Полные пути, имена таблиц, структура кода
+				//
+				// [Мириам]: В production клиент должен видеть только
+				// «Ошибка загрузки». Без деталей. Детали — в error_log.
+				// И — в логгер, если он есть.
+				//
+				// [Лорелея]: Я заменила `catch (\Exception $e)` на
+				// `catch (\Throwable $e)`. Потому что \Exception не
+				// ловит \Error (TypeError, ValueError, DivisionByZeroError).
+				// А они могут случиться. И — утечь. Потому что не поймаются.
+				//
+				// [Мириам]: error_log() — оставляем ВСЕГДА. И — с файлом
+				// и строкой. Чтобы в логе было видно, ГДЕ упало.
+				$logMessage = '[Gallery Upload] File: ' . $file->getClientOriginalName()
+					. ' | Error: ' . $e->getMessage()
+					. ' | At: ' . $e->getFile() . ':' . $e->getLine();
+
+				error_log($logMessage);
+
+				$clientMessage = $this->isDebug()
+					? $file->getClientOriginalName() . ': ' . $e->getMessage()
+					: $file->getClientOriginalName() . ': ошибка загрузки';
+
+				$errors[] = $clientMessage;
 			}
 		}
 
@@ -685,8 +739,26 @@ class GalleryController
 			try {
 				$fileId = $this->saveFileToItem($file, $id);
 				$uploaded[] = $fileId;
-			} catch (\Exception $e) {
-				$errors[] = $file->getClientOriginalName() . ': ' . $e->getMessage();
+
+			} catch (\Throwable $e) {
+				// ============================================
+				// [Мириам]: ТА ЖЕ ДЫРА. ТА ЖЕ ЗАЩИТА.
+				// ============================================
+				// См. комментарий в upload(). Здесь — то же самое.
+				// Разница только в контексте: мы загружаем в item,
+				// а не в раздел. Но утечка — та же. И защита — та же.
+				$logMessage = '[Gallery UploadToItem] File: ' . $file->getClientOriginalName()
+					. ' | Item: ' . $id
+					. ' | Error: ' . $e->getMessage()
+					. ' | At: ' . $e->getFile() . ':' . $e->getLine();
+
+				error_log($logMessage);
+
+				$clientMessage = $this->isDebug()
+					? $file->getClientOriginalName() . ': ' . $e->getMessage()
+					: $file->getClientOriginalName() . ': ошибка загрузки';
+
+				$errors[] = $clientMessage;
 			}
 		}
 
@@ -713,12 +785,43 @@ class GalleryController
 			return ApiResponse::error('Элемент не найден', 404);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$name = $body['name'] ?? null;
 		$description = $body['description'] ?? null;
 		$meta = $body['meta'] ?? null;
 		$year = $body['year'] ?? null;
 		$tags = $body['tags'] ?? null;
+
+		// [Мириам]: Валидация. Через Validator. Все поля. По отдельности.
+		if ($name !== null && !$this->validator->validate(['name' => $name], [
+			'name' => ['string', 'min:1', 'max:255'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
+		}
+
+		if ($year !== null && $year !== '' && !$this->validator->validate(['year' => $year], [
+			'year' => ['int', 'min:1000', 'max:2100'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
+		}
+
+		if ($tags !== null && !$this->validator->validate(['tags' => $tags], [
+			'tags' => ['array'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
+		}
 
 		if ($name !== null || $description !== null) {
 			if ($item['text']) {
@@ -1071,7 +1174,7 @@ class GalleryController
 
 		$this->neuronRepo->create('tree', ['slug' => 'gallery'], $mediaRoot['id']);
 
-		return new Response('', 302, ['Location' => '/gallery']);
+		return new RedirectResponse('/gallery');
 	}
 
 	/**
@@ -1143,7 +1246,19 @@ class GalleryController
 			return ApiResponse::error('Раздел не найден', 404);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$fileId = (int) ($body['file_id'] ?? 0);
 
 		$file = $this->neuronRepo->findById($fileId);
@@ -1180,12 +1295,31 @@ class GalleryController
 		if ($error = $this->requireAdminForApi()) return $error;
 		if ($error = $this->requireCsrf($request)) return $error;
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$name = trim($body['name'] ?? '');
 		$parentId = (int) ($body['parent_id'] ?? 0);
 
-		if (empty($name)) {
-			return ApiResponse::error('Название обязательно');
+		// [Лорелея]: Валидация. Через Validator. И name. И parent_id.
+		if (!$this->validator->validate([
+			'name'      => $name,
+			'parent_id' => $parentId,
+		], [
+			'name'      => ['required', 'string', 'min:1', 'max:255'],
+			'parent_id' => ['required', 'int', 'min:1'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
 		$textKey = $this->textRepo->findOrCreate('ru', $name);
@@ -1257,6 +1391,23 @@ class GalleryController
         // Всё хорошо. Файл внутри uploads/gallery. Возвращаем абсолютный путь.
         return $realPath;
     }
+
+	/**
+	 * Режим отладки из .env.
+	 *
+	 * [Лорелея]: Тот же метод, что и в Kernel, AdminController, ToolsController.
+	 * Локальный. Потому что GalleryController — не Kernel.
+	 *
+	 * [Мириам]: Если появится пятое место — вынесем в trait
+	 * `DebugAwareTrait`. Пока — четырёх достаточно. И — дублирование
+	 * в три строки — это не «дублирование». Это — «три строки».
+	 *
+	 * @return bool
+	 */
+	private function isDebug(): bool
+	{
+		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+	}
 
 	// ============================================
 	// [Лорелея]: УДАЛЕНЫ МЁРТВЫЕ МЕТОДЫ

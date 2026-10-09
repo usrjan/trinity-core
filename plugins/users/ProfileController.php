@@ -52,12 +52,14 @@
 namespace Jan\Trinity\Plugin\Users;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Plugin\Guard\GuardController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Twig\Environment;
@@ -78,6 +80,8 @@ class ProfileController
 	/** @var GuardController — CSRF-защита */
 	private GuardController $guard;
 
+	private Validator $validator;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -87,12 +91,14 @@ class ProfileController
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
-		GuardController $guard
+		GuardController $guard,
+		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->guard = $guard;
+		$this->validator = $validator;
 
 		// Инициализация middleware авторизации
 		$this->initAuth($session);
@@ -123,7 +129,7 @@ class ProfileController
 		if (!$user || $user['type'] !== 'user') {
 			// Пользователь не найден — очищаем сессию
 			$this->session->clear();
-			return new Response('', 302, ['Location' => '/login']);
+			return new RedirectResponse('/login');
 		}
 
 		// Извлекаем данные из JSON
@@ -176,7 +182,7 @@ class ProfileController
 		$userId = $this->session->get('user_id');
 		$user = $this->neuronRepo->findById($userId);
 		if (!$user || $user['type'] !== 'user') {
-			return new Response('', 302, ['Location' => '/login']);
+			return new RedirectResponse('/login');
 		}
 
 		$data = is_string($user['data'] ?? null)
@@ -262,7 +268,7 @@ class ProfileController
 		$token = $request->request->get('_csrf_token', '');
 		if (!$this->guard->validateCsrfToken($token)) {
 			$this->session->set('profile_error', 'Недействительный токен безопасности.');
-			return new Response('', 302, ['Location' => '/profile/edit']);
+			return new RedirectResponse('/profile/edit');
 		}
 
 		// ============================================
@@ -289,30 +295,52 @@ class ProfileController
 		// ============================================
 		// Смена пароля (опционально)
 		// ============================================
+
+		// [Лорелея]: Валидация основных полей. Через Validator.
+		if (!$this->validator->validate([
+			'lang'  => $lang,
+			'email' => $email,
+			'phone' => $phone,
+		], [
+			'lang'  => ['required', 'in:ru,en,it,de,fr'],
+			'email' => ['nullable', 'email', 'max:255'],
+			'phone' => ['nullable', 'string', 'max:50', 'regex:/^\+?[0-9\s\-()]+$/u'],
+		])) {
+			$this->session->set('profile_error', $this->validator->getFirstError());
+			return new RedirectResponse('/profile/edit');
+		}
+
+		// [Мириам]: Пароль. Если меняем. Всё через Validator.
 		if (!empty($newPassword)) {
-			// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Проверяем ТЕКУЩИЙ пароль.
-			// Без этого любой, кто получил доступ к сессии,
-			// мог сменить пароль и заблокировать владельца.
+			if (!$this->validator->validate([
+				'current_password' => $currentPassword,
+				'new_password'     => $newPassword,
+				'password_confirm' => $passwordConfirm,
+			], [
+				'current_password' => ['required', 'string', 'min:1'],
+				'new_password'     => ['required', 'string', 'min:8', 'max:255'],
+				'password_confirm' => ['required', 'string'],
+			])) {
+				$this->session->set('profile_error', $this->validator->getFirstError());
+				return new RedirectResponse('/profile/edit');
+			}
+
+			// [Лорелея]: Проверка текущего пароля. Не через Validator.
+			// Потому что Validator не знает про password_verify.
+			// Это — логика контроллера. И — это правильно.
 			$hash = $data['password_hash'] ?? '';
 			if (!password_verify($currentPassword, $hash)) {
-				error_log("[Profile] password_verify failed. current={$currentPassword}, hash={$hash}");
 				$this->session->set('profile_error', 'Неверный текущий пароль');
-				return new Response('', 302, ['Location' => '/profile/edit']);
+				return new RedirectResponse('/profile/edit');
 			}
 
-			// Проверка совпадения нового пароля и подтверждения
+			// [Мириам]: Совпадение паролей. Тоже вручную. Потому что
+			// это — сравнение двух полей. А Validator так не умеет. Пока.
 			if ($newPassword !== $passwordConfirm) {
 				$this->session->set('profile_error', 'Пароли не совпадают');
-				return new Response('', 302, ['Location' => '/profile/edit']);
+				return new RedirectResponse('/profile/edit');
 			}
 
-			// Проверка минимальной длины
-			if (strlen($newPassword) < 8) {
-				$this->session->set('profile_error', 'Пароль должен быть не менее 8 символов');
-				return new Response('', 302, ['Location' => '/profile/edit']);
-			}
-
-			// Хешируем новый пароль
 			$data['password_hash'] = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 12]);
 		}
 
@@ -323,7 +351,7 @@ class ProfileController
 		error_log("[Profile] update called. user_id={$userId}, data=" . json_encode($data));
 
 		// Редирект на просмотр профиля
-		return new Response('', 302, ['Location' => '/profile']);
+		return new RedirectResponse('/profile');
 	}
 
 	// ============================================

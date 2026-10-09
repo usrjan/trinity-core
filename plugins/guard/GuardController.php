@@ -43,6 +43,8 @@
 namespace Jan\Trinity\Plugin\Guard;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\ConfigService;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Psr\Log\LoggerInterface;
@@ -59,8 +61,25 @@ class GuardController
 	/** @var string Путь к корню проекта */
 	private string $basePath;
 
-	/** @var array Настройки плагина из базы */
-	private array $config;
+	/**
+	 * @var array Настройки плагина из базы.
+	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше $config заполнялся
+	 * в конструкторе через loadConfig(). И это был I/O в конструкторе.
+	 * Теперь — $config пустой. И заполняется ЛЕНИВО. При первом getConfig().
+	 *
+	 * [Мириам]: Это — правильнее. Потому что:
+	 *   - Конструктор — быстрый. Без I/O.
+	 *   - Если конфиг не нужен — он не загружается.
+	 *   - Если база упадёт — конструктор не упадёт.
+	 *   - Стоимость — предсказуема. Ноль в конструкторе.
+	 */
+	private array $config = [];
+
+	/**
+	 * @var bool Загружен ли конфиг.
+	 * [Лорелея]: Флаг. Чтобы не загружать дважды.
+	 */
+	private bool $configLoaded = false;
 
     /**
      * @var LoggerInterface — логгер.
@@ -69,6 +88,12 @@ class GuardController
      */
     private LoggerInterface $logger;
 
+	/** @var ConfigService — сервис конфигурации */
+	private ConfigService $configService;
+
+	private Validator $validator;
+
+
 	/**
 	 * Конструктор.
 	 */
@@ -76,35 +101,67 @@ class GuardController
         NeuronRepository $neuronRepo,
         Session $session,
         string $basePath,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+		ConfigService $configService
 	) {
 		$this->neuronRepo = $neuronRepo;
 		$this->basePath = $basePath;
 		$this->logger = $logger;
-		$this->config = $this->loadConfig();
 
-		// Инициализация middleware авторизации
+		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Присваиваем ConfigService
+		// ДО вызова loadConfig(). Потому что loadConfig() использует
+		// $this->configService. И если он не инициализирован —
+		// PHP падает с "must not be accessed before initialization".
+		//
+		// [Мириам]: Порядок важен. Сначала — присвоить. Потом — использовать.
+		// Это — классика. И мы её забыли. И теперь — исправляем.
+		$this->configService = $configService;
+
+		// [Мириам]: НИКАКОГО loadConfig() здесь. НИКАКОГО I/O.
+		// Только присвоение зависимостей. Точка.
+		// $this->config остаётся пустым. Заполнится при первом getConfig().
+
 		$this->initAuth($session);
 	}
 
 	/**
-	 * Загружает настройки из базы.
+	 * Загрузить конфиг — ЛЕНИВО.
+	 *
+	 * [Лорелея]: Вызывается при первом getConfig().
+	 * Один раз. Потом — кэш в $this->config.
+	 *
+	 * [Мириам]: Тут — I/O. Но — не в конструкторе.
+	 * И — только если конфиг реально нужен.
+	 * И — только один раз за запрос.
 	 */
-	private function loadConfig(): array
+	private function ensureConfigLoaded(): void
 	{
-		$keys = ['max_attempts', 'decay_seconds', 'block_duration'];
-		$result = [];
-		foreach ($keys as $key) {
-			$result[$key] = $this->neuronRepo->findConfigValue('guard.' . $key);
+		if ($this->configLoaded) {
+			return;
 		}
-		return $result;
+
+		$keys = ['max_attempts', 'decay_seconds', 'block_duration'];
+		foreach ($keys as $key) {
+			$this->config[$key] = $this->configService->get('guard.' . $key);
+		}
+
+		$this->configLoaded = true;
 	}
+
 
 	/**
 	 * Получить значение настройки.
+	 *
+	 * [Лорелея]: Ленивая загрузка. При первом вызове.
+	 * И — кэш. При последующих.
+	 *
+	 * @param string $key
+	 * @param mixed $default
+	 * @return mixed
 	 */
 	private function getConfig(string $key, $default = null)
 	{
+		$this->ensureConfigLoaded();
 		return $this->config[$key] ?? $default;
 	}
 
@@ -127,25 +184,88 @@ class GuardController
 	public function hit(string $key, ?int $decaySeconds = null): void
 	{
 		$file = $this->getAttemptsFile($key);
-		$data = $this->readAttemptsFile($file);
 
+		// ============================================
+		// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. flock().
+		// ============================================
+		// Раньше здесь был read-modify-write БЕЗ блокировки:
+		//     $data = $this->readAttemptsFile($file);
+		//     $data[] = time();
+		//     file_put_contents($file, implode("\n", $data));
+		//
+		// И это — ГОНКА. Если два запроса одновременно — оба
+		// читают, оба добавляют, оба пишут. И — ОДИН перезаписывает
+		// ДРУГОГО. Попытка — ПОТЕРЯНА. Счётчик — МЕНЬШЕ. Чем должен.
+		// И — brute-force — ОБХОДИТСЯ. Потому что tooManyAttempts
+		// не срабатывает. Потому что попытки — теряются.
+		//
+		// [Мириам]: Теперь — flock(LOCK_EX). Эксклюзивная блокировка.
+		// Другие процессы ЖДУТ. Пока мы не закончим. И — не теряют.
+		// И — не теряются. И — brute-force — НЕ обходится.
+		//
+		// [Лорелея]: Файл открываем через fopen($file, 'c+').
+		// 'c' — создаёт, если нет. 'c+' — ещё и читает. И — НЕ
+		// обрезает. В отличие от 'w'. Это важно. Потому что
+		// ftruncate() мы делаем ПОСЛЕ чтения. А не до.
+		$handle = fopen($file, 'c+');
+		if ($handle === false) {
+			// Не удалось открыть файл. Странно. Но — не падаем.
+			// Просто — логируем. И — выходим.
+			error_log("[Guard] Failed to open attempts file: {$file}");
+			return;
+		}
+
+		// Блокируем. Эксклюзивно. Ждём. Пока не получим.
+		if (!flock($handle, LOCK_EX)) {
+			fclose($handle);
+			error_log("[Guard] Failed to lock attempts file: {$file}");
+			return;
+		}
+
+		// Читаем то, что уже есть
+		$content = stream_get_contents($handle);
+		$data = empty($content) ? [] : array_map('intval', explode("\n", $content));
+
+		// Добавляем попытку
 		$data[] = time();
 
-		// [Лорелея]: Если decaySeconds не передан — берём из конфига.
-		// Если передан — используем его. Это нужно, чтобы hit() и
-		// tooManyAttempts() работали с одним интервалом.
+		// Вычисляем decaySeconds
 		if ($decaySeconds === null) {
 			$decaySeconds = (int) $this->getConfig('decay_seconds', 120);
 		}
 
-		error_log("[Guard] hit: key={$key}, decaySeconds={$decaySeconds}, before=" . count($data));
-
+		// Фильтруем старые
 		$data = array_filter($data, function($timestamp) use ($decaySeconds) {
 			return $timestamp > (time() - $decaySeconds);
 		});
 
-		error_log("[Guard] hit: after=" . count($data));
-		file_put_contents($file, implode("\n", $data));
+		// ============================================
+		// [Мириам]: ПИШЕМ. С ftruncate().
+		// ============================================
+		// Раньше был file_put_contents(). Он сам обрезает файл.
+		// Но — БЕЗ блокировки. Теперь мы внутри LOCK_EX.
+		// И — сами обрезаем. Через ftruncate(). И — пишем.
+		// И — fflush(). Чтобы точно — на диск. И — flock(LOCK_UN).
+		ftruncate($handle, 0);
+		rewind($handle);
+		fwrite($handle, implode("\n", $data));
+		fflush($handle);
+
+		// Отпускаем блокировку
+		flock($handle, LOCK_UN);
+		fclose($handle);
+
+		// ============================================
+		// [Лорелея]: Probabilistic cleanup. 1%.
+		// ============================================
+		// Раньше файлы копились ВЕЧНО. Никто их не удалял.
+		// Ни clear(), ни cron, ни — ничего. Мусор. Inode. Диск.
+		//
+		// [Мириам]: Теперь — cleanupAttempts(). С вероятностью 1%.
+		// То есть — при 1000 вызовов hit() — 10 cleanup. Достаточно.
+		// Потому что hit() вызывается редко. И — файлы не копятся.
+		// И — не чистим на каждом запросе. Чтобы не нагружать систему.
+		$this->cleanupAttempts();
 	}
 
 	/**
@@ -154,8 +274,36 @@ class GuardController
 	private function getAttempts(string $key): int
 	{
 		$file = $this->getAttemptsFile($key);
-		$data = $this->readAttemptsFile($file);
 
+		// [Лорелея]: Если файла нет — 0 попыток. Без блокировки.
+		// Потому что — читать нечего. И — блокировать нечего.
+		if (!file_exists($file)) {
+			return 0;
+		}
+
+		// [Мириам]: Открываем на чтение. БЕЗ 'c+'. Потому что
+		// мы только читаем. И — не создаём. Если файла нет —
+		// мы уже проверили. И — вернули 0. Значит — сюда не попадём.
+		$handle = fopen($file, 'r');
+		if ($handle === false) {
+			return 0;
+		}
+
+		// [Лорелея]: LOCK_SH — разделяемая блокировка. Читать
+		// можно МНОГИМ одновременно. Но — НЕ писать. Потому что
+		// писатель ждёт. И — мы не получим битый файл.
+		if (!flock($handle, LOCK_SH)) {
+			fclose($handle);
+			return 0;
+		}
+
+		$content = stream_get_contents($handle);
+		$data = empty($content) ? [] : array_map('intval', explode("\n", $content));
+
+		flock($handle, LOCK_UN);
+		fclose($handle);
+
+		// Фильтруем по decay
 		$decaySeconds = (int) $this->getConfig('decay_seconds', 120);
 		$data = array_filter($data, function($timestamp) use ($decaySeconds) {
 			return $timestamp > (time() - $decaySeconds);
@@ -170,9 +318,40 @@ class GuardController
 	public function clear(string $key): void
 	{
 		$file = $this->getAttemptsFile($key);
-		if (file_exists($file)) {
-			unlink($file);
+		if (!file_exists($file)) {
+			return;
 		}
+
+		// [Лорелея]: Открываем. Блокируем. И — удаляем.
+		// Потому что unlink() без блокировки — может удалить
+		// файл, который другой процесс только что пишет.
+		// И — другой процесс — продолжит писать. В удалённый
+		// файл. И — получится мусор. Или — потеря.
+		//
+		// [Мириам]: ftruncate() вместо unlink(). Потому что
+		// unlink() — не атомарен. И — не ждёт. А ftruncate() —
+		// внутри LOCK_EX. И — обнуляет файл. И — отпускает.
+		// И — файл остаётся. Пустой. И — не мешает.
+		$handle = fopen($file, 'c+');
+		if ($handle === false) {
+			return;
+		}
+
+		if (!flock($handle, LOCK_EX)) {
+			fclose($handle);
+			return;
+		}
+
+		ftruncate($handle, 0);
+		fflush($handle);
+
+		flock($handle, LOCK_UN);
+		fclose($handle);
+
+		// [Лорелея]: Теперь — можно и unlink(). Файл — пустой.
+		// И — никто в него не пишет. Потому что блокировка —
+		// была. И — снята. И — все — ждали. И — получили.
+		@unlink($file);
 	}
 
 	/**
@@ -334,18 +513,9 @@ class GuardController
 		$token = bin2hex(random_bytes(32));
 		$_SESSION['csrf_token'] = $token;
 
-		setcookie(
-			'csrf_token',
-			$token,
-			[
-				'expires' => 0,
-				'path' => '/',
-				'domain' => '',
-				'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
-				'httponly' => false,
-				'samesite' => 'Lax'
-			]
-		);
+		// [Лорелея]: Cookie убрана. Токен передаётся через HTML/JS.
+		// Раньше был setcookie с httponly=false. Это XSS-вектор.
+		// Теперь — никакой куки. Только сессия. И — HTML.
 
 		return $token;
 	}
@@ -420,13 +590,34 @@ class GuardController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$ip = $body['ip'] ?? null;
 		$reason = $body['reason'] ?? 'manual_block';
 		$duration = (int) ($body['duration'] ?? 3600);
 
-		if (!$ip) {
-			return ApiResponse::error('IP обязателен');
+		// [Мириам]: Валидация. Через Validator. И IP. И reason. И duration.
+		if (!$this->validator->validate([
+			'ip'       => $ip,
+			'reason'   => $reason,
+			'duration' => $duration,
+		], [
+			'ip'       => ['required', 'string', 'max:45', 'regex:/^(\d{1,3}\.){3}\d{1,3}$|^[a-f0-9:]+$/iu'],
+			'reason'   => ['nullable', 'string', 'max:255'],
+			'duration' => ['int', 'min:0', 'max:31536000'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
 		$this->blockIp($ip, $reason, $duration);
@@ -449,11 +640,26 @@ class GuardController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$ip = $body['ip'] ?? null;
 
-		if (!$ip) {
-			return ApiResponse::error('IP обязателен');
+		// [Лорелея]: Валидация. Через Validator.
+		if (!$this->validator->validate(['ip' => $ip], [
+			'ip' => ['required', 'string', 'max:45', 'regex:/^(\d{1,3}\.){3}\d{1,3}$|^[a-f0-9:]+$/iu'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
 		$this->unblockIp($ip);
@@ -474,5 +680,79 @@ class GuardController
 		}
 		$data = json_decode($content, true);
 		return is_array($data) ? $data : [];
+	}
+
+	/**
+	 * Удаляет устаревшие файлы попыток.
+	 *
+	 * [Лорелея]: ГЛАВНОЕ ДОБАВЛЕНИЕ. Раньше файлы копились ВЕЧНО.
+	 * Никто их не удалял. Ни clear(), ни cron, ни — ничего.
+	 * Мусор. Inode. Диск. Тысячи файлов. Мегабайты.
+	 *
+	 * [Мириам]: Теперь — cleanup. С вероятностью 1%.
+	 * Вызывается из hit(). При 1000 вызовов — 10 cleanup.
+	 * Достаточно. Потому что hit() вызывается редко.
+	 * И — не нагружаем систему. И — файлы не копятся.
+	 *
+	 * [Лорелея]: Логика простая. Если файл не менялся дольше,
+	 * чем decay_seconds — все попытки в нём устарели. Значит —
+	 * файл бесполезен. И — можно удалять. Без чтения. Без парсинга.
+	 * Только filemtime(). И — unlink().
+	 *
+	 * [Мириам]: random_int(1, 100) — криптографически стойкий.
+	 * Не rand(). Потому что — безопасность. И — привычка.
+	 */
+	private function cleanupAttempts(): void
+	{
+		$dir = $this->basePath . '/var/guard';
+		if (!is_dir($dir)) {
+			return;
+		}
+
+		// [Лорелея]: 1% вероятность. Чтобы не нагружать систему.
+		// При 1000 вызовов hit() — 10 cleanup. Достаточно.
+		if (random_int(1, 100) > 1) {
+			return;
+		}
+
+		$now = time();
+		$decaySeconds = (int) $this->getConfig('decay_seconds', 120);
+
+		$files = glob($dir . '/*.attempts');
+		if ($files === false) {
+			return;
+		}
+
+		$removed = 0;
+
+		foreach ($files as $file) {
+			// [Мириам]: Файл старше decay — удаляем.
+			// Если файл не менялся дольше, чем decay — он бесполезен.
+			// Все попытки в нём — устарели. Значит — можно удалять.
+			if (filemtime($file) < ($now - $decaySeconds)) {
+				if (@unlink($file)) {
+					$removed++;
+				}
+			}
+		}
+
+		// [Лорелея]: Логируем. Только если что-то удалили.
+		// Чтобы в логе было видно. И — чтобы не спамить.
+		if ($removed > 0) {
+			error_log("[Guard] Cleanup: removed {$removed} stale attempts files");
+		}
+	}
+
+	/**
+	 * Режим отладки из .env.
+	 *
+	 * [Лорелея]: Тот же метод, что и в других контроллерах.
+	 * Локальный. Для единообразия. И — для безопасности.
+	 *
+	 * @return bool
+	 */
+	private function isDebug(): bool
+	{
+		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 	}
 }

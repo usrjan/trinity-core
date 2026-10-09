@@ -35,6 +35,7 @@ namespace Jan\Trinity\Plugin\Map;
 
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
@@ -59,6 +60,8 @@ class MapController
 
 	private ErrorHandlerInterface $errorHandler;
 
+	private Validator $validator;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -68,13 +71,15 @@ class MapController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
-		ErrorHandlerInterface $errorHandler
+		ErrorHandlerInterface $errorHandler,
+		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
 		$this->errorHandler = $errorHandler;
+		$this->validator = $validator;
 	}
 
 	// ============================================

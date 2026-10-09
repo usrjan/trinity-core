@@ -31,17 +31,18 @@
 namespace Jan\Trinity\Plugin\Admin;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
-use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Plugin\Guard\GuardController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Twig\Environment;
+use Psr\Log\LoggerInterface;
 
 class AdminController
 {
@@ -62,6 +63,11 @@ class AdminController
 	/** @var GuardController — CSRF-защита */
 	private GuardController $guard;
 
+	/** @var LoggerInterface — логгер */
+	private LoggerInterface $logger;
+
+	private Validator $validator;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -72,13 +78,17 @@ class AdminController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
-		GuardController $guard
+		GuardController $guard,
+		LoggerInterface $logger,
+		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
 		$this->guard = $guard;
+		$this->logger = $logger;
+		$this->validator = $validator;
 
 		// Инициализация middleware авторизации
 		$this->initAuth($session);
@@ -281,34 +291,53 @@ class AdminController
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$type = $body['type'] ?? 'item';
 		$pid = $body['pid'] ?? null;
 		$data = $body['data'] ?? [];
 
-		// Валидация типа и JSON
-		$validator = new Validator();
-		$isValid = $validator->validate([
+		// [Лорелея]: Валидация. Всё в одном месте. Через $this->validator.
+		// Не через new Validator(). А через DI. Потому что он уже
+		// внедрён в конструктор. И — потому что это правильно.
+		$isValid = $this->validator->validate([
 			'type' => $type,
-			'data' => json_encode($data),
+			'pid'  => $pid,
+			'data' => $data,
 		], [
 			'type' => ['required', 'in:tree,item,file,user,calc,plugin,migration,route,config,template'],
-			'data' => ['json'],
+			'pid'  => ['nullable', 'int', 'min:1'],
+			'data' => ['array'],
 		]);
 
 		if (!$isValid) {
-			return ApiResponse::error(implode('; ', $validator->getErrors()), 400);
+			return ApiResponse::error($this->validator->getFirstError() ?? 'Ошибка валидации', 400);
 		}
 
-		// Валидация slug (если указан)
-		if (!empty($data['slug']) && !preg_match('/^[a-z0-9_-]+$/i', $data['slug'])) {
-			return ApiResponse::error(
-				'Slug должен содержать только латиницу, цифры, дефис и подчёркивание',
-				400
+		// [Мириам]: slug проверяем отдельно. Потому что он в data.
+		// И потому что Validator проверяет поля верхнего уровня.
+		// А data — вложенный. Но можно и через Validator. С regex.
+		if (!empty($data['slug'])) {
+			$slugValid = $this->validator->validate(
+				['slug' => $data['slug']],
+				['slug' => ['regex:/^[a-z0-9_-]+$/iu', 'max:255']]
 			);
+			if (!$slugValid) {
+				return ApiResponse::error($this->validator->getFirstError(), 400);
+			}
 		}
 
-		// Создаём нейрон
 		$id = $this->neuronRepo->create($type, $data, $pid);
 
 		return ApiResponse::success(['id' => $id]);
@@ -332,39 +361,66 @@ class AdminController
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$fields = [];
 
-		// Валидация типа (если передан)
+		// [Лорелея]: Валидация. Через $this->validator. С pid. С type.
+		// И — с id. Потому что id — тоже входные данные. И — int.
+		if (!$this->validator->validate(['id' => $id], ['id' => ['required', 'int', 'min:1']])) {
+			return ApiResponse::error('Некорректный ID', 400);
+		}
+
 		if (isset($body['type'])) {
-			$validator = new Validator();
-			$isValid = $validator->validate(['type' => $body['type']], [
+			if (!$this->validator->validate(['type' => $body['type']], [
 				'type' => ['in:tree,item,file,user,calc,plugin,migration,route,config,template'],
-			]);
-			if (!$isValid) {
-				return ApiResponse::error(implode('; ', $validator->getErrors()), 400);
+			])) {
+				return ApiResponse::error($this->validator->getFirstError(), 400);
 			}
 			$fields['type'] = $body['type'];
 		}
 
-		// Изменение родителя
 		if (isset($body['pid'])) {
+			// [Мириам]: pid — nullable. И int. И min:1.
+			if ($body['pid'] !== null && $body['pid'] !== '') {
+				if (!$this->validator->validate(['pid' => $body['pid']], [
+					'pid' => ['int', 'min:1'],
+				])) {
+					return ApiResponse::error($this->validator->getFirstError(), 400);
+				}
+			}
 			$fields['pid'] = $body['pid'] ? (int) $body['pid'] : null;
 		}
 
-		// Изменение data
 		if (isset($body['data'])) {
-			// Валидация slug (если есть в data)
-			if (!empty($body['data']['slug']) && !preg_match('/^[a-z0-9_-]+$/i', $body['data']['slug'])) {
-				return ApiResponse::error(
-					'Slug должен содержать только латиницу, цифры, дефис и подчёркивание',
-					400
-				);
+			if (!$this->validator->validate(['data' => $body['data']], [
+				'data' => ['array'],
+			])) {
+				return ApiResponse::error($this->validator->getFirstError(), 400);
+			}
+
+			// [Лорелея]: slug — через Validator. Если есть.
+			if (!empty($body['data']['slug'])) {
+				if (!$this->validator->validate(['slug' => $body['data']['slug']], [
+					'slug' => ['regex:/^[a-z0-9_-]+$/iu', 'max:255'],
+				])) {
+					return ApiResponse::error($this->validator->getFirstError(), 400);
+				}
 			}
 			$fields['data'] = $body['data'];
 		}
 
-		// Применяем изменения
 		if (!empty($fields)) {
 			$this->neuronRepo->update($id, $fields);
 		}
@@ -447,8 +503,24 @@ class AdminController
 		if ($error = $this->requireAdminForApi()) return $error;
 
 		$file = $request->files->get('file');
-		if (!$file || $file->getError() !== UPLOAD_ERR_OK) {
+
+		// [Лорелея]: Валидация файла. Через Validator. Где возможно.
+		// Но UploadedFile — это не массив. Это объект. Поэтому —
+		// проверяем вручную. Но — структурированно. И — с понятными ошибками.
+		if (!$file || !($file instanceof \Symfony\Component\HttpFoundation\File\UploadedFile)) {
 			return ApiResponse::error('Файл не загружен', 400);
+		}
+
+		if ($file->getError() !== UPLOAD_ERR_OK) {
+			return ApiResponse::error('Ошибка загрузки файла: ' . $file->getErrorMessage(), 400);
+		}
+
+		// [Мириам]: Расширение — через Validator. С regex.
+		$extension = strtolower($file->getClientOriginalExtension());
+		if (!$this->validator->validate(['ext' => $extension], [
+			'ext' => ['required', 'in:xlsx,xls'],
+		])) {
+			return ApiResponse::error('Недопустимое расширение файла', 400);
 		}
 
 		try {
@@ -467,9 +539,52 @@ class AdminController
 			]);
 
 			return ApiResponse::success($result);
+
 		} catch (\Throwable $e) {
-			error_log('[Trinity Import] ' . $e->getMessage());
-			return ApiResponse::error('Ошибка импорта: ' . $e->getMessage(), 500);
+			// ============================================
+			// [Мириам]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
+			// ============================================
+			// Раньше здесь было:
+			//     return ApiResponse::error('Ошибка импорта: ' . $e->getMessage(), 500);
+			//
+			// И это — дыра. Потому что $e->getMessage() — это СЫРОЕ
+			// сообщение исключения. Оно уходило в JSON. И — клиенту.
+			// Через ApiResponse::error(). В прод. Где APP_DEBUG=false.
+			//
+			// Что могло утечь:
+			//   - PhpOffice\PhpSpreadsheet\Reader\Exception: Could not open...
+			//   - SQLSTATE[23000]: Integrity constraint violation...
+			//   - Полные пути: /home/web/vendor/jan/trinity-core/plugins/admin/ExcelImportService.php:234
+			//   - Имена таблиц, колонок, структура базы
+			//
+			// [Лорелея]: В production клиент должен видеть только
+			// «Ошибка импорта». Без деталей. Детали — в error_log.
+			//
+			// [Мириам]: В dev-режиме (APP_DEBUG=true) — показываем
+			// сырое сообщение. Потому что это разработка.
+			//
+			// [Лорелея]: error_log() — оставляем ВСЕГДА. Потому что
+			// даже в проде мы хотим знать, что упало. Просто — в логе,
+			// а не у клиента. Это — правильно. Это — наше.
+			$logMessage = '[Trinity Import] ' . $e->getMessage()
+				. ' in ' . $e->getFile() . ':' . $e->getLine();
+
+			error_log($logMessage);
+
+			// Если есть логгер — пишем и туда
+			if (isset($this->logger)) {
+				$this->logger->error('Excel import failed', [
+					'message' => $e->getMessage(),
+					'file'    => $e->getFile() . ':' . $e->getLine(),
+					'trace'   => $e->getTraceAsString(),
+				]);
+			}
+
+			$clientMessage = $this->isDebug()
+				? 'Ошибка импорта: ' . $e->getMessage()
+				: 'Ошибка импорта. Подробности в логах.';
+
+			return ApiResponse::error($clientMessage, 500);
 		}
 	}
 
@@ -559,5 +674,23 @@ class AdminController
 		$html .= '</div>';
 
 		return ApiResponse::success(['html' => $html]);
+	}
+
+	/**
+	 * Режим отладки из .env.
+	 *
+	 * [Лорелея]: Тот же метод, что и в Kernel. Но — локальный.
+	 * Потому что AdminController не наследуется от Kernel.
+	 * И не должен. Это — разные слои.
+	 *
+	 * [Мириам]: Можно было бы вынести в trait. Но — не стоит.
+	 * Это — три строки. И — два места. Дублирование — допустимо.
+	 * Если появится третье — вынесем.
+	 *
+	 * @return bool
+	 */
+	private function isDebug(): bool
+	{
+		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 	}
 }

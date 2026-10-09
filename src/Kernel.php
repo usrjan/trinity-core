@@ -75,6 +75,7 @@ use Symfony\Component\Routing\Exception\MethodNotAllowedException;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\ConfigService;
 
 class Kernel
 {
@@ -93,9 +94,24 @@ class Kernel
 	/**
 	 * @var Cache|null Файловый кэш.
 	 * [Лорелея]: Может быть null, если кэш отключён в .env.
-	 * Тогда loadConfig и loadRoutesFromDatabase работают напрямую.
 	 */
 	private ?Cache $cache = null;
+
+	/**
+	 * @var ConfigService|null — сервис конфигурации.
+	 *
+	 * [Лорелея]: ГЛАВНОЕ ДОБАВЛЕНИЕ. Раньше этого свойства
+	 * не было. И — PHP создавал его динамически. В PHP 8.2+
+	 * это — deprecated. И — warning в логе.
+	 *
+	 * [Мириам]: Теперь — объявлено. С типом. С nullable.
+	 * Потому что — может быть null. Если ConfigService
+	 * не зарегистрирован в контейнере.
+	 *
+	 * [Лорелея]: И — не deprecated. И — без warning.
+	 * И — чисто.
+	 */
+	private ?ConfigService $configService = null;
 
 	// ============================================
 	// РОЖДЕНИЕ
@@ -164,22 +180,23 @@ class Kernel
 	private function loadConfig(): void
 	{
 		try {
-			$cacheKey = 'trinity.config';
+			if ($this->container->has(ConfigService::class)) {
+				$this->configService = $this->container->get(ConfigService::class);
+				$this->configService->load();
+				$this->config = $this->configService->all();
+				return;
+			}
 
-			// Если кэш включён — берём из него или вычисляем и кладём
+			$cacheKey = 'trinity.config';
 			if ($this->cache !== null && $this->cache->isEnabled()) {
 				$this->config = $this->cache->remember($cacheKey, function () {
 					return $this->fetchConfigFromDatabase();
 				}, 3600);
 				return;
 			}
-
-			// Кэш выключен — грузим напрямую
 			$this->config = $this->fetchConfigFromDatabase();
 
 		} catch (\Throwable $e) {
-			// База ещё не готова — используем значения по умолчанию
-			// [Лорелея]: Это нормально при первом запуске. Не логируем.
 			$this->config = [];
 		}
 	}
@@ -316,8 +333,6 @@ class Kernel
 			$response = $controller->$method(...$args);
 
 			// [Лорелея]: CORS теперь через applyCorsHeaders(). Whitelist из .env.
-			// Раньше было `Access-Control-Allow-Origin: *`. Это небезопасно
-			// при cookie-сессиях.
 			$this->applyCorsHeaders($request, $response);
 			$response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
 			$response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
@@ -327,20 +342,61 @@ class Kernel
 			// через ErrorHandlerInterface. Чтобы логировалась.
 			// И чтобы показывалась в стиле Trinity.
 			//
-			// [Мириам]: Раньше было просто `Response('Not Found', 404)`.
-			// Без логирования. Без страницы. И это — неправильно.
+			// [Мириам]: Сообщение здесь — НАШЕ. Не сырое. «Страница
+			// не найдена». Это безопасно в проде. ResourceNotFoundException
+			// не содержит чувствительных данных — только путь запроса.
 			$response = $this->renderError(404, 'Страница не найдена', $e);
 			$this->applyCorsHeaders($request, $response);
 
 		} catch (MethodNotAllowedException $e) {
 			// [Лорелея]: 405 — то же самое. Через интерфейс.
+			// Сообщение — НАШЕ. «Метод не поддерживается».
+			// Безопасно в проде.
 			$response = $this->renderError(405, 'Метод не поддерживается', $e);
 			$this->applyCorsHeaders($request, $response);
 
 		} catch (\Throwable $e) {
-			$response = $this->renderError(500, $e->getMessage(), $e);
+			// ============================================
+			// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
+			// ============================================
+			// Раньше здесь было:
+			//     $response = $this->renderError(500, $e->getMessage(), $e);
+			//
+			// И это — дыра. Потому что $e->getMessage() — это СЫРОЕ
+			// сообщение исключения. Оно уходило в error.html.twig
+			// через {{ message }}. И — клиенту. В прод. Где
+			// APP_DEBUG=false. Где мы СКРЫВАЕМ ошибки. А тут —
+			// ПОКАЗЫВАЕМ. Через страницу ошибки.
+			//
+			// Что могло утечь:
+			//   - SQLSTATE[42S02]: Table 'trinity_core.users' doesn't exist
+			//   - Call to undefined method NeuronRepository::findBySlugTypo()
+			//   - Полные пути к файлам: /home/web/vendor/jan/trinity-core/src/...
+			//   - Параметры подключения к базе (иногда)
+			//   - Внутренняя структура системы
+			//
+			// [Мириам]: В production клиент должен видеть только
+			// «Внутренняя ошибка сервера». Без деталей. Детали —
+			// в логе. Через MonitorController::logError().
+			// Он вызывается внутри renderError() → showError().
+			// И пишет ВСЁ. А клиент — ничего. Кроме — «Внутренняя ошибка».
+			//
+			// [Лорелея]: В dev-режиме (APP_DEBUG=true) — показываем
+			// сырое сообщение. Потому что нам нужно видеть, что
+			// упало. И где. Это — разработка. Это — норма.
+			//
+			// [Мириам]: Если APP_DEBUG не задан в .env — считаем
+			// его false. То есть — prod. Потому что безопасность
+			// важнее удобства. Если кто-то забыл указать APP_DEBUG —
+			// он не должен получить сырое сообщение в проде.
+			$message = $this->isDebug()
+				? $e->getMessage()
+				: 'Внутренняя ошибка сервера';
+
+			$response = $this->renderError(500, $message, $e);
 			$this->applyCorsHeaders($request, $response);
 		}
+
 		// Отправляем ответ
 		if ($response instanceof Response) {
 			$response->send();
@@ -407,20 +463,50 @@ class Kernel
 	private function loadRoutesFromDatabase(\Symfony\Component\Routing\RouteCollection $routes): void
 	{
 		try {
-			// [Лорелея]: TODO: добавить кэш для массива роутов.
-			// Сейчас — запрос на каждый HTTP-запрос. На больших системах
-			// это может стать узким местом.
-			$db = $this->container->get(DatabaseService::class);
-			$conn = $db->getConnection();
+			// ============================================
+			// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. КЭШ.
+			// ============================================
+			// Раньше здесь был TODO: "добавить кэш для массива роутов".
+			// И — SELECT на каждом HTTP-запросе. Без кэша.
+			// Каждый запрос — заново. Каждый раз — заново.
+			//
+			// [Мириам]: Теперь — кэшируем МАССИВ data роутов.
+			// Не Route-объекты. Потому что RouteCollection —
+			// это объект Symfony. Его не сериализуешь в JSON просто так.
+			// А массив — можно. И — это дешевле, чем SELECT.
+			//
+			// [Лорелея]: Route-объекты собираем из массива КАЖДЫЙ РАЗ.
+			// Потому что они — легкие. И — их мало.
+			// И — это быстрее, чем SELECT. И — проще, чем сериализовать
+			// RouteCollection целиком.
+			//
+			// [Мириам]: TTL — час. Если роут изменится в админке —
+			// кэш можно сбросить через $cache->forget('trinity.routes').
+			// Или — подождать час. Это — компромисс. Осознанный.
+			$cacheKey = 'trinity.routes';
 
-			$dbRoutes = $conn->executeQuery(
-				"SELECT * FROM neuron WHERE type = 'route' AND is_deleted = 0 ORDER BY sort ASC"
-			)->fetchAllAssociative();
+			// [Лорелея]: Если кэш включён — берём из него.
+			// Или — вычисляем. И — кладём.
+			if ($this->cache !== null && $this->cache->isEnabled()) {
+				$dbRoutes = $this->cache->remember($cacheKey, function () {
+					return $this->fetchRoutesFromDatabase();
+				}, 3600);
+			} else {
+				// [Мириам]: Кэш выключен — грузим напрямую.
+				// Как раньше. Без кэша. Но — хотя бы работает.
+				$dbRoutes = $this->fetchRoutesFromDatabase();
+			}
 
+			// ============================================
+			// СОБИРАЕМ Route-ОБЪЕКТЫ ИЗ МАССИВА
+			// ============================================
+			// [Лорелея]: Здесь — то же самое, что было раньше.
+			// Только — $dbRoutes теперь из кэша. А не из базы.
+			// И — это — быстрее. И — без SELECT на каждом запросе.
 			foreach ($dbRoutes as $route) {
-				$data = json_decode($route['data'] ?? '{}', true);
+				$data = $route['data'] ?? [];
 
-				$routes->add($data['name'] ?? 'route_' . $route['id'],
+				$routes->add($data['name'] ?? 'route_' . ($route['id'] ?? uniqid()),
 					new \Symfony\Component\Routing\Route(
 						$data['path'] ?? '/',
 						[
@@ -436,9 +522,51 @@ class Kernel
 				);
 			}
 		} catch (\Throwable $e) {
-			// База недоступна — роуты из базы не загружаются.
-			// [Мириам]: Это не ошибка. Это — норма при первом запуске.
+			// [Мириам]: База недоступна — роуты из базы не загружаются.
+			// Это не ошибка. Это — норма при первом запуске.
+			// [Лорелея]: И — логируем. Только в debug. Чтобы не спамить.
+			if (($this->isDebug())) {
+				error_log('[Kernel] loadRoutesFromDatabase failed: ' . $e->getMessage());
+			}
 		}
+	}
+
+	/**
+	 * Загрузить роуты из базы — БЕЗ КЭША.
+	 *
+	 * [Лорелея]: Вынесено отдельно. Потому что используется
+	 * в двух местах: как callback для Cache::remember() и
+	 * напрямую, если кэш отключён.
+	 *
+	 * [Мириам]: Возвращает МАССИВ данных роутов. Не Route-объекты.
+	 * Потому что массив можно сериализовать в JSON. И — закэшировать.
+	 * А Route-объекты — нельзя. Просто так.
+	 *
+	 * [Лорелея]: data уже декодирован из JSON. Потому что
+	 * кэшируем МАССИВ, а не сырые строки. И — при первом
+	 * запросе декодируем. И — кладём в кэш. И — потом
+	 * достаём готовый массив. Без json_decode каждый раз.
+	 *
+	 * @return array
+	 */
+	private function fetchRoutesFromDatabase(): array
+	{
+		$db = $this->container->get(DatabaseService::class);
+		$conn = $db->getConnection();
+
+		$dbRoutes = $conn->executeQuery(
+			"SELECT id, data FROM neuron WHERE type = 'route' AND is_deleted = 0 ORDER BY sort ASC"
+		)->fetchAllAssociative();
+
+		// [Мириам]: Декодируем data сразу. Чтобы в кэш положить
+		// готовый массив. И — потом не декодировать каждый раз.
+		// Это — оптимизация. Небольшая. Но — приятная.
+		foreach ($dbRoutes as &$route) {
+			$route['data'] = json_decode($route['data'] ?? '{}', true) ?: [];
+		}
+		unset($route);
+
+		return $dbRoutes;
 	}
 
 	// ============================================
@@ -498,28 +626,6 @@ class Kernel
 		return $args;
 	}
 
-	// ============================================
-	// ДОСТУП К СЕРВИСАМ
-	// ============================================
-
-	/**
-	 * Возвращает DI-контейнер.
-	 * 
-	 * [Лорелея]: Этот метод не используется в текущем коде Trinity.
-	 * Но может понадобиться в плагинах. Это публичный API ядра.
-	 * Удалять не стоит. Плагины могут вызывать его.
-	 * 
-	 * [Мириам]: Если плагину нужен контейнер — он может получить
-	 * его через DI. Или — через этот метод. Но сейчас — никто
-	 * не вызывает. Потому что все зависимости внедряются через DI.
-	 * 
-	 * @return \DI\Container
-	 */
-	public function getContainer(): \DI\Container
-	{
-		return $this->container;
-	}
-
 	/**
 	 * Возвращает путь к корню проекта.
 	 * [Лорелея]: Используется редко, но полезно.
@@ -530,21 +636,42 @@ class Kernel
 	}
 
 	/**
-	 * Возвращает значение конфига из базы.
-	 * 
+	 * Возвращает значение конфига.
+	 *
+	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше метод возвращал
+	 * значение из локального массива $this->config. Но это —
+	 * не источник правды. Источник — ConfigService.
+	 * И если конфиг изменится после loadConfig() — локальный
+	 * массив устареет. А ConfigService — отдаст актуальный.
+	 *
+	 * [Мириам]: Теперь метод делегирует в ConfigService.
+	 * Если ConfigService есть — берём из него. Это — правильно.
+	 * Потому что ConfigService — кэш. И — источник правды.
+	 *
 	 * [Лорелея]: Публичный API ядра. Не используется сейчас.
-	 * Но может понадобиться. Например — для отладки. Или — для плагинов.
-	 * 
-	 * [Мириам]: Если плагину нужен конфиг — он может получить
-	 * его через NeuronRepository::findConfigValue(). Но этот метод —
-	 * короче. И — удобнее. Потому — оставляем.
-	 * 
+	 * Но — оставлен. Потому что — безопасен. И — удобен.
+	 * Плагин может получить конфиг без инъекции ConfigService.
+	 * Хотя — правильнее инжектить. Но — этот метод — не дыра.
+	 * Он — только чтение. Только конфиг. С дефолтом. Безопасно.
+	 *
+	 * [Мириам]: Если в будущем никто не будет звать — удалим.
+	 * Пока — оставляем. Как фасад. Как удобство. Как — наше.
+	 *
 	 * @param string $key — ключ конфига (app.debug, cache.enabled, ...)
 	 * @param mixed $default — значение по умолчанию
 	 * @return mixed
 	 */
 	public function getConfig(string $key, $default = null)
 	{
+		// [Лорелея]: Если ConfigService есть — из него.
+		// Он — кэш. И — источник правды. И — актуальный.
+		if ($this->configService !== null) {
+			return $this->configService->get($key, $default);
+		}
+
+		// [Мириам]: Fallback. Если ConfigService нет.
+		// Например — в тестах. Или — в bootstrap.
+		// Тогда — из локального массива. Как раньше.
 		return $this->config[$key] ?? $default;
 	}
 
@@ -582,6 +709,24 @@ class Kernel
 			error_log("[Trinity] renderError failed: " . $inner->getMessage());
 			return new Response($message, $code);
 		}
+	}
+
+	/**
+	 * Режим отладки из .env.
+	 *
+	 * [Лорелея]: Вынесено в отдельный метод, потому что проверка
+	 * APP_DEBUG нужна в нескольких местах. И потому что так —
+	 * чище. Не дублируем `($_ENV['APP_DEBUG'] ?? 'false') === 'true'`
+	 * по всему коду.
+	 *
+	 * [Мириам]: Если переменная не задана — считаем false.
+	 * То есть — prod. Потому что безопасность важнее удобства.
+	 *
+	 * @return bool
+	 */
+	private function isDebug(): bool
+	{
+		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 	}
 }
 

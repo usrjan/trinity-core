@@ -23,6 +23,7 @@ namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
@@ -44,6 +45,8 @@ class HomeController
 
 	private ErrorHandlerInterface $errorHandler;
 
+	private Validator $validator;
+
 	use AuthMiddleware;
 
 	/**
@@ -55,12 +58,15 @@ class HomeController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		Session $session,
-		ErrorHandlerInterface $errorHandler
+		ErrorHandlerInterface $errorHandler,
+		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->errorHandler = $errorHandler;
+		$this->validator = $validator;
+
 		$this->initAuth($session);
 	}
 
@@ -77,7 +83,7 @@ class HomeController
 		// ============================================
 		if (!$slug || $slug === '/') {
 			$html = $this->twig->render('base.html.twig', [
-				'title'		=> 'Trinity ' . ApiResponse::VERSION,
+				'title'		=> 'Trinity ' . ApiResponse::getVersion(),
 				'user_lang'	=> $this->getUserLang(),
 				'is_admin'	=> $this->isAdmin(),
 			]);

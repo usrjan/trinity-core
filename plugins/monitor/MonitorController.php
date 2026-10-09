@@ -55,6 +55,8 @@ namespace Jan\Trinity\Plugin\Monitor;
 
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\ConfigService;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Plugin\Guard\GuardController;
@@ -78,8 +80,16 @@ class MonitorController implements ErrorHandlerInterface
     /** @var string — путь к корню проекта */
     private string $basePath;
 
-    /** @var bool — включен ли плагин */
-    private bool $enabled;
+	/**
+	 * @var bool|null — включен ли плагин.
+	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше $enabled вычислялся
+	 * в конструкторе. И это был I/O. Теперь — null. И вычисляется
+	 * ЛЕНИВО. При первом isEnabled().
+	 *
+	 * [Мириам]: null = "ещё не знаем". true = "включен".
+	 * false = "выключен". Три состояния. И — это правильно.
+	 */
+	private ?bool $enabled = null;
 
     /** @var bool — режим отладки из .env */
     private bool $isDebug;
@@ -101,6 +111,11 @@ class MonitorController implements ErrorHandlerInterface
      */
     private LoggerInterface $logger;
 
+    /** @var ConfigService — сервис конфигурации */
+	private ConfigService $configService;
+
+    private Validator $validator;
+
     /**
      * Конструктор.
      * Зависимости внедряются через DI-контейнер.
@@ -117,15 +132,20 @@ class MonitorController implements ErrorHandlerInterface
         string $basePath,
         NeuronRepository $neuronRepo,
         GuardController $guard,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        ConfigService $configService,
+		Validator $validator
     ) {
         $this->twig = $twig;
         $this->basePath = $basePath;
         $this->neuronRepo = $neuronRepo;
         $this->guard = $guard;
         $this->logger = $logger;
+        $this->configService = $configService;
+        $this->validator = $validator;
         $this->isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
-        $this->enabled = $this->isEnabled();
+ 		// [Мириам]: НИКАКОГО isEnabled() здесь. НИКАКОГО I/O.
+		// $this->enabled остаётся null. Заполнится при первом isEnabled().
 
         $this->initAuth($session);
     }
@@ -206,7 +226,7 @@ class MonitorController implements ErrorHandlerInterface
      */
     private function logError(int $code, string $message, array $debug): void
     {
-        if (!$this->enabled) return;
+        if (!$this->isEnabled()) return;
 
         $this->logger->error($message, [
             'code'   => $code,
@@ -229,7 +249,7 @@ class MonitorController implements ErrorHandlerInterface
      */
     public function logAction(string $action, array $context = []): void
     {
-        if (!$this->enabled) return;
+        if (!$this->isEnabled()) return;
 
         $this->logger->info($action, $context);
     }
@@ -254,7 +274,7 @@ class MonitorController implements ErrorHandlerInterface
      */
     public function collectJsError(Request $request): JsonResponse
     {
-        if (!$this->enabled) {
+        if (!$this->isEnabled()) {
             return ApiResponse::success(null, 'Plugin disabled');
         }
 
@@ -268,11 +288,32 @@ class MonitorController implements ErrorHandlerInterface
 
         $this->guard->hit($rateLimitKey);
 
-        $body = json_decode($request->getContent(), true);
+        $rawBody = $request->getContent();
+        $body = json_decode($rawBody, true);
 
-        // Валидация: message обязателен
-        if (empty($body['message'])) {
-            return ApiResponse::error('Message обязателен', 400);
+        // [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return ApiResponse::error('Невалидный JSON', 400);
+        }
+
+        // [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+        if (!is_array($body)) {
+            return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+        }
+
+        // [Мириам]: Валидация. Через Validator. И message. И type. И line. И url.
+        if (!$this->validator->validate([
+            'message' => $body['message'] ?? null,
+            'type'    => $body['type'] ?? 'error',
+            'line'    => $body['line'] ?? 0,
+            'url'     => $body['url'] ?? null,
+        ], [
+            'message' => ['required', 'string', 'min:1', 'max:2048'],
+            'type'    => ['nullable', 'string', 'max:50'],
+            'line'    => ['nullable', 'int', 'min:0'],
+            'url'     => ['nullable', 'string', 'max:2048', 'url'],
+        ])) {
+            return ApiResponse::error($this->validator->getFirstError(), 400);
         }
 
         $this->logger->warning($body['message'], [
@@ -291,22 +332,24 @@ class MonitorController implements ErrorHandlerInterface
     // 4. ПРОВЕРКА АКТИВНОСТИ
     // ============================================
 
-    /**
-     * Проверить включен ли плагин.
-     * 
-     * [Лорелея]: Читает настройку monitor.enabled из базы.
-     * Если её нет — true. Потому что Monitor — это глаза.
-     * И без него Trinity слепая.
-     * 
-     * [Мириам]: Если кто-то хочет отключить Monitor —
-     * он может это сделать через админку. Или через базу.
-     * Но по умолчанию — включён.
-     */
-    private function isEnabled(): bool
-    {
-        $value = $this->neuronRepo->findConfigValue('monitor.enabled', true);
-        return (bool) $value;
-    }
+ 	/**
+	 * Проверить включен ли плагин — ЛЕНИВО.
+	 *
+	 * [Лорелея]: Вызывается при первом isEnabled().
+	 * Один раз. Потом — кэш в $this->enabled.
+	 *
+	 * [Мириам]: Тут — I/O. Но — не в конструкторе.
+	 * И — только если реально нужно.
+	 */
+	private function isEnabled(): bool
+	{
+		if ($this->enabled === null) {
+			$value = $this->configService->get('monitor.enabled', true);
+			$this->enabled = (bool) $value;
+		}
+
+		return $this->enabled;
+	}
 
     // ============================================
     // 5. API ДЛЯ ПРОСМОТРА ЛОГОВ

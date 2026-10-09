@@ -27,6 +27,8 @@
 namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\ConfigService;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -53,6 +55,11 @@ class MenuController
 	/** @var GuardController — CSRF-защита */
 	private GuardController $guard;
 
+	/** @var ConfigService — сервис конфигурации */
+	private ConfigService $configService;
+
+	private Validator $validator;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -62,12 +69,16 @@ class MenuController
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
-		GuardController $guard
+		GuardController $guard,
+		ConfigService $configService,
+		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->guard = $guard;
+		$this->configService = $configService;
+		$this->validator = $validator;
 
 		// Инициализация middleware авторизации
 		$this->initAuth($session);
@@ -166,16 +177,38 @@ class MenuController
 		if ($error = $this->requireAdminForApi()) return $error;
 
 		// Извлекаем данные из запроса
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$name = $body['name'] ?? '';
 		$slug = $body['slug'] ?? '';
 		$icon = $body['icon'] ?? 'bi-file';
 		$route = $body['route'] ?? '/';
 		$isPlugin = (bool) ($body['is_plugin'] ?? false);
 
-		// Валидация обязательных полей
-		if (empty($name) || empty($slug)) {
-			return ApiResponse::error('Название и slug обязательны');
+		// [Мириам]: Валидация. Через Validator. И name. И slug. И icon. И route.
+		if (!$this->validator->validate([
+			'name'  => $name,
+			'slug'  => $slug,
+			'icon'  => $icon,
+			'route' => $route,
+		], [
+			'name'  => ['required', 'string', 'min:1', 'max:255'],
+			'slug'  => ['required', 'string', 'max:255', 'regex:/^[a-z0-9_-]+$/iu'],
+			'icon'  => ['nullable', 'string', 'max:50', 'regex:/^bi-[a-z0-9-]+$/u'],
+			'route' => ['required', 'string', 'max:1024', 'regex:/^\/[a-z0-9_\-\/]*$/iu'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
 		// Находим корень MENU
@@ -237,16 +270,40 @@ class MenuController
 		// Проверка прав администратора
 		if ($error = $this->requireAdminForApi()) return $error;
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$id = (int) ($body['id'] ?? 0);
 		$name = $body['name'] ?? '';
 		$slug = $body['slug'] ?? '';
 		$icon = $body['icon'] ?? 'bi-file';
 		$route = $body['route'] ?? '/';
 
-		// Валидация
-		if (!$id || empty($name) || empty($slug)) {
-			return ApiResponse::error('ID, название и slug обязательны');
+		// [Лорелея]: Валидация. Через Validator. Всё. В одном месте.
+		if (!$this->validator->validate([
+			'id'    => $id,
+			'name'  => $name,
+			'slug'  => $slug,
+			'icon'  => $icon,
+			'route' => $route,
+		], [
+			'id'    => ['required', 'int', 'min:1'],
+			'name'  => ['required', 'string', 'min:1', 'max:255'],
+			'slug'  => ['required', 'string', 'max:255', 'regex:/^[a-z0-9_-]+$/iu'],
+			'icon'  => ['nullable', 'string', 'max:50', 'regex:/^bi-[a-z0-9-]+$/u'],
+			'route' => ['required', 'string', 'max:1024', 'regex:/^\/[a-z0-9_\-\/]*$/iu'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
 		// Проверяем существование пункта

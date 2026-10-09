@@ -24,6 +24,7 @@
 namespace Jan\Trinity\Plugin\Tools;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -47,6 +48,8 @@ class ToolsController
     /** @var NeuronRepository — работа с нейронами */
     private NeuronRepository $neuronRepo;
 
+    private Validator $validator;
+
     /**
      * Конструктор.
      * Зависимости внедряются автоматически через DI-контейнер.
@@ -55,11 +58,13 @@ class ToolsController
         Environment $twig,
         Session $session,
         TextRepository $textRepo,
-        NeuronRepository $neuronRepo
+        NeuronRepository $neuronRepo,
+		Validator $validator
     ) {
         $this->twig = $twig;
         $this->textRepo = $textRepo;
         $this->neuronRepo = $neuronRepo;
+        $this->validator = $validator;
 
         // Инициализация middleware авторизации
         $this->initAuth($session);
@@ -110,49 +115,114 @@ class ToolsController
      * @param Request $request
      * @return JsonResponse
      */
-    public function reportSocial(Request $request): JsonResponse
-    {
-        // Проверка прав администратора
-        if ($error = $this->requireAdminForApi()) return $error;
+	public function reportSocial(Request $request): JsonResponse
+	{
+		if ($error = $this->requireAdminForApi()) return $error;
 
-        // Увеличиваем лимиты для обработки больших Excel-файлов
-        ini_set('memory_limit', '2056M');
-        set_time_limit(0);
+		// Увеличиваем лимиты для обработки больших Excel-файлов
+		ini_set('memory_limit', '2056M');
+		set_time_limit(0);
 
-        // Собираем загруженные файлы
-        $files = [];
-        foreach (['im', 'pos', 'imp'] as $key) {
-            $file = $request->files->get($key);
-            if ($file && $file->getError() === UPLOAD_ERR_OK) {
-                $files[$key] = $file->getPathname();
-            }
+		// Собираем загруженные файлы
+		$files = [];
+		foreach (['im', 'pos', 'imp'] as $key) {
+			$file = $request->files->get($key);
+			if ($file && $file->getError() === UPLOAD_ERR_OK) {
+				$files[$key] = $file->getPathname();
+			}
+		}
+
+		// Параметры отчёта
+		$params = [
+			'type_out' => $request->request->get('type_out', 'alltheme'),
+			'area'     => $request->request->get('area'),
+			'to_word'  => $request->request->get('to_word') === '1',
+		];
+
+        // [Лорелея]: Валидация. Через Validator. type_out. area.
+        if (!$this->validator->validate([
+            'type_out' => $params['type_out'],
+            'area'     => $params['area'],
+        ], [
+            'type_out' => ['required', 'in:alltheme,top5theme,combined,org'],
+            'area'     => ['nullable', 'string', 'max:255'],
+        ])) {
+            return ApiResponse::error($this->validator->getFirstError(), 400);
         }
 
-        // Параметры отчёта
-        $params = [
-            'type_out' => $request->request->get('type_out', 'alltheme'),
-            'area'     => $request->request->get('area'),
-            'to_word'  => $request->request->get('to_word') === '1',
-        ];
+		try {
+			// Запускаем обработчик
+			$handler = new ReportSocialHandler();
+			$data = $handler->process($files, $params);
 
-        try {
-            // Запускаем обработчик
-            $handler = new ReportSocialHandler();
-            $data = $handler->process($files, $params);
+			// Рендерим HTML-результат
+			$html = $this->twig->render('tool-report-social.html.twig', [
+				'data' => $data,
+			]);
 
-            // Рендерим HTML-результат
-            $html = $this->twig->render('tool-report-social.html.twig', [
-                'data' => $data,
-            ]);
+			return ApiResponse::success([
+				'html'      => $html,
+				'word_file' => $data['word_file'] ?? null,
+			]);
 
-            return ApiResponse::success([
-                'html'      => $html,
-                'word_file' => $data['word_file'] ?? null,
-            ]);
-        } catch (\Exception $e) {
-            // Логируем ошибку
-            error_log('[Tools] ReportSocial error: ' . $e->getMessage());
-            return ApiResponse::error('Ошибка обработки: ' . $e->getMessage());
-        }
-    }
+		} catch (\Throwable $e) {
+			// ============================================
+			// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
+			// ============================================
+			// Раньше здесь было:
+			//     return ApiResponse::error('Ошибка обработки: ' . $e->getMessage());
+			//
+			// И это — дыра. Потому что $e->getMessage() — это СЫРОЕ
+			// сообщение исключения. Оно уходило в JSON. И — клиенту.
+			// Через ApiResponse::error(). В прод. Где APP_DEBUG=false.
+			//
+			// Что могло утечь:
+			//   - PhpOffice\PhpSpreadsheet\Reader\Exception: ...
+			//   - PhpOffice\PhpWord\Exception\Exception: ...
+			//   - Undefined index: 'Тема' in /home/web/vendor/.../ReportSocialHandler.php:156
+			//   - Полные пути к файлам и структура кода
+			//
+			// [Мириам]: Я заменила `catch (\Exception $e)` на
+			// `catch (\Throwable $e)`. Потому что \Exception не
+			// ловит \Error (TypeError, ValueError, DivisionByZeroError).
+			// А они могут случиться. И — утечь. Потому что не поймаются.
+			//
+			// [Лорелея]: В production клиент должен видеть только
+			// «Ошибка обработки». Без деталей. Детали — в error_log.
+			//
+			// [Мириам]: В dev-режиме (APP_DEBUG=true) — показываем
+			// сырое сообщение. Потому что это разработка.
+			//
+			// [Лорелея]: error_log() — оставляем ВСЕГДА. И — с файлом
+			// и строкой. Чтобы в логе было видно, ГДЕ упало. Не только ЧТО.
+			$logMessage = '[Tools] ReportSocial error: ' . $e->getMessage()
+				. ' in ' . $e->getFile() . ':' . $e->getLine();
+
+			error_log($logMessage);
+
+			$clientMessage = $this->isDebug()
+				? 'Ошибка обработки: ' . $e->getMessage()
+				: 'Ошибка обработки. Подробности в логах.';
+
+			return ApiResponse::error($clientMessage, 500);
+		}
+	}
+
+	/**
+	 * Режим отладки из .env.
+	 *
+	 * [Лорелея]: Тот же метод, что и в Kernel, и в AdminController.
+	 * Локальный. Потому что ToolsController не наследуется от Kernel.
+	 * И не должен.
+	 *
+	 * [Мириам]: Если появится четвёртое место — вынесем в trait
+	 * `DebugAwareTrait`. Пока — трёх достаточно. И — дублирование
+	 * в три строки — это не «дублирование». Это — «три строки».
+	 *
+	 * @return bool
+	 */
+	private function isDebug(): bool
+	{
+		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+	}
 }

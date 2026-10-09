@@ -78,16 +78,10 @@
 // автоматически добавлять X-CSRF-Token ко всем POST/PUT/DELETE.
 // ============================================
 
-// Читает CSRF-токен из cookie
+window.csrfToken = '{{ csrf_token() }}';
+
 function getCsrfToken() {
-    var cookies = document.cookie.split(';');
-    for (var i = 0; i < cookies.length; i++) {
-        var cookie = cookies[i].trim();
-        if (cookie.startsWith('csrf_token=')) {
-            return cookie.substring('csrf_token='.length);
-        }
-    }
-    return '';
+	return window.csrfToken || '';
 }
 
 // Обёртка fetch: автоматически добавляет X-CSRF-Token

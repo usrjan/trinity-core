@@ -107,6 +107,7 @@
     {# Inline-редактор страниц #}
     <script src="/assets/js/page-editor.js"></script>
     <script>
+    window.csrfToken = '{{ csrf_token() }}';
     var isAdmin = {{ is_admin|default('false') }};
     var userLang = '{{ user_lang|default('ru') }}';
     </script>

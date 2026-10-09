@@ -37,8 +37,14 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 
 class ApiResponse
 {
-    /** @var string Версия системы */
-    const VERSION = '1.0.2';
+    /**
+     * Версия системы — из .env. Или 'unknown'.
+     * @return string
+     */
+    public static function getVersion(): string
+    {
+        return $_ENV['APP_VERSION'] ?? 'unknown';
+    }
 
     /**
      * Успешный ответ.
@@ -55,7 +61,7 @@ class ApiResponse
             'message' => $message,
             'meta'    => [
                 'timestamp'  => date('c'),
-                'version'    => self::VERSION,
+                'version'    => self::getVersion(),
                 'request_id' => $_SERVER['REQUEST_ID'] ?? uniqid(),
             ],
             'error'   => null,
@@ -77,7 +83,7 @@ class ApiResponse
             'message' => $message,
             'meta'    => [
                 'timestamp'  => date('c'),
-                'version'    => self::VERSION,
+                'version'    => self::getVersion(),
                 'request_id' => $_SERVER['REQUEST_ID'] ?? uniqid(),
             ],
             'error'   => [
@@ -104,7 +110,7 @@ class ApiResponse
             'message' => null,
             'meta'    => [
                 'timestamp'   => date('c'),
-                'version'     => self::VERSION,
+                'version'     => self::getVersion(),
                 'request_id'  => $_SERVER['REQUEST_ID'] ?? uniqid(),
                 'pagination'  => [
                     'page'        => $page,

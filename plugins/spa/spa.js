@@ -28,14 +28,7 @@ var userLang = document.documentElement.lang || 'ru';
 	var originalFetch = window.fetch;
 
 	function getCsrfToken() {
-		var cookies = document.cookie.split(';');
-		for (var i = 0; i < cookies.length; i++) {
-			var cookie = cookies[i].trim();
-			if (cookie.startsWith('csrf_token=')) {
-				return cookie.substring('csrf_token='.length);
-			}
-		}
-		return '';
+		return window.csrfToken || '';
 	}
 
 	window.fetch = function (url, options) {

@@ -51,6 +51,7 @@
 
 namespace Jan\Trinity\Plugin\Users;
 
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -58,6 +59,7 @@ use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Plugin\Guard\GuardController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Twig\Environment;
 use Psr\Log\LoggerInterface;
@@ -84,6 +86,8 @@ class AuthController
 	/** @var LoggerInterface — логгер */
 	private LoggerInterface $logger;
 
+	private Validator $validator;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -95,7 +99,8 @@ class AuthController
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
 		GuardController $guard,
-		LoggerInterface $logger
+		LoggerInterface $logger,
+		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
@@ -103,6 +108,7 @@ class AuthController
 		$this->synapseRepo = $synapseRepo;
 		$this->guard = $guard;
 		$this->logger = $logger;
+		$this->validator = $validator;
 
 		// Инициализация middleware авторизации
 		$this->initAuth($session);
@@ -125,7 +131,7 @@ class AuthController
 	{
 		// Уже авторизован — на главную
 		if ($this->isAuthenticated()) {
-			return new Response('', 302, ['Location' => '/']);
+			return new RedirectResponse('/');
 		}
 
 		// Генерируем CSRF-токен для формы, если его нет
@@ -181,19 +187,32 @@ class AuthController
 		$token = $request->request->get('_csrf_token', '');
 		if (!$this->guard->validateCsrfToken($token)) {
 			$this->session->set('login_error', 'Недействительный токен безопасности.');
-			return new Response('', 302, ['Location' => '/login']);
+			return new RedirectResponse('/login');
 		}
 
 		$login = trim($request->request->get('login') ?? '');
 		$password = $request->request->get('password') ?? '';
 		$ip = $request->getClientIp();
 
+		// [Лорелея]: Валидация. Логин и пароль. Через Validator.
+		// Не через empty(). А через required. И — с min. И — с max.
+		if (!$this->validator->validate([
+			'login'    => $login,
+			'password' => $password,
+		], [
+			'login'    => ['required', 'string', 'min:1', 'max:255'],
+			'password' => ['required', 'string', 'min:1', 'max:255'],
+		])) {
+			$this->session->set('login_error', 'Неверный логин или пароль');
+			return new RedirectResponse('/login');
+		}
+
 		// ============================================
 		// ШАГ 2: Проверка блокировки IP
 		// ============================================
 		if ($this->guard->isIpBlocked($ip)) {
 			$this->session->set('login_error', 'Ваш IP-адрес заблокирован. Попробуйте позже.');
-			return new Response('', 302, ['Location' => '/login']);
+			return new RedirectResponse('/login');
 		}
 
 		// ============================================
@@ -202,7 +221,7 @@ class AuthController
 		$check = $this->guard->checkLoginAttempt($login, $ip);
 		if (!$check['success']) {
 			$this->session->set('login_error', $check['message']);
-			return new Response('', 302, ['Location' => '/login']);
+			return new RedirectResponse('/login');
 		}
 
 		// ============================================
@@ -213,7 +232,7 @@ class AuthController
 		if (!$user) {
 			$this->guard->recordFailedLogin($login, $ip);
 			$this->session->set('login_error', 'Неверный логин или пароль');
-			return new Response('', 302, ['Location' => '/login']);
+			return new RedirectResponse('/login');
 		}
 
 		// Извлекаем данные пользователя из JSON
@@ -228,7 +247,7 @@ class AuthController
 		if ($authMethod !== 'local') {
 			$this->guard->recordFailedLogin($login, $ip);
 			$this->session->set('login_error', 'Используйте вход через ' . $authMethod);
-			return new Response('', 302, ['Location' => '/login']);
+			return new RedirectResponse('/login');
 		}
 
 		// ============================================
@@ -245,7 +264,7 @@ class AuthController
 			}
 
 			$this->session->set('login_error', 'Неверный логин или пароль');
-			return new Response('', 302, ['Location' => '/login']);
+			return new RedirectResponse('/login');
 		}
 
 		// ============================================
@@ -272,7 +291,7 @@ class AuthController
 		$this->neuronRepo->logAdminAction('user_login', ['login' => $login]);
 
 		// Редирект на главную
-		return new Response('', 302, ['Location' => '/']);
+		return new RedirectResponse('/');
 	}
 
 	// ============================================
@@ -300,7 +319,7 @@ class AuthController
 
 		if (!$this->guard->validateCsrfToken($token)) {
 			$this->session->set('logout_error', 'Недействительный токен безопасности.');
-			return new Response('', 302, ['Location' => '/']);
+			return new RedirectResponse('/');
 		}
 
 		// Логируем выход (пока сессия ещё жива)
@@ -319,7 +338,7 @@ class AuthController
 		// Теперь сессия пустая. И с новым ID.
 		$this->session->invalidate();
 
-		return new Response('', 302, ['Location' => '/']);
+		return new RedirectResponse('/');
 	}
 
 	// ============================================
@@ -338,7 +357,7 @@ class AuthController
 	{
 		// Уже авторизован — на главную
 		if ($this->isAuthenticated()) {
-			return new Response('', 302, ['Location' => '/']);
+			return new RedirectResponse('/');
 		}
 
 		// Генерируем CSRF-токен если нет
@@ -395,14 +414,14 @@ class AuthController
 		$token = $request->request->get('_csrf_token', '');
 		if (!$this->guard->validateCsrfToken($token)) {
 			$this->session->set('register_error', 'Недействительный токен безопасности.');
-			return new Response('', 302, ['Location' => '/register']);
+			return new RedirectResponse('/register');
 		}
 
 		// Проверка блокировки IP
 		$ip = $request->getClientIp();
 		if ($this->guard->isIpBlocked($ip)) {
 			$this->session->set('register_error', 'Регистрация недоступна с вашего IP.');
-			return new Response('', 302, ['Location' => '/register']);
+			return new RedirectResponse('/register');
 		}
 
 		// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Rate limit для регистрации.
@@ -410,11 +429,9 @@ class AuthController
 		// Это защищает от скриптов, которые создают аккаунты пачками.
 		$registerKey = 'register_ip_' . $ip;
 		if ($this->guard->tooManyAttempts($registerKey, 5, 120)) {
-			error_log("[Register] LIMIT HIT. ip={$ip}, key={$registerKey}");
 			$this->session->set('register_error', 'Слишком много попыток регистрации. Попробуйте через 10 минут.');
 			$check = $this->session->get('register_error');
-			error_log("[Register] Session set result: " . var_export($check, true));
-			return new Response('', 302, ['Location' => '/register']);
+			return new RedirectResponse('/register');
 		}
 
 		// [Мириам]: Записываем попытку. ДО создания аккаунта.
@@ -432,35 +449,36 @@ class AuthController
 		// ============================================
 		// Валидация
 		// ============================================
-		if (empty($login) || empty($email) || empty($password)) {
-			$this->session->set('register_error', 'Все поля обязательны');
-			return new Response('', 302, ['Location' => '/register']);
+		// [Лорелея]: Теперь через Validator. Всё. В одном месте.
+		// И — с mb_strlen. И — с email. И — с required.
+		// И — с min. И — с max. И — с regex.
+		if (!$this->validator->validate([
+			'login'    => $login,
+			'email'    => $email,
+			'password' => $password,
+		], [
+			'login'    => ['required', 'string', 'min:3', 'max:255'],
+			'email'    => ['required', 'email', 'max:255'],
+			'password' => ['required', 'string', 'min:8', 'max:255'],
+		])) {
+			$this->session->set('register_error', $this->validator->getFirstError());
+			return new RedirectResponse('/register');
 		}
 
-		if (strlen($password) < 8) {
-			$this->session->set('register_error', 'Пароль должен быть не менее 8 символов');
-			return new Response('', 302, ['Location' => '/register']);
-		}
-
-		// [Мириам]: Проверка валидности email. Раньше принимали любую строку.
-		if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-			$this->session->set('register_error', 'Некорректный email');
-			return new Response('', 302, ['Location' => '/register']);
-		}
-
-		// Проверка уникальности логина
-		$exists = $this->neuronRepo->findByLoginOrEmail($login);
-		if ($exists) {
+		// [Мириам]: Проверка уникальности. Через Validator.
+		// Теперь можно. Потому что Validator знает про NeuronRepository.
+		if (!$this->validator->validate(['login' => $login], [
+			'login' => ['unique:neuron,login'],
+		])) {
 			$this->session->set('register_error', 'Логин уже занят');
-			return new Response('', 302, ['Location' => '/register']);
+			return new RedirectResponse('/register');
 		}
 
-		// [Мириам]: Проверка уникальности email. ГЛАВНОЕ ИЗМЕНЕНИЕ.
-		// Ищем нейрон type='user' с таким email.
-		$emailExists = $this->neuronRepo->findByLoginOrEmail($email);
-		if ($emailExists) {
+		if (!$this->validator->validate(['email' => $email], [
+			'email' => ['unique:neuron,email'],
+		])) {
 			$this->session->set('register_error', 'Email уже занят');
-			return new Response('', 302, ['Location' => '/register']);
+			return new RedirectResponse('/register');
 		}
 
 		// ============================================
@@ -474,6 +492,6 @@ class AuthController
 		]);
 
 		// Редирект на форму входа
-		return new Response('', 302, ['Location' => '/login']);
+		return new RedirectResponse('/login');
 	}
 }

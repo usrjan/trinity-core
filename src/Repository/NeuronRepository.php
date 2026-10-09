@@ -518,35 +518,6 @@ class NeuronRepository
 	}
 
 	// ============================================
-	// ПОИСК КОНФИГА
-	// ============================================
-
-	/**
-	 * Получить значение конфига по ключу.
-	 * 
-	 * [Мириам]: Использует JSON_EXTRACT, потому что ищет по
-	 * data.key. Индекса на это нет. Но конфигов мало — это ок.
-	 * 
-	 * @param string $key
-	 * @param mixed $default
-	 * @return mixed
-	 */
-	public function findConfigValue(string $key, $default = null): mixed
-	{
-		$result = $this->db->getConnection()->executeQuery(
-			"SELECT JSON_EXTRACT(data, '$.value') as value FROM neuron 
-			WHERE type = 'config' AND JSON_EXTRACT(data, '$.key') = ? AND is_deleted = 0 LIMIT 1",
-			[$key]
-		)->fetchAssociative();
-
-		if (!$result) return $default;
-
-		$value = $result['value'];
-		if (is_string($value)) $value = json_decode($value, true);
-		return $value ?? $default;
-	}
-
-	// ============================================
 	// ПОИСК С ГЕОМЕТРИЕЙ
 	// ============================================
 
@@ -681,6 +652,39 @@ class NeuronRepository
 			$result[$pid][] = $row;
 		}
 
+		return $result;
+	}
+
+	/**
+	 * Загрузить ВСЕ конфиги одним запросом.
+	 *
+	 * [Лорелея]: Оставляем. Потому что это — просто данные.
+	 * Из таблицы neuron. И — это — репозиторий нейронов.
+	 * А — конфиги — это тоже нейроны. Просто type='config'.
+	 *
+	 * [Мириам]: НО. findConfigValue() — удаляем. Потому что
+	 * он — про кэш. А кэш — не в репозитории. Кэш — в ConfigService.
+	 * А findAllConfigValues() — это просто "дай все нейроны
+	 * типа config". Это — репозиторий. Это — его работа.
+	 *
+	 * @return array [key => value]
+	 */
+	public function findAllConfigValues(): array
+	{
+		$rows = $this->db->getConnection()->executeQuery(
+			"SELECT JSON_EXTRACT(data, '$.key') as k, JSON_EXTRACT(data, '$.value') as v 
+			FROM neuron 
+			WHERE type = 'config' AND is_deleted = 0"
+		)->fetchAllAssociative();
+
+		$result = [];
+		foreach ($rows as $row) {
+			$key = $row['k'] !== null ? json_decode($row['k'], true) : null;
+			$value = $row['v'] !== null ? json_decode($row['v'], true) : null;
+			if ($key !== null) {
+				$result[$key] = $value;
+			}
+		}
 		return $result;
 	}
 }

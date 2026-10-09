@@ -46,6 +46,7 @@ namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -74,6 +75,8 @@ class PageController
 
 	private ErrorHandlerInterface $errorHandler;
 
+	private Validator $validator;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -84,13 +87,15 @@ class PageController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		GuardController $guard,
-		ErrorHandlerInterface $errorHandler
+		ErrorHandlerInterface $errorHandler,
+		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->guard = $guard;
 		$this->errorHandler = $errorHandler;
+		$this->validator = $validator;
 
 		// Инициализация middleware авторизации
 		$this->initAuth($session);
@@ -297,14 +302,44 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$sort = (int) ($body['sort'] ?? 100);
 		$lang = $body['lang'] ?? 'ru';
 		$name = trim($body['name'] ?? '');
 		$text = trim($body['text'] ?? '');
 
+		// [Мириам]: Валидация. Через Validator.
+		if (!$this->validator->validate([
+			'sort' => $sort,
+			'lang' => $lang,
+		], [
+			'sort' => ['int', 'min:0'],
+			'lang' => ['required', 'string', 'max:5', 'regex:/^[a-z]{2}$/i'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
+		}
+
+		// [Лорелея]: Или name. Или text. Хотя бы одно.
 		if (empty($name) && empty($text)) {
 			return ApiResponse::error('Название или текст обязательны', 400);
+		}
+
+		if (!empty($name) && !$this->validator->validate(['name' => $name], [
+			'name' => ['string', 'max:255'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
 		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
@@ -355,7 +390,18 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
 
 		$section = $this->neuronRepo->findById($id);
 		if (!$section) {
@@ -399,7 +445,19 @@ class PageController
 			return ApiResponse::error('Секция не найдена', 404);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$sort = (int) ($body['sort'] ?? 100);
 		$texts = $body['texts'] ?? [];
 
@@ -483,12 +541,31 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$name = $body['name'] ?? '';
 		$subSlug = $body['slug'] ?? '';
 
-		if (empty($name)) {
-			return ApiResponse::error('Название обязательно');
+		// [Лорелея]: Валидация. Через Validator.
+		if (!$this->validator->validate([
+			'name' => $name,
+			'slug' => $subSlug,
+		], [
+			'name' => ['required', 'string', 'min:1', 'max:255'],
+			'slug' => ['nullable', 'string', 'max:255', 'regex:/^[a-z0-9_-]+$/iu'],
+		])) {
+			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
 		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
@@ -650,7 +727,19 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$sort = (int) ($body['sort'] ?? 100);
 		$texts = $body['texts'] ?? [];
 
@@ -710,7 +799,19 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$body = json_decode($request->getContent(), true);
+		$rawBody = $request->getContent();
+		$body = json_decode($rawBody, true);
+
+		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			return ApiResponse::error('Невалидный JSON', 400);
+		}
+
+		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
+		if (!is_array($body)) {
+			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
+		}
+
 		$name = $body['name'] ?? '';
 		$subSlug = $body['slug'] ?? '';
 

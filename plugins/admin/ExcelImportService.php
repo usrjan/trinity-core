@@ -73,8 +73,55 @@ class ExcelImportService
                         $this->importDataRow($data, $sheetName, $fileDate);
                     }
                     $created++;
-                } catch (\Exception $e) {
-                    $errors[] = "Лист '{$sheetName}', строка " . ($rowIndex + 2) . ": " . $e->getMessage();
+                } catch (\Throwable $e) {
+                    // ============================================
+                    // [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
+                    // ============================================
+                    // Раньше здесь было:
+                    //     $errors[] = "Лист '{$sheetName}', строка "
+                    //         . ($rowIndex + 2) . ": " . $e->getMessage();
+                    //
+                    // И это — дыра. Потому что $e->getMessage() — это
+                    // СЫРОЕ сообщение исключения. Оно уходило в JSON.
+                    // Через AdminController::import() →
+                    // ApiResponse::success($result) — где $result['errors']
+                    // содержит эти сообщения. И — клиенту. В прод.
+                    // Где APP_DEBUG=false.
+                    //
+                    // Что могло утечь:
+                    //   - «Undefined index: tree_path» (с путём к файлу)
+                    //   - «Call to undefined method NeuronRepository::findBySlugTypo()»
+                    //   - «SQLSTATE[42S02]: Base table or view not found»
+                    //     (если внутри importTreeRow упадёт запрос)
+                    //   - «json_decode(): Syntax error» (с сырым JSON)
+                    //   - Полные пути, структура базы, имена методов
+                    //
+                    // [Мириам]: В production клиент должен видеть только
+                    // «ошибка в строке N». Без деталей. Детали — в error_log.
+                    // Номер строки и лист — оставляем. Это — наше.
+                    // Это — не утечка. Это — помощь пользователю.
+                    //
+                    // [Лорелея]: Я заменила `catch (\Exception $e)` на
+                    // `catch (\Throwable $e)`. Потому что \Exception не
+                    // ловит \Error (TypeError, ValueError). А при разборе
+                    // Excel-файла они могут случиться. Особенно — если
+                    // структура файла не совпадает с ожидаемой.
+                    //
+                    // [Мириам]: error_log() — оставляем ВСЕГДА. И — с
+                    // файлом, строкой и номером строки Excel. Чтобы
+                    // в логе было видно, ГДЕ именно упало.
+                    $logMessage = '[Excel Import] Sheet: ' . $sheetName
+                        . ' | Row: ' . ($rowIndex + 2)
+                        . ' | Error: ' . $e->getMessage()
+                        . ' | At: ' . $e->getFile() . ':' . $e->getLine();
+
+                    error_log($logMessage);
+
+                    $clientMessage = $this->isDebug()
+                        ? "Лист '{$sheetName}', строка " . ($rowIndex + 2) . ": " . $e->getMessage()
+                        : "Лист '{$sheetName}', строка " . ($rowIndex + 2) . ": ошибка импорта";
+
+                    $errors[] = $clientMessage;
                 }
             }
         }
@@ -436,5 +483,24 @@ class ExcelImportService
             if (count($parts) >= 2) $result[] = [(float) $parts[1], (float) $parts[0]];
         }
         return $result;
+    }
+
+    /**
+     * Режим отладки из .env.
+     *
+     * [Лорелея]: Тот же метод, что и в GalleryController,
+     * GalleryImportService, Kernel, AdminController, ToolsController.
+     *
+     * [Мириам]: Шестое место. Пора выносить в trait. Но — пока
+     * не будем. Потому что — шесть файлов. И — каждый со своим
+     * контекстом. Если вынесем — придётся подключать trait везде.
+     * А это — ещё больше связности. Пока — дублируем. Три строки.
+     * Не критично. Потом — решим.
+     *
+     * @return bool
+     */
+    private function isDebug(): bool
+    {
+        return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
     }
 }

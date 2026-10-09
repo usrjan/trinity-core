@@ -40,6 +40,8 @@
 use Jan\Trinity\Core\DatabaseService;
 use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\ConfigService;
+use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
@@ -216,7 +218,9 @@ return [
 		Session $session,
 		NeuronRepository $neuronRepo,
 		GuardController $guard,
-		\Psr\Log\LoggerInterface $logger
+		\Psr\Log\LoggerInterface $logger,
+		ConfigService $configService,
+		Validator $validator
 	) {
 		return new \Jan\Trinity\Plugin\Monitor\MonitorController(
 			$twig,
@@ -224,19 +228,25 @@ return [
 			dirname(__DIR__),
 			$neuronRepo,
 			$guard,
-			$logger
+			$logger,
+			$configService,
+			$validator
 		);
 	},
 	GuardController::class => function (
 		NeuronRepository $neuronRepo,
 		Session $session,
-		\Psr\Log\LoggerInterface $logger
+		\Psr\Log\LoggerInterface $logger,
+		ConfigService $configService,
+		Validator $validator
 	) {
 		return new \Jan\Trinity\Plugin\Guard\GuardController(
 			$neuronRepo,
 			$session,
 			dirname(__DIR__),
-			$logger
+			$logger,
+			$configService,
+			$validator
 		);
 	},
 	AuthController::class => \DI\autowire(),
@@ -244,6 +254,7 @@ return [
 	ProfileController::class => \DI\autowire(),
 	MapController::class => \DI\autowire(),
 	ToolsController::class => \DI\autowire(),
+	Validator::class => \DI\autowire(),
 
 	// ============================================
 	// 9. ГАЛЕРЕЯ — ПУТИ К ФАЙЛАМ
@@ -391,4 +402,19 @@ return [
 	// И падает: "the class is not instantiable". Потому что
 	// интерфейс — не класс. Его нельзя инстанцировать.
 	ErrorHandlerInterface::class => \DI\get(MonitorController::class),
+
+	// ============================================
+	// CONFIG SERVICE
+	// ============================================
+	// [Лорелея]: ConfigService зависит от NeuronRepository.
+	// Но NeuronRepository НЕ зависит от ConfigService.
+	// Потому что findConfigValue() удалён. И setConfigService() удалён.
+	// Цикла — НЕТ. Всё — чисто.
+	// ============================================
+	ConfigService::class => \DI\autowire(),
+
+	// [Лорелея]: NeuronRepository — снова простой autowire.
+	// Без setter injection. Без фабрики. Без ConfigService.
+	// Потому что он больше не знает о ConfigService.
+	NeuronRepository::class => \DI\autowire(),
 ];

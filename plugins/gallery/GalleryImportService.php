@@ -259,8 +259,23 @@ class GalleryImportService
 							}
 						}
 					}
-				} catch (\Exception $e) {
-					$errors[] = ($fileName ?? '?') . ': ' . $e->getMessage();
+
+				} catch (\Throwable $e) {
+					// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
+					// Раньше здесь было: $errors[] = ($fileName ?? '?') . ': ' . $e->getMessage();
+					// И это — дыра. Сырое сообщение уходило клиенту.
+					// Теперь — в лог. А клиенту — только в dev-режиме.
+					$logMessage = '[Gallery Import] File: ' . ($fileName ?? '?')
+						. ' | Error: ' . $e->getMessage()
+						. ' | At: ' . $e->getFile() . ':' . $e->getLine();
+
+					error_log($logMessage);
+
+					$clientMessage = $this->isDebug()
+						? ($fileName ?? '?') . ': ' . $e->getMessage()
+						: ($fileName ?? '?') . ': ошибка импорта';
+
+					$errors[] = $clientMessage;
 				}
 			}
 		}
@@ -315,7 +330,6 @@ class GalleryImportService
 		}
 
 		// [Лорелея]: createThumbnail теперь из ThumbnailTrait.
-		// Не из этого класса. Не дублируется.
 		$imageInfo = $this->createThumbnail($storagePath, $thumbPath);
 
 		$this->neuronRepo->create('file', [
@@ -373,18 +387,62 @@ class GalleryImportService
 		// Старые items (если есть)
 		if (isset($node['items']) && is_array($node['items'])) {
 			foreach ($node['items'] as $item) {
+				// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. $files — инициализируем.
+				// Раньше её не было. Это был undefined variable.
+				// И — Warning. И — неопределённое поведение.
+				// Теперь — чисто. И — правильно.
+				$files = [];
+
 				$this->collectFiles($item, $files);
+
 				foreach ($files as $fileName) {
 					$filePath = $baseDir . '/' . $fileName;
 					if (file_exists($filePath)) unlink($filePath);
 				}
-				$files = [];
 			}
 		}
 
 		// Вложенные tree
 		if (isset($node['tree']) && is_array($node['tree'])) {
 			$this->collectFilesNew($node['tree'], $baseDir);
+		}
+	}
+
+	/**
+	 * Собирает имена файлов из старого формата items.
+	 *
+	 * [Мириам]: Принимает по ссылке. Пишет в $result.
+	 * Используется в cleanupManifest (старый формат)
+	 * и в collectFilesNew (ветка items).
+	 *
+	 * [Лорелея]: Этот метод — для старого формата. Он почти
+	 * не используется. Но — оставлен. Для совместимости.
+	 * Если решим удалить старый формат — удалим и его.
+	 *
+	 * @param array $item — элемент из manifest.json
+	 * @param array &$result — массив, в который пишутся имена файлов
+	 */
+	private function collectFiles(array $item, array &$result): void
+	{
+		// Прямые файлы
+		if (isset($item['files']) && is_array($item['files'])) {
+			foreach ($item['files'] as $fileName) {
+				if (is_string($fileName) && $fileName !== '') {
+					$result[] = $fileName;
+				}
+			}
+		}
+
+		// Вложенные items (рекурсия)
+		if (isset($item['items']) && is_array($item['items'])) {
+			foreach ($item['items'] as $subItem) {
+				$this->collectFiles($subItem, $result);
+			}
+		}
+
+		// Вложенные tree (на всякий случай)
+		if (isset($item['tree']) && is_array($item['tree'])) {
+			$this->collectFiles($item['tree'], $result);
 		}
 	}
 
@@ -423,8 +481,19 @@ class GalleryImportService
 					$itemId = $this->neuronRepo->create('item', [], $parentId, $textKey);
 					$this->moveFile($filePath, $itemId);
 					$created++;
-				} catch (\Exception $e) {
-					$errors[] = $name . ': ' . $e->getMessage();
+				} catch (\Throwable $e) {
+					// [Мириам]: ТА ЖЕ ЗАЩИТА. См. importRecursiveTree().
+					$logMessage = '[Gallery Import Directory] File: ' . $name
+						. ' | Error: ' . $e->getMessage()
+						. ' | At: ' . $e->getFile() . ':' . $e->getLine();
+
+					error_log($logMessage);
+
+					$clientMessage = $this->isDebug()
+						? $name . ': ' . $e->getMessage()
+						: $name . ': ошибка импорта';
+
+					$errors[] = $clientMessage;
 				}
 			}
 		}
@@ -494,8 +563,19 @@ class GalleryImportService
 						$errors[] = 'Файл не найден: ' . $fileName;
 					}
 				}
-			} catch (\Exception $e) {
-				$errors[] = ($itemData['name'] ?? '?') . ': ' . $e->getMessage();
+			} catch (\Throwable $e) {
+				// [Лорелея]: ТА ЖЕ ЗАЩИТА. См. importRecursiveTree().
+				$logMessage = '[Gallery Import Manifest] Item: ' . ($itemData['name'] ?? '?')
+					. ' | Error: ' . $e->getMessage()
+					. ' | At: ' . $e->getFile() . ':' . $e->getLine();
+
+				error_log($logMessage);
+
+				$clientMessage = $this->isDebug()
+					? ($itemData['name'] ?? '?') . ': ' . $e->getMessage()
+					: ($itemData['name'] ?? '?') . ': ошибка импорта';
+
+				$errors[] = $clientMessage;
 			}
 		}
 
@@ -532,8 +612,6 @@ class GalleryImportService
 		$storagePath = $storageDir . '/' . $storageName;
 		$thumbPath = $storageDir . '/' . $thumbName;
 
-		// rename() работает только в пределах одной ФС.
-		// Если _import и gallery на разных дисках — используем copy+unlink.
 		if (!@rename($sourcePath, $storagePath)) {
 			if (!@copy($sourcePath, $storagePath)) {
 				throw new \RuntimeException('Не удалось переместить файл: ' . $originalName);
@@ -554,16 +632,6 @@ class GalleryImportService
 			'uploaded_at'   => date('Y-m-d H:i:s'),
 		], $parentId);
 	}
-
-	// ============================================
-	// [Лорелея]: createThumbnail УДАЛЁН ИЗ КЛАССА
-	// ============================================
-	// Он теперь в ThumbnailTrait. Если оставить здесь —
-	// будет конфликт с trait. PHP скажет: «Метод уже определён».
-	// Или — trait не подключится. Так что — только в trait.
-	//
-	// То же самое — в GalleryController.
-	// ============================================
 
 	/**
 	 * Проверяет, является ли файл изображением (по расширению).
@@ -662,5 +730,21 @@ class GalleryImportService
 		}
 
 		return null;
+	}
+
+	/**
+	 * Режим отладки из .env.
+	 *
+	 * [Лорелея]: Тот же метод, что и в GalleryController, Kernel,
+	 * AdminController, ToolsController. Локальный.
+	 *
+	 * [Мириам]: Если появится седьмое место — вынесем в trait.
+	 * Пока — шести достаточно.
+	 *
+	 * @return bool
+	 */
+	private function isDebug(): bool
+	{
+		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 	}
 }
