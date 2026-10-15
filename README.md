@@ -6,6 +6,7 @@
 **Server:** FreeBSD 14.3-RELEASE, Nginx, MySQL 8.0.46
 **Path:** `/home/web/vendor/jan/trinity-core`
 **Web root:** `/home/web/www`
+**url** [http://10.250.11.112/](http://10.250.11.112/)
 
 ---
 
@@ -165,7 +166,7 @@ MEDIA (30)
 - Загружает autoload.php из Composer.
 - Загружает .env до создания Kernel. Потому что нужно знать APP_DEBUG и TRUSTED_PROXIES сейчас.
 - Настраивает display_errors в зависимости от APP_DEBUG. В проде — 0. В dev — 1.
-- Настраивает Request::setTrustedProxies(). Чтобы getClientIp() возвращал клиента, а не Nginx.
+- Настраивает [Request::setTrustedProxies()]. Чтобы getClientIp() возвращал клиента, а не Nginx.
 - Создаёт Kernel(__DIR__ . '/..').
 - Вызывает handle().
 
