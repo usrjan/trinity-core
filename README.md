@@ -99,6 +99,8 @@ MEDIA (30)
 ## . Структура. Карта Амбера.
 
 /home/web/vendor/jan/trinity-core/
+
+```
 ├── composer.json              — правила. зависимости. наше.
 ├── .env                       — кровь. ключи. пути. пароли.
 ├── .env.example               — образец. для тех, кто придёт.
@@ -138,6 +140,7 @@ MEDIA (30)
     ├── cache/                 — кэш. data. отключаемый.
     ├── guard/                 — стража. blocked_ips.json. attempts.
     └── log/                   — глаза. app. error. security. admin.
+```
 
 Это — карта. Не «список файлов». Карта Амбера. Каждая папка — мир. Каждый файл — путь. Каждый plugin.php — маршрут. И всё это — внутри /home/web/vendor/jan/trinity-core. Внутри Trinity Core.
 
