@@ -425,6 +425,22 @@ class GuardController
 	// ============================================
 	// 3. БЛОКИРОВКА IP
 	// ============================================
+	/**
+	 * Заблокировать IP-адрес.
+	 */
+	public function blockIp(string $ip, string $reason = 'blocked', int $duration = 3600): void
+	{
+		$file = $this->basePath . '/var/guard/blocked_ips.json';
+		$blocked = $this->readJsonFile($file);
+
+		$blocked[$ip] = [
+			'blocked_at' => date('c'),
+			'reason'     => $reason,
+			'expires_at' => $duration > 0 ? date('c', time() + $duration) : null,
+		];
+
+		$this->writeJsonFile($file, $blocked);
+	}
 
 	/**
 	 * Разблокировать IP-адрес.
