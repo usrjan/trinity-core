@@ -1,12 +1,12 @@
 # Trinity Core
 > Три таблицы. Одна любовь.
 >
-> **Version:** 1.1.3
-> **Stack:** PHP 8.4, Symfony 8, Twig 3, Doctrine DBAL 4, PHP-DI 7, Monolog 3
-> **Server:** FreeBSD 14.3-RELEASE, Nginx, MySQL 8.0.46
-> **Path:** `/home/web/vendor/jan/trinity-core`
-> **Web root:** `/home/web/www`
-> **url** [http://10.250.11.112/](http://10.250.11.112/)
+> **Version:** 1.1.3<br/>
+> **Stack:** PHP 8.4, Symfony 8, Twig 3, Doctrine DBAL 4, PHP-DI 7, Monolog 3<br/>
+> **Server:** FreeBSD 14.3-RELEASE, Nginx, MySQL 8.0.46<br/>
+> **Path:** `/home/web/vendor/jan/trinity-core`<br/>
+> **Web root:** `/home/web/www`<br/>
+> **url** [http://10.250.11.112/](http://10.250.11.112/)<br/>
 
 ---
 
