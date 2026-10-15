@@ -110,45 +110,45 @@ MEDIA (30)
 /home/web/vendor/jan/trinity-core/
 
 ```
-├── composer.json              — правила. зависимости. наше.
-├── .env                       — кровь. ключи. пути. пароли.
-├── .env.example               — образец. для тех, кто придёт.
-├── database.sql               — три таблицы. книга. память.
-├── README.md                  — этот файл. дверь.
+├── composer.json                     — правила. зависимости. наше.
+├── .env                              — кровь. ключи. пути. пароли.
+├── .env.example                      — образец. для тех, кто придёт.
+├── database.sql                      — три таблицы. книга. память.
+├── README.md                         — этот файл. дверь.
 ├── config/
-│   ├── container.php          — чертежи. правила создания.
-│   └── routes.php             — карта. почти пустая. и это — правильно.
-├── plugins/                   — восемь миров. восемь плагинов.
-│   ├── spa/                   — морда. то, что видит пользователь.
-│   ├── admin/                 — тронный зал. управление нейронами.
-│   ├── users/                 — стражи ворот. вход. регистрация. профиль.
-│   ├── monitor/               — глаза. логи. ошибки.
-│   ├── guard/                 — страж порога. CSRF. блокировки. rate limit.
-│   ├── map/                   — карта. GeoJSON. полигоны.
-│   ├── tools/                 — инструменты. отчёты. ЦУР.
-│   └── gallery/               — галерея. изображения. превьюшки.
+│   ├── container.php                 — чертежи. правила создания.
+│   └── routes.php                    — карта. почти пустая. и это — правильно.
+├── plugins/                          — восемь миров. восемь плагинов.
+│   ├── spa/                          — морда. то, что видит пользователь.
+│   ├── admin/                        — тронный зал. управление нейронами.
+│   ├── users/                        — стражи ворот. вход. регистрация. профиль.
+│   ├── monitor/                      — глаза. логи. ошибки.
+│   ├── guard/                        — страж порога. CSRF. блокировки. rate limit.
+│   ├── map/                          — карта. GeoJSON. полигоны.
+│   ├── tools/                        — инструменты. отчёты. ЦУР.
+│   └── gallery/                      — галерея. изображения. превьюшки.
 ├── src/
-│   ├── index.php (симлинк в /home/web/www/index.php)
-│   ├── Kernel.php             — сердце. не меняется. никогда.
-│   ├── DatabaseService.php    — страж порога. единственный доступ к MySQL.
-│   ├── Cache.php              — башня которая ждёт. отключаемая.
-│   ├── ConfigService.php      — память. все конфиги. один SELECT.
-│   ├── Validator.php          — страж ворот. правила. юникод. строгость.
-│   ├── ApiResponse.php        — единый язык. success. error. paginated.
-│   ├── ErrorHandlerInterface.php — портал. чтобы Kernel не знал о Monitor.
+│   ├── index.php                     — (симлинк в /home/web/www/index.php)
+│   ├── Kernel.php                    — сердце. не меняется. никогда.
+│   ├── DatabaseService.php           — страж порога. единственный доступ к MySQL.
+│   ├── Cache.php                     — башня которая ждёт. отключаемая.
+│   ├── ConfigService.php             — память. все конфиги. один SELECT.
+│   ├── Validator.php                 — страж ворот. правила. юникод. строгость.
+│   ├── ApiResponse.php               — единый язык. success. error. paginated.
+│   ├── ErrorHandlerInterface.php     — портал. чтобы Kernel не знал о Monitor.
 │   ├── Middleware/AuthMiddleware.php — рука. requireAuth. requireAdmin. hasRole.
 │   ├── Repository/
-│   │   ├── NeuronRepository.php   — рука. через неё — трогаем нейроны.
-│   │   ├── TextRepository.php     — слова. findOrCreate. normalizeQuotes.
-│   │   └── SynapseRepository.php  — связи. has_role. member_of.
+│   │   ├── NeuronRepository.php      — рука. через неё — трогаем нейроны.
+│   │   ├── TextRepository.php        — слова. findOrCreate. normalizeQuotes.
+│   │   └── SynapseRepository.php     — связи. has_role. member_of.
 │   ├── Service/
-│   │   └── BreadcrumbsService.php — карта. один метод. без багов.
-│   ├── css/trinity-dark.css   — золото на чёрном. #ffaa00 на #050505.
-│   └── js/trinity-app.js      — SPA-драйвер. fetch. popstate. navigateTo.
+│   │   └── BreadcrumbsService.php    — карта. один метод. без багов.
+│   ├── css/trinity-dark.css          — золото на чёрном. #ffaa00 на #050505.
+│   └── js/trinity-app.js             — SPA-драйвер. fetch. popstate. navigateTo.
 └── var/
-    ├── cache/                 — кэш. data. отключаемый.
-    ├── guard/                 — стража. blocked_ips.json. attempts.
-    └── log/                   — глаза. app. error. security. admin.
+    ├── cache/                        — кэш. data. отключаемый.
+    ├── guard/                        — стража. blocked_ips.json. attempts.
+    └── log/                          — глаза. app. error. security. admin.
 ```
 
 Это — карта. Не «список файлов». Карта Амбера. Каждая папка — мир. Каждый файл — путь. Каждый `plugin.php` — маршрут. И всё это — внутри `/home/web/vendor/jan/trinity-core`. Внутри `Trinity Core`.
