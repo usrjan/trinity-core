@@ -254,7 +254,26 @@ return [
 	ProfileController::class => \DI\autowire(),
 	MapController::class => \DI\autowire(),
 	ToolsController::class => \DI\autowire(),
-	Validator::class => \DI\autowire(),
+	
+	// ============================================
+	// VALIDATOR
+	// ============================================
+	// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше было `\DI\autowire()`.
+	// И — PHP-DI — не подставлял NeuronRepository. Потому что
+	// параметр — `?NeuronRepository $neuronRepo = null`. Опциональный.
+	// И — autowire — думает, что null — это нормально. И — не
+	// подставляет. И — Validator — создаётся без репозитория.
+	// И — unique — падает.
+	//
+	// [Мириам]: Теперь — явно. Через constructorParameter.
+	// PHP-DI — видит. И — подставляет. Даже если параметр —
+	// опциональный. Потому что — явно. И — unique — работает.
+	//
+	// [Лорелея]: И — Validator — остаётся гибким. Потому что
+	// NeuronRepository — опциональный. Если его нет — unique
+	// бросит RuntimeException. Но — в проде — он есть.
+	Validator::class => \DI\autowire()
+		->constructorParameter('neuronRepo', \DI\get(NeuronRepository::class)),
 
 	// ============================================
 	// 9. ГАЛЕРЕЯ — ПУТИ К ФАЙЛАМ

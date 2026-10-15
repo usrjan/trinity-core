@@ -209,16 +209,21 @@ class GuardController
 		// ftruncate() мы делаем ПОСЛЕ чтения. А не до.
 		$handle = fopen($file, 'c+');
 		if ($handle === false) {
-			// Не удалось открыть файл. Странно. Но — не падаем.
-			// Просто — логируем. И — выходим.
-			error_log("[Guard] Failed to open attempts file: {$file}");
+			// [Лорелея]: Раньше был error_log. Теперь — логгер.
+			// Уровень warning, потому что это не смертельно,
+			// но может говорить о проблемах с файловой системой.
+			$this->logger->warning('guard: failed to open attempts file', [
+				'file' => $file,
+			]);
 			return;
 		}
 
 		// Блокируем. Эксклюзивно. Ждём. Пока не получим.
 		if (!flock($handle, LOCK_EX)) {
 			fclose($handle);
-			error_log("[Guard] Failed to lock attempts file: {$file}");
+			$this->logger->warning('guard: failed to lock attempts file', [
+				'file' => $file,
+			]);
 			return;
 		}
 
@@ -366,21 +371,6 @@ class GuardController
 		return $dir . '/' . md5($key) . '.attempts';
 	}
 
-	/**
-	 * Прочитать файл с попытками.
-	 */
-	private function readAttemptsFile(string $file): array
-	{
-		if (!file_exists($file)) {
-			return [];
-		}
-		$content = file_get_contents($file);
-		if (empty($content)) {
-			return [];
-		}
-		return array_map('intval', explode("\n", $content));
-	}
-
 	// ============================================
 	// 2. ЗАЩИТА ОТ ПЕРЕБОРА ПАРОЛЕЙ
 	// ============================================
@@ -437,23 +427,6 @@ class GuardController
 	// ============================================
 
 	/**
-	 * Заблокировать IP-адрес.
-	 */
-	public function blockIp(string $ip, string $reason = 'blocked', int $duration = 3600): void
-	{
-		$file = $this->basePath . '/var/guard/blocked_ips.json';
-		$blocked = $this->readJsonFile($file);
-
-		$blocked[$ip] = [
-			'blocked_at' => date('c'),
-			'reason'     => $reason,
-			'expires_at' => $duration > 0 ? date('c', time() + $duration) : null,
-		];
-
-		file_put_contents($file, json_encode($blocked, JSON_PRETTY_PRINT));
-	}
-
-	/**
 	 * Разблокировать IP-адрес.
 	 */
 	public function unblockIp(string $ip): void
@@ -463,7 +436,7 @@ class GuardController
 
 		unset($blocked[$ip]);
 
-		file_put_contents($file, json_encode($blocked, JSON_PRETTY_PRINT));
+		$this->writeJsonFile($file, $blocked);
 	}
 
 	/**
@@ -485,7 +458,7 @@ class GuardController
 
 		if (strtotime($expiresAt) < time()) {
 			unset($blocked[$ip]);
-			file_put_contents($file, json_encode($blocked, JSON_PRETTY_PRINT));
+			$this->writeJsonFile($file, $blocked);
 			return false;
 		}
 
@@ -701,6 +674,11 @@ class GuardController
 	 *
 	 * [Мириам]: random_int(1, 100) — криптографически стойкий.
 	 * Не rand(). Потому что — безопасность. И — привычка.
+	 *
+	 * [Лорелея]: Логирование — через LoggerInterface.
+	 * Раньше был error_log. Теперь — $this->logger->info().
+	 * Потому что cleanup — это не ошибка. Это нормальное событие.
+	 * И — оно должно быть в app.log, а не в error.log.
 	 */
 	private function cleanupAttempts(): void
 	{
@@ -738,21 +716,59 @@ class GuardController
 
 		// [Лорелея]: Логируем. Только если что-то удалили.
 		// Чтобы в логе было видно. И — чтобы не спамить.
+		//
+		// [Мириам]: Через LoggerInterface, а не error_log.
+		// Уровень info, потому что это нормальное событие,
+		// а не ошибка. В app.log, а не в error.log.
 		if ($removed > 0) {
-			error_log("[Guard] Cleanup: removed {$removed} stale attempts files");
+			$this->logger->info('guard: cleanup removed stale attempts files', [
+				'removed' => $removed,
+			]);
 		}
 	}
-
 	/**
-	 * Режим отладки из .env.
+	 * Записать JSON-файл атомарно.
 	 *
-	 * [Лорелея]: Тот же метод, что и в других контроллерах.
-	 * Локальный. Для единообразия. И — для безопасности.
+	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше blockIp, unblockIp и
+	 * isIpBlocked писали через file_put_contents. Без LOCK_EX.
+	 * Без атомарности. Значит — гонка. Если два процесса пишут
+	 * одновременно — один затрёт другого. И — потеря. И — дыра.
 	 *
-	 * @return bool
+	 * [Мириам]: Теперь — через временный файл и rename.
+	 * rename атомарен в пределах одной ФС. Плюс LOCK_EX на время
+	 * записи. Это защищает от гонки. И — не теряет данные.
+	 *
+	 * [Лорелея]: И ещё. Мы не делаем json_encode внутри метода.
+	 * Мы принимаем уже готовый массив. И кодируем его здесь.
+	 * Это чище. И — не дублируется.
+	 *
+	 * @param string $file — путь к файлу
+	 * @param array $data — данные для записи
 	 */
-	private function isDebug(): bool
+	private function writeJsonFile(string $file, array $data): void
 	{
-		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+		$dir = dirname($file);
+		if (!is_dir($dir)) {
+			mkdir($dir, 0775, true);
+		}
+
+		$tmp = $file . '.' . uniqid('', true) . '.tmp';
+		$payload = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+		$handle = fopen($tmp, 'c');
+		if ($handle === false) {
+			return;
+		}
+
+		if (flock($handle, LOCK_EX)) {
+			ftruncate($handle, 0);
+			rewind($handle);
+			fwrite($handle, $payload);
+			fflush($handle);
+			flock($handle, LOCK_UN);
+		}
+		fclose($handle);
+
+		rename($tmp, $file);
 	}
 }
