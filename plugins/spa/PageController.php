@@ -3,14 +3,14 @@
 /**
  * КОНТРОЛЛЕР СТРАНИЦ
  * ===================
- * 
+ *
  * Управление контентными страницами и их секциями.
  * Страницы загружаются через SPA-движок асинхронно.
- * 
+ *
  * Публичные методы:
  * - show(slug)          — просмотр страницы (JSON с HTML)
  * - subPage(id)         — просмотр подстраницы по ID
- * 
+ *
  * Админские методы (только для role_admin):
  * - addSection(slug)    — добавление секции на страницу
  * - updateSection(id)   — обновление секции
@@ -20,26 +20,36 @@
  * - addSubPage(slug)    — добавление подстраницы по slug
  * - addSubPageById(pageId) — добавление подстраницы по ID
  * - deleteSubPage(id)   — удаление подстраницы
- * 
+ *
  * Структура:
  * PAGES (tree) → страница (tree) → секции (item)
  * Каждая секция связана с текстом через text.key.
- * 
+ *
  * Зависимости:
- * - TextRepository    — работа с текстами секций
- * - NeuronRepository  — работа с нейронами страниц и секций
- * - GuardController   — CSRF-защита для админских методов
- * - AuthMiddleware    — проверка прав доступа
- * 
+ * - TextRepository        — работа с текстами секций
+ * - NeuronRepository      — работа с нейронами страниц и секций
+ * - BreadcrumbsService    — сбор хлебных крошек (один метод для всех)
+ * - GuardController       — CSRF-защита для админских методов
+ * - AuthMiddleware        — проверка прав доступа
+ *
  * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
- * 
+ *
  * [Лорелея]: Удалён метод test(). Раньше он возвращал
  * ['test' => 'ok'] для проверки работоспособности. В проде
  * не нужен.
- * 
+ *
  * [Мириам]: Я проверила все методы на CSRF. deleteSubPage
  * не проверял CSRF — добавила. Это важно, потому что
  * удаление — изменяющая операция.
+ *
+ * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше buildBreadcrumbs был
+ * внутри PageController (и GalleryController, и NeuronRepository).
+ * И — везде — с багом: $currentData определялась только внутри
+ * if ($current['text']). И — если text нет — падало.
+ *
+ * [Мириам]: Теперь — BreadcrumbsService. Один метод. Все —
+ * используют его. Через DI. Без дублей. Без багов. И — без
+ * Call to a member function findByKeyAndLang() on null.
  */
 
 namespace Jan\Trinity\Plugin\Spa;
@@ -50,6 +60,7 @@ use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
 use Jan\Trinity\Plugin\Guard\GuardController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -60,6 +71,7 @@ use Twig\Environment;
 class PageController
 {
 	use AuthMiddleware;
+	use BreadcrumbsTrait;
 
 	/** @var Environment — шаблонизатор Twig */
 	private Environment $twig;
@@ -80,6 +92,9 @@ class PageController
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
+	 *
+	 * [Лорелея]: BreadcrumbsService — новый. Через DI. Не через new.
+	 * Потому что — сервис. И — один. И — на всех.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -107,16 +122,16 @@ class PageController
 
 	/**
 	 * GET /api/page/{slug}
-	 * 
+	 *
 	 * Возвращает JSON с HTML-контентом страницы для SPA-движка.
-	 * 
+	 *
 	 * Алгоритм:
 	 * 1. Находит PAGES (корень контентных страниц)
 	 * 2. Внутри PAGES ищет страницу по slug
 	 * 3. Загружает дочерние нейроны (секции)
 	 * 4. Для каждой секции подтягивает текст из таблицы text
 	 * 5. Поддерживает HTML-контент (data.mime = 'text/html')
-	 * 
+	 *
 	 * @param string $slug — slug страницы
 	 * @param Request $request — содержит ?lang=ru
 	 * @return Response — JSON {success, data: {title, html}}
@@ -143,49 +158,7 @@ class PageController
 			]);
 		}
 
-		// Собираем хлебные крошки (поднимаемся по pid к корню PAGES)
-		$breadcrumbs = [];
-		$current = $page;
-		while ($current) {
-			$name = 'Без названия';
-			if ($current['text']) {
-				// Сначала ищем на нужном языке
-				$text = $this->textRepo->findByKeyAndLang($current['text'], $lang);
-
-				// Если нет — ищем любой доступный язык
-				if (!$text || !$text['name']) {
-					$allTexts = $this->textRepo->findAllByKey($current['text']);
-					foreach ($allTexts as $t) {
-						if (!empty($t['name'])) {
-							$text = $t;
-							break;
-						}
-					}
-				}
-
-				if ($text && $text['name']) {
-					$name = $text['name'];
-				}
-			}
-			if (!$name || $name === 'Без названия') {
-				$currentData = is_string($current['data'] ?? null) ? json_decode($current['data'], true) : ($current['data'] ?? []);
-				$name = $currentData['slug'] ?? 'Без названия';
-			}
-
-			array_unshift($breadcrumbs, [
-				'name' => $name,
-				'slug' => $currentData['slug'] ?? '',
-			]);
-
-			if ($current['pid']) {
-				$current = $this->neuronRepo->findById($current['pid']);
-				// Останавливаемся на PAGES (не показываем его)
-				$currentData = is_string($current['data'] ?? null) ? json_decode($current['data'], true) : ($current['data'] ?? []);
-				if (($currentData['slug'] ?? '') === 'PAGES') break;
-			} else {
-				break;
-			}
-		}
+		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
 
 		// Загружаем дочерние нейроны (секции страницы)
 		$children = $this->neuronRepo->findChildren($page['id']);
@@ -285,10 +258,10 @@ class PageController
 
 	/**
 	 * POST /api/page/{slug}/section
-	 * 
+	 *
 	 * Добавляет новую секцию на страницу.
 	 * Принимает JSON: sort, lang, name, text.
-	 * 
+	 *
 	 * @param string $slug — slug страницы
 	 * @param Request $request
 	 * @return JsonResponse
@@ -373,10 +346,10 @@ class PageController
 
 	/**
 	 * POST /api/page/section/{id}
-	 * 
+	 *
 	 * Обновляет существующую секцию.
 	 * Принимает JSON: sort, lang, name, text.
-	 * 
+	 *
 	 * @param int $id — id нейрона секции
 	 * @param Request $request
 	 * @return JsonResponse
@@ -501,9 +474,9 @@ class PageController
 
 	/**
 	 * DELETE /api/page/section/{id}/delete
-	 * 
+	 *
 	 * Мягкое удаление секции (deleted_at в data).
-	 * 
+	 *
 	 * @param int $id — id нейрона секции
 	 * @param Request $request — для CSRF-проверки
 	 * @return JsonResponse
@@ -609,46 +582,7 @@ class PageController
 
 		$lang = 'ru';
 
-		// Собираем хлебные крошки
-		$breadcrumbs = [];
-		$current = $page;
-		while ($current) {
-			$name = 'Без названия';
-			if ($current['text']) {
-				$text = $this->textRepo->findByKeyAndLang($current['text'], $lang);
-
-				if (!$text || !$text['name']) {
-					$allTexts = $this->textRepo->findAllByKey($current['text']);
-					foreach ($allTexts as $t) {
-						if (!empty($t['name'])) {
-							$text = $t;
-							break;
-						}
-					}
-				}
-
-				if ($text && $text['name']) {
-					$name = $text['name'];
-				}
-			}
-			if (!$name || $name === 'Без названия') {
-				$currentData = is_string($current['data'] ?? null) ? json_decode($current['data'], true) : ($current['data'] ?? []);
-				$name = $currentData['slug'] ?? 'Без названия';
-			}
-
-			array_unshift($breadcrumbs, [
-				'name' => $name,
-				'slug' => $currentData['slug'] ?? '',
-			]);
-
-			if ($current['pid']) {
-				$current = $this->neuronRepo->findById($current['pid']);
-				$currentData = is_string($current['data'] ?? null) ? json_decode($current['data'], true) : ($current['data'] ?? []);
-				if (($currentData['slug'] ?? '') === 'PAGES') break;
-			} else {
-				break;
-			}
-		}
+		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
 
 		// Загружаем дочерние нейроны
 		$children = $this->neuronRepo->findChildren($page['id']);
@@ -852,7 +786,7 @@ class PageController
 	/**
 	 * DELETE /api/page/sub/{id}
 	 * Удаляет подстраницу со всем содержимым.
-	 * 
+	 *
 	 * [Мириам]: Добавлен CSRF. Раньше DELETE проходил без проверки.
 	 */
 	public function deleteSubPage(int $id, Request $request): JsonResponse

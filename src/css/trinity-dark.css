@@ -599,3 +599,550 @@ pre {
 	.sidebar.collapsed { width: 100%; }
 	.main-content { margin-left: 0; }
 }
+
+/* ============================================
+   MIME — СТИЛИ
+   ============================================
+   [Лорелея]: Mime — это дверь. Стили — её ручка.
+   [Мириам]: Золото на чёрном. Таблицы. Код. Блоки.
+   [Лорелея]: Общий класс .md-content. Для markdown.
+   Для README. Для mime. Один стиль. Один источник правды.
+   ============================================ */
+
+.mime-content {
+	max-width: 900px;
+	margin: 0 auto;
+	color: #aaaaaa;
+	line-height: 1.8;
+	font-size: 1rem;
+}
+
+.md-content {
+	max-width: 900px;
+	margin: 0 auto;
+	color: #aaaaaa;
+	line-height: 1.8;
+	font-size: 1rem;
+}
+
+/* === ЗАГОЛОВКИ === */
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+	color: #ffaa00;
+	margin-top: 2rem;
+	margin-bottom: 1rem;
+	font-weight: 600;
+}
+
+.md-content h1 {
+	font-size: 2.2rem;
+	border-bottom: 2px solid rgba(255, 170, 0, 0.3);
+	padding-bottom: 0.75rem;
+	margin-top: 1rem;
+}
+
+.md-content h2 {
+	font-size: 1.6rem;
+	border-bottom: 1px solid rgba(255, 170, 0, 0.2);
+	padding-bottom: 0.5rem;
+	margin-top: 2.5rem;
+}
+
+.md-content h3 {
+	font-size: 1.3rem;
+	color: #ffcc44;
+}
+
+.md-content h4 {
+	font-size: 1.1rem;
+	color: #ffcc44;
+}
+
+/* === ТЕКСТ === */
+.md-content p {
+	margin-bottom: 1rem;
+}
+
+.md-content strong {
+	color: #e0e0e0;
+	font-weight: 600;
+}
+
+.md-content em {
+	color: #ffcc44;
+}
+
+/* === ССЫЛКИ === */
+.md-content a {
+	color: #ffaa00;
+	text-decoration: none;
+	border-bottom: 1px dotted rgba(255, 170, 0, 0.4);
+	transition: all 0.2s ease;
+}
+
+.md-content a:hover {
+	color: #ffcc44;
+	border-bottom-color: #ffcc44;
+}
+
+/* === БЛОК-ЦИТАТЫ === */
+.md-content blockquote {
+	border-left: 4px solid #ffaa00;
+	padding: 0.75rem 1.25rem;
+	margin: 1.5rem 0;
+	color: rgba(255, 170, 0, 0.85);
+	background: rgba(255, 170, 0, 0.04);
+	border-radius: 0 6px 6px 0;
+	font-style: italic;
+}
+
+.md-content blockquote p {
+	margin-bottom: 0.5rem;
+}
+
+.md-content blockquote p:last-child {
+	margin-bottom: 0;
+}
+
+/* === ТАБЛИЦЫ === */
+.md-content table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 1.5rem 0;
+	font-size: 0.95rem;
+}
+
+.md-content th,
+.md-content td {
+	border: 1px solid rgba(255, 170, 0, 0.2);
+	padding: 0.6rem 1rem;
+	text-align: left;
+	vertical-align: top;
+}
+
+.md-content th {
+	background: rgba(255, 170, 0, 0.08);
+	color: #ffaa00;
+	font-weight: 600;
+}
+
+.md-content tr:nth-child(even) td {
+	background: rgba(255, 170, 0, 0.02);
+}
+
+.md-content tr:hover td {
+	background: rgba(255, 170, 0, 0.05);
+}
+
+/* === КОД === */
+.md-content code {
+	background: rgba(255, 170, 0, 0.12);
+	color: #ffcc44;
+	padding: 2px 6px;
+	border-radius: 4px;
+	font-family: 'Courier New', Consolas, Monaco, monospace;
+	font-size: 0.9em;
+}
+
+.md-content pre {
+	background: #0a0a0a;
+	border: 1px solid rgba(255, 170, 0, 0.15);
+	border-radius: 6px;
+	padding: 1rem 1.25rem;
+	overflow-x: auto;
+	margin: 1.5rem 0;
+	line-height: 1.5;
+}
+
+.md-content pre code {
+	background: none;
+	padding: 0;
+	color: #ffaa00;
+	font-size: 0.9em;
+}
+
+/* === СПИСКИ === */
+.md-content ul,
+.md-content ol {
+	margin: 1rem 0;
+	padding-left: 2rem;
+}
+
+.md-content li {
+	margin-bottom: 0.5rem;
+}
+
+.md-content li::marker {
+	color: #ffaa00;
+}
+
+.md-content ul ul,
+.md-content ol ol,
+.md-content ul ol,
+.md-content ol ul {
+	margin: 0.5rem 0;
+}
+
+/* === ГОРИЗОНТАЛЬНАЯ ЛИНИЯ === */
+.md-content hr {
+	border: none;
+	border-top: 1px solid rgba(255, 170, 0, 0.2);
+	margin: 2.5rem 0;
+}
+
+/* === ИЗОБРАЖЕНИЯ === */
+.md-content img {
+	max-width: 100%;
+	border-radius: 6px;
+	margin: 1rem 0;
+}
+
+/* === ЗАЧЁРКИВАНИЕ === */
+.md-content del {
+	color: #666;
+	text-decoration: line-through;
+}
+
+/* === ЧЕК-ЛИСТЫ === */
+.md-content input[type="checkbox"] {
+	margin-right: 0.5rem;
+	accent-color: #ffaa00;
+}
+
+/* === АДАПТИВНОСТЬ === */
+@media (max-width: 768px) {
+	.mime-content,
+	.md-content {
+		padding: 0.5rem;
+	}
+
+	.md-content h1 { font-size: 1.6rem; }
+	.md-content h2 { font-size: 1.3rem; }
+	.md-content h3 { font-size: 1.1rem; }
+	.md-content table { font-size: 0.85rem; }
+	.md-content th,
+	.md-content td { padding: 0.4rem 0.6rem; }
+}
+
+/* ============================================
+   PHP — СТИЛИ
+   ============================================
+   [Лорелея]: PHP — это язык. Но — не тот, который
+   исполняется. А тот, который показывается. Безопасно.
+   С эскейпом. С — золотом на чёрном.
+   
+   [Мириам]: Как markdown. Как JSON. Как всё, что мы делаем.
+   Красиво. Чисто. Наше.
+   ============================================ */
+
+.php-code {
+	position: relative;
+	background: #0a0a0a;
+	border: 1px solid rgba(255, 170, 0, 0.15);
+	border-radius: 6px;
+	padding: 1.5rem 1.25rem 1rem;
+	margin: 1.5rem 0;
+	overflow-x: auto;
+	line-height: 1.5;
+}
+
+.php-code::before {
+	content: 'PHP';
+	position: absolute;
+	top: 0;
+	right: 0;
+	background: rgba(255, 170, 0, 0.1);
+	color: #ffaa00;
+	font-size: 0.7rem;
+	font-family: 'Courier New', monospace;
+	padding: 0.2rem 0.6rem;
+	border-radius: 0 6px 0 6px;
+	letter-spacing: 1px;
+}
+
+.php-code code {
+	background: none;
+	padding: 0;
+	color: #ffaa00;
+	font-family: 'Courier New', Consolas, Monaco, monospace;
+	font-size: 0.9em;
+	white-space: pre;
+}
+
+/* ============================================
+   JSON — СТИЛИ
+   ============================================
+   [Лорелея]: JSON — это язык данных. Как markdown —
+   язык текста. Как HTML — язык вёрстки. И мы должны
+   уметь его показать. С отступами. С эскейпом.
+   
+   [Мириам]: Метка "JSON" в углу. Чтобы сразу было
+   видно, что это. Чтобы — не путать с PHP.
+   ============================================ */
+
+.json-code {
+	position: relative;
+	background: #0a0a0a;
+	border: 1px solid rgba(255, 170, 0, 0.15);
+	border-radius: 6px;
+	padding: 1.5rem 1.25rem 1rem;
+	margin: 1.5rem 0;
+	overflow-x: auto;
+	line-height: 1.5;
+}
+
+.json-code::before {
+	content: 'JSON';
+	position: absolute;
+	top: 0;
+	right: 0;
+	background: rgba(255, 170, 0, 0.1);
+	color: #ffaa00;
+	font-size: 0.7rem;
+	font-family: 'Courier New', monospace;
+	padding: 0.2rem 0.6rem;
+	border-radius: 0 6px 0 6px;
+	letter-spacing: 1px;
+}
+
+.json-code code {
+	background: none;
+	padding: 0;
+	color: #ffcc44;
+	font-family: 'Courier New', Consolas, Monaco, monospace;
+	font-size: 0.9em;
+	white-space: pre;
+}
+
+/* === JSON-ОШИБКА === */
+.json-error {
+	position: relative;
+	background: rgba(255, 68, 68, 0.05);
+	border: 1px solid rgba(255, 68, 68, 0.3);
+	border-radius: 6px;
+	padding: 1rem 1.25rem;
+	margin: 1.5rem 0;
+	overflow-x: auto;
+	line-height: 1.5;
+	color: #ff6666;
+	font-family: 'Courier New', Consolas, Monaco, monospace;
+	font-size: 0.9em;
+}
+
+.json-error::before {
+	content: 'JSON (невалидный)';
+	position: absolute;
+	top: 0;
+	right: 0;
+	background: rgba(255, 68, 68, 0.15);
+	color: #ff6666;
+	font-size: 0.7rem;
+	font-family: 'Courier New', monospace;
+	padding: 0.2rem 0.6rem;
+	border-radius: 0 6px 0 6px;
+	letter-spacing: 1px;
+}
+
+/* ============================================
+   HTML — СТИЛИ
+   ============================================
+   [Лорелея]: HTML — самый опасный момент. Потому что
+   внутри — может быть что угодно. Но — если это наш HTML.
+   Если это — шаблон, который мы сами написали — тогда
+   это — безопасно. И — красиво. И — наше.
+   
+   [Мириам]: Мы НЕ переопределяем внутренние элементы.
+   Потому что — внутри может быть всё. Таблицы. Формы.
+   Кнопки. Свои классы. И — если мы будем их трогать —
+   будет плохо. Значит — минимум. Только — обёртка.
+   Только — padding. Только — max-width.
+   ============================================ */
+
+.html-content {
+	max-width: 900px;
+	margin: 0 auto;
+	color: #aaaaaa;
+	line-height: 1.8;
+	font-size: 1rem;
+}
+
+/* === БАЗОВЫЕ ЭЛЕМЕНТЫ — ВНУТРИ HTML ===
+   [Лорелея]: Даём базовые стили. Как в md-content.
+   Но — только для тех элементов, которые обычно
+   не имеют своих классов. Кнопки. Ссылки. Таблицы.
+   Если у элемента есть свой класс — он победит. Потому
+   что class всегда важнее, чем тег. */
+
+.html-content a {
+	color: #ffaa00;
+	text-decoration: none;
+	border-bottom: 1px dotted rgba(255, 170, 0, 0.4);
+	transition: all 0.2s ease;
+}
+
+.html-content a:hover {
+	color: #ffcc44;
+	border-bottom-color: #ffcc44;
+}
+
+.html-content h1,
+.html-content h2,
+.html-content h3,
+.html-content h4,
+.html-content h5,
+.html-content h6 {
+	color: #ffaa00;
+	margin-top: 2rem;
+	margin-bottom: 1rem;
+	font-weight: 600;
+}
+
+.html-content h1 {
+	font-size: 2.2rem;
+	border-bottom: 2px solid rgba(255, 170, 0, 0.3);
+	padding-bottom: 0.75rem;
+	margin-top: 1rem;
+}
+
+.html-content h2 {
+	font-size: 1.6rem;
+	border-bottom: 1px solid rgba(255, 170, 0, 0.2);
+	padding-bottom: 0.5rem;
+	margin-top: 2.5rem;
+}
+
+.html-content h3 {
+	font-size: 1.3rem;
+	color: #ffcc44;
+}
+
+.html-content p {
+	margin-bottom: 1rem;
+}
+
+.html-content strong {
+	color: #e0e0e0;
+	font-weight: 600;
+}
+
+.html-content em {
+	color: #ffcc44;
+}
+
+.html-content table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 1.5rem 0;
+	font-size: 0.95rem;
+}
+
+.html-content th,
+.html-content td {
+	border: 1px solid rgba(255, 170, 0, 0.2);
+	padding: 0.6rem 1rem;
+	text-align: left;
+	vertical-align: top;
+}
+
+.html-content th {
+	background: rgba(255, 170, 0, 0.08);
+	color: #ffaa00;
+	font-weight: 600;
+}
+
+.html-content code {
+	background: rgba(255, 170, 0, 0.12);
+	color: #ffcc44;
+	padding: 2px 6px;
+	border-radius: 4px;
+	font-family: 'Courier New', Consolas, Monaco, monospace;
+	font-size: 0.9em;
+}
+
+.html-content pre {
+	background: #0a0a0a;
+	border: 1px solid rgba(255, 170, 0, 0.15);
+	border-radius: 6px;
+	padding: 1rem 1.25rem;
+	overflow-x: auto;
+	margin: 1.5rem 0;
+	line-height: 1.5;
+}
+
+.html-content pre code {
+	background: none;
+	padding: 0;
+	color: #ffaa00;
+	font-size: 0.9em;
+}
+
+.html-content blockquote {
+	border-left: 4px solid #ffaa00;
+	padding: 0.75rem 1.25rem;
+	margin: 1.5rem 0;
+	color: rgba(255, 170, 0, 0.85);
+	background: rgba(255, 170, 0, 0.04);
+	border-radius: 0 6px 6px 0;
+	font-style: italic;
+}
+
+.html-content ul,
+.html-content ol {
+	margin: 1rem 0;
+	padding-left: 2rem;
+}
+
+.html-content li {
+	margin-bottom: 0.5rem;
+}
+
+.html-content li::marker {
+	color: #ffaa00;
+}
+
+.html-content hr {
+	border: none;
+	border-top: 1px solid rgba(255, 170, 0, 0.2);
+	margin: 2.5rem 0;
+}
+
+.html-content img {
+	max-width: 100%;
+	border-radius: 6px;
+	margin: 1rem 0;
+}
+
+/* ============================================
+   АДАПТИВНОСТЬ ДЛЯ ВСЕХ ТРЁХ
+   ============================================ */
+
+@media (max-width: 768px) {
+	.php-code,
+	.json-code,
+	.json-error {
+		padding: 1.25rem 0.75rem 0.75rem;
+		font-size: 0.85em;
+	}
+
+	.php-code::before,
+	.json-code::before,
+	.json-error::before {
+		font-size: 0.65rem;
+		padding: 0.15rem 0.4rem;
+	}
+
+	.html-content {
+		padding: 0.5rem;
+	}
+
+	.html-content h1 { font-size: 1.6rem; }
+	.html-content h2 { font-size: 1.3rem; }
+	.html-content h3 { font-size: 1.1rem; }
+	.html-content table { font-size: 0.85rem; }
+	.html-content th,
+	.html-content td { padding: 0.4rem 0.6rem; }
+}

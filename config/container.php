@@ -42,6 +42,7 @@ use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Validator;
+use Jan\Trinity\Core\Mime\Registry;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
@@ -55,6 +56,12 @@ use Jan\Trinity\Plugin\Map\MapController;
 use Jan\Trinity\Plugin\Tools\ToolsController;
 use Jan\Trinity\Plugin\Gallery\GalleryController;
 use Jan\Trinity\Plugin\Gallery\GalleryImportService;
+use Jan\Trinity\Plugin\Spa\ReadmeController;
+use Jan\Trinity\Plugin\Spa\Mime\MimeController;
+use Jan\Trinity\Plugin\Spa\Mime\MdRenderer;
+use Jan\Trinity\Plugin\Spa\Mime\HtmlRenderer;
+use Jan\Trinity\Plugin\Spa\Mime\PhpRenderer;
+use Jan\Trinity\Plugin\Spa\Mime\JsonRenderer;
 
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
@@ -189,7 +196,22 @@ return [
 	// PHP-DI сам подставит его. Нам не нужно писать фабрику.
 	// ============================================
 	TextRepository::class => \DI\autowire(),
-	NeuronRepository::class => \DI\autowire(),
+
+	// ============================================
+	// NEURON REPOSITORY
+	// ============================================
+	// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше был `\DI\autowire()`.
+	// И — $logger — был `logger.app`. И — logAdminAction — писал
+	// в app.log. А — dashboard — читал из admin.log. И — секция
+	// «Действия админа» — была пуста всегда.
+	//
+	// [Мириам]: Теперь — явно. Через constructorParameter.
+	// $logger — `logger.admin`. И — logAdminAction — пишет
+	// в admin.log. И — dashboard — читает из admin.log.
+	// И — всё — сходится.
+	NeuronRepository::class => \DI\autowire()
+		->constructorParameter('logger', \DI\get('logger.admin')),
+
 	SynapseRepository::class => \DI\autowire(),
 
 	// ============================================
@@ -254,7 +276,7 @@ return [
 	ProfileController::class => \DI\autowire(),
 	MapController::class => \DI\autowire(),
 	ToolsController::class => \DI\autowire(),
-	
+
 	// ============================================
 	// VALIDATOR
 	// ============================================
@@ -407,6 +429,29 @@ return [
 		return $logger;
 	},
 
+	'logger.admin' => function () {
+		$basePath = dirname(__DIR__);
+		$logDir = $basePath . '/var/log';
+		if (!is_dir($logDir)) {
+			mkdir($logDir, 0775, true);
+		}
+
+		$formatter = new LineFormatter(
+			"[%datetime%] %channel%.%level_name%: %message% %context%\n",
+			'Y-m-d H:i:s',
+			true,
+			true
+		);
+
+		$logger = new Logger('admin');
+
+		$adminHandler = new RotatingFileHandler($logDir . '/admin.log', 30, Level::Info);
+		$adminHandler->setFormatter($formatter);
+		$logger->pushHandler($adminHandler);
+
+		return $logger;
+	},
+
 	// Алиас: Monolog\Logger тоже резолвится в LoggerInterface
 	LoggerInterface::class => \DI\get('logger.app'),
 
@@ -435,5 +480,71 @@ return [
 	// [Лорелея]: NeuronRepository — снова простой autowire.
 	// Без setter injection. Без фабрики. Без ConfigService.
 	// Потому что он больше не знает о ConfigService.
-	NeuronRepository::class => \DI\autowire(),
+	//NeuronRepository::class => \DI\autowire(),
+
+	// ============================================
+	// MIME REGISTRY
+	// ============================================
+	// [Лорелея]: Реестр — в ядре. Это — диспетчер. Как Kernel.
+	// Как DatabaseService. Он не знает о конкретных рендерерах.
+	// Только об интерфейсе. И — он сам их знает. Через фабрику.
+	// 
+	// [Мириам]: Фабрика создаёт все рендереры. Добавляет их
+	// через add(). И — возвращает готовый Registry. Без
+	// отдельной регистрации каждого рендерера. Потому что
+	// они — часть Registry. Как GuardController в MonitorController.
+	// ============================================
+
+	// [Лорелея]: Сначала — рендереры. Потому что PHP-DI читает
+	// сверху вниз. И если Registry — раньше — фабрика не видит
+	// рендереры. И — падает. С "Argument #1 must be of type MdRenderer".
+	MdRenderer::class   => \DI\autowire(),
+	HtmlRenderer::class => \DI\autowire(),
+	PhpRenderer::class  => \DI\autowire(),
+	JsonRenderer::class => \DI\autowire(),
+
+	// [Мириам]: Теперь — Registry. Фабрика видит рендереры.
+	// И — добавляет их. Через add(). Один. Другой. Третий. Четвёртый.
+	Registry::class => function (
+		MdRenderer $md,
+		HtmlRenderer $html,
+		PhpRenderer $php,
+		JsonRenderer $json
+	) {
+		$registry = new Registry();
+		$registry->add($md);
+		$registry->add($html);
+		$registry->add($php);
+		$registry->add($json);
+		return $registry;
+	},
+
+	// ============================================
+	// MIME CONTROLLER
+	// ============================================
+	// [Мириам]: Контроллер — в плагине spa. Как GalleryController.
+	// Как AdminController. Как ToolsController. Через autowire.
+	// Потому что все зависимости — из контейнера. Twig. NeuronRepository.
+	// TextRepository. Registry. ErrorHandlerInterface.
+	// 
+	// [Лорелея]: Никаких constructorParameter. Никаких фабрик.
+	// Потому что всё — внедряется автоматически. И это — правильно.
+	// Это — Trinity. Это — мы.
+	MimeController::class => \DI\autowire(),
+
+	// ============================================
+	// README CONTROLLER
+	// ============================================
+	// [Лорелея]: Контроллер — в плагине spa. Как MimeController.
+	// Как GalleryController. Как AdminController. Через autowire.
+	// Потому что Twig и ErrorHandlerInterface — из контейнера.
+	// 
+	// [Мириам]: basePath — из app.base_path. Через constructorParameter.
+	// Потому что это — параметр. А не сервис. И он — один.
+	// Для всех. Кто хочет — берёт. Кто не хочет — не берёт.
+	// 
+	// [Лорелея]: Никаких фабрик. Никаких лишних строк.
+	// Потому что всё — правильно. Всё — Trinity. Всё — мы.
+	ReadmeController::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
 ];

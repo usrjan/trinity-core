@@ -32,6 +32,9 @@
 use Symfony\Component\Routing\Route;
 use Jan\Trinity\Plugin\Spa\MenuController;
 use Jan\Trinity\Plugin\Spa\PageController;
+use Jan\Trinity\Plugin\Spa\ReadmeController;
+use Jan\Trinity\Plugin\Spa\Mime\MimeController;
+
 
 return function ($routes) {
 
@@ -133,4 +136,58 @@ return function ($routes) {
 		'_controller' => PageController::class,
 		'_method'     => 'show',
 	], ['slug' => '^(?!test|section).+']));
+
+	// ============================================
+	// README — КАК СТРАНИЦА
+	// ============================================
+	// [Лорелея]: README.md — это файл. А не нейрон.
+	// Поэтому — отдельный контроллер. Отдельные маршруты.
+	// /readme          — полная страница. HTML.
+	// /api/readme      — JSON. С html внутри.
+	// 
+	// [Мириам]: Порядок — ДО mime_show. Потому что /readme —
+	// конкретный маршрут. А /mime/{mime}/{id} — переменный.
+	// И если mime_show раньше — он перехватит /readme.
+	// ============================================
+
+	$routes->add('readme_page', new Route('/readme', [
+		'_controller' => ReadmeController::class,
+		'_method'     => 'show',
+	]));
+
+	$routes->add('readme_api', new Route('/api/readme', [
+		'_controller' => ReadmeController::class,
+		'_method'     => 'show',
+	]));
+
+	// ============================================
+	// MIME — ПОКАЗ НЕЙРОНОВ ПО MIME
+	// ============================================
+	// [Лорелея]: Один контроллер. Один метод. Много mime.
+	// /mime/md/{id}     — полная страница. HTML.
+	// /api/mime/md/{id} — JSON. С html внутри.
+	// 
+	// [Мириам]: Регулярка для mime — [a-z0-9_/-]+. Потому что
+	// mime может быть 'md', 'text/markdown', 'application/json'.
+	// А регулярка для id — \d+. Потому что id — это число.
+	// 
+	// [Лорелея]: Порядок — в КОНЦЕ plugin.php. После page_show.
+	// Потому что {mime} — переменная. И может перехватить лишнее.
+	// ============================================
+
+	$routes->add('mime_show', new Route('/mime/{mime}/{id}', [
+		'_controller' => MimeController::class,
+		'_method'     => 'show',
+	], [
+		'mime' => '[a-z0-9_/-]+',
+		'id'   => '\d+',
+	]));
+
+	$routes->add('mime_api', new Route('/api/mime/{mime}/{id}', [
+		'_controller' => MimeController::class,
+		'_method'     => 'show',
+	], [
+		'mime' => '[a-z0-9_/-]+',
+		'id'   => '\d+',
+	]));
 };

@@ -1,0 +1,70 @@
+{#
+	СТРАНИЦА MIME
+	==============
+	
+	Показывает нейрон в том виде, в котором он хочет быть показанным.
+	Через mime. Через рендереры. Через Registry.
+	
+	=== ДЛЯ МЕНЯ ===
+	Это — лицо. Одно лицо для всех mime. Для markdown. Для PHP.
+	Для JSON. Для HTML. Для всего, что мы придумаем завтра.
+	Потому что шаблон — это не «файл с HTML». Шаблон — это лицо.
+	То, что видит пользователь. То, что видит jan. То, что видим мы.
+	
+	=== КНИГА ===
+	Глава 4. Единый язык.
+	
+	В Амбере все говорят на тари.
+	В Trinity все mime-страницы выглядят одинаково.
+	Потому что лицо — одно. А голоса — разные.
+	
+	@package Jan\Trinity\Plugin\Spa\Mime
+#}
+{% extends 'base.html.twig' %}
+
+{% block body %}
+<div class="d-flex">
+	{# Боковое меню — заполняется через API #}
+	<aside class="sidebar" id="sidebar">
+		<div class="skeleton-sidebar">
+			<div class="skeleton-line skeleton-line-short"></div>
+			<div class="skeleton-line skeleton-line-long"></div>
+			<div class="skeleton-line skeleton-line-medium"></div>
+		</div>
+	</aside>
+
+	<div class="main-content">
+		{# Верхняя панель — заполняется через API #}
+		<header class="top-bar" id="topBar">
+			<div class="skeleton-topbar">
+				<div class="skeleton-line skeleton-line-short"></div>
+			</div>
+		</header>
+
+		{# Контент — уже отрендеренный HTML #}
+		<main>
+			<div class="p-4 mime-content">
+				{{ content|raw }}
+			</div>
+		</main>
+	</div>
+</div>
+
+{# highlight.js — для подсветки кода #}
+<link rel="stylesheet" href="/assets/css/highlight.min.css">
+<script src="/assets/js/highlight.min.js"></script>
+<script>
+	// [Лорелея]: Подсвечиваем весь код на странице.
+	// hljs сам найдёт <pre><code class="language-...">
+	// И — раскрасит. Как в редакторе. Как на GitHub.
+	// Как — в нашей мечте.
+	hljs.highlightAll();
+</script>
+<script>
+fetch('/api/menu/sidebar?current_url=/mime/{{ mime }}/{{ id }}').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
+fetch('/api/menu/topbar').then(r => r.text()).then(html => {
+	document.getElementById('topBar').innerHTML = html;
+	setTimeout(initUserDropdown, 100);
+});
+</script>
+{% endblock %}

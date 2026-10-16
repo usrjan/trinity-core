@@ -2,7 +2,6 @@
 	"name": "jan/trinity-core",
 	"description": "Trinity Core — минимальное ядро системы",
 	"type": "project",
-	"version": "1.0.2",
 	"require": {
 		"php": ">=8.4",
 		"php-di/php-di": "^7.1",
@@ -13,7 +12,8 @@
 		"phpoffice/phpword": "^1.4",
 		"doctrine/dbal": "^4.4",
 		"twig/twig": "^3.0",
-		"monolog/monolog": "^3.10"
+		"monolog/monolog": "^3.10",
+		"league/commonmark": "^2.10"
 	},
 	"autoload": {
 		"psr-4": {

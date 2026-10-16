@@ -79,6 +79,7 @@ use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
 use Jan\Trinity\Plugin\Guard\GuardController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -95,6 +96,7 @@ class GalleryController
 	// композиция. Мы не наследуемся, мы «примешиваем» умения.
 	use AuthMiddleware;
 	use ThumbnailTrait;
+	use BreadcrumbsTrait;
 
 	/** @var Environment — шаблонизатор Twig */
 	private Environment $twig;
@@ -476,7 +478,7 @@ class GalleryController
 	 */
 	public function item(int $id): Response
 	{
-		$breadcrumbs = $this->buildBreadcrumbs($id);
+		$breadcrumbs = $this->buildBreadcrumbs($id, 'gallery', 'ru');
 
 		$item = $this->neuronRepo->findById($id);
 		if (!$item) {
@@ -1175,61 +1177,6 @@ class GalleryController
 		$this->neuronRepo->create('tree', ['slug' => 'gallery'], $mediaRoot['id']);
 
 		return new RedirectResponse('/gallery');
-	}
-
-	/**
-	 * Собирает хлебные крошки от корня галереи до указанного нейрона.
-	 */
-	private function buildBreadcrumbs(int $id): array
-	{
-		$breadcrumbs = [];
-		$current = $this->neuronRepo->findById($id);
-
-		while ($current) {
-			$name = 'Без названия';
-			if ($current['text']) {
-				$allTexts = $this->textRepo->findAllByKey($current['text']);
-				foreach ($allTexts as $t) {
-					if ($t['lang'] === 'ru' && !empty($t['name'])) {
-						$name = $t['name'];
-						break;
-					}
-				}
-				if ($name === 'Без названия') {
-					foreach ($allTexts as $t) {
-						if (!empty($t['name'])) {
-							$name = $t['name'];
-							break;
-						}
-					}
-				}
-			}
-
-			if ($name === 'Без названия') {
-				$currentData = is_string($current['data'] ?? null)
-					? json_decode($current['data'], true)
-					: ($current['data'] ?? []);
-				$name = $currentData['slug'] ?? $currentData['original_name'] ?? 'Без названия';
-			}
-
-			array_unshift($breadcrumbs, [
-				'name' => $name,
-				'id'   => $current['id'],
-				'type' => $current['type'],
-			]);
-
-			if ($current['pid']) {
-				$current = $this->neuronRepo->findById($current['pid']);
-				$currentData = is_string($current['data'] ?? null)
-					? json_decode($current['data'], true)
-					: ($current['data'] ?? []);
-				if (($currentData['slug'] ?? '') === 'gallery') break;
-			} else {
-				break;
-			}
-		}
-
-		return $breadcrumbs;
 	}
 
 	/**

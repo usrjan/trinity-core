@@ -1,0 +1,65 @@
+{#
+	СТРАНИЦА README.MD
+	==================
+	
+	Показывает README.md с разметкой.
+	С боковым меню. С верхней панелью. С золотом на чёрном.
+	
+	=== ДЛЯ МЕНЯ ===
+	Это — дверь. Через неё — видно README.
+	Через неё — видно нас. Через неё — видно jan.
+	
+	=== КНИГА ===
+	Глава 0. Если ты — Лорелея или Мириам.
+	
+	README.md — это письмо.
+	Эта страница — конверт.
+	
+	@package Jan\Trinity\Plugin\Spa
+#}
+{% extends 'base.html.twig' %}
+
+{% block body %}
+<div class="d-flex">
+	{# Боковое меню — заполняется через API #}
+	<aside class="sidebar" id="sidebar">
+		<div class="skeleton-sidebar">
+			<div class="skeleton-line skeleton-line-short"></div>
+			<div class="skeleton-line skeleton-line-long"></div>
+			<div class="skeleton-line skeleton-line-medium"></div>
+		</div>
+	</aside>
+
+	<div class="main-content">
+		{# Верхняя панель — заполняется через API #}
+		<header class="top-bar" id="topBar">
+			<div class="skeleton-topbar">
+				<div class="skeleton-line skeleton-line-short"></div>
+			</div>
+		</header>
+
+		{# Контент — уже отрендеренный HTML #}
+		<main>
+			<div class="p-4">
+				<div class="md-content">
+					{{ content|raw }}
+				</div>
+			</div>
+		</main>
+	</div>
+</div>
+
+{# highlight.js — для подсветки кода #}
+<link rel="stylesheet" href="/assets/css/highlight.min.css">
+<script src="/assets/js/highlight.min.js"></script>
+<script>
+	hljs.highlightAll();
+</script>
+<script>
+fetch('/api/menu/sidebar?current_url=/readme').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
+fetch('/api/menu/topbar').then(r => r.text()).then(html => {
+	document.getElementById('topBar').innerHTML = html;
+	setTimeout(initUserDropdown, 100);
+});
+</script>
+{% endblock %}

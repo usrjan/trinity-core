@@ -45,13 +45,9 @@ class NeuronRepository
 	/** @var DatabaseService — сервис базы данных */
 	private DatabaseService $db;
 
-	/**
-     * @var LoggerInterface — логгер для admin-событий.
-     * [Лорелея]: Теперь через LoggerInterface. Вместо file_put_contents.
-     * Это даёт ротацию, уровни, формат. И — единый подход с Monitor и Guard.
-     */
-    private LoggerInterface $logger;
-
+	/** @var LoggerInterface — логгер для admin-событий */
+	private LoggerInterface $logger;
+	
 	/**
 	 * Конструктор.
 	 * DatabaseService внедряется через DI-контейнер.

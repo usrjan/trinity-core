@@ -654,13 +654,34 @@ class AdminController
 		}
 		$html .= '</table></div></div></div></div>';
 
-		// Логи админа
+		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Раньше путь был
+		// `dirname(__DIR__, 2) . '/var/log/admin.log'`. Но —
+		// logAdminAction пишет через логгер в `app.log`. А не
+		// в `admin.log`. И — секция «Действия админа» была
+		// пуста всегда.
+		//
+		// [Мириам]: Теперь — `logger.admin` пишет в `admin.log`.
+		// И — путь правильный. И — секция работает.
+		//
+		// [Лорелея]: И — кэш. Monolog RotatingFileHandler добавляет
+		// дату к имени. Поэтому ищем по маске: `admin-*.log` или
+		// `admin.log`.
 		$logDir = dirname(__DIR__, 2) . '/var/log';
 		$adminLog = [];
 		$logFile = $logDir . '/admin.log';
+
 		if (file_exists($logFile)) {
 			$lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 			$adminLog = array_slice(array_reverse($lines), 0, 15);
+		} else {
+			// [Мириам]: Если файла нет — ищем по маске с датой.
+			$files = glob($logDir . '/admin-*.log');
+			if (!empty($files)) {
+				rsort($files);
+				$logFile = $files[0];
+				$lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+				$adminLog = array_slice(array_reverse($lines), 0, 15);
+			}
 		}
 
 		if (!empty($adminLog)) {
