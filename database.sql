@@ -220,7 +220,7 @@ INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 (41, 1, 'tree', '{"slug":"USERS","sort":200}');
 
 INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`, `date`) VALUES
-(31, 41, 'user', 5, '{"login":"admin","email":"admin@trinity.local","password_hash":"$2y$12$PuJX03qogJ0Ch3dEnHUw5O9k2eC4rxRxoMuQ8XY4R0CAtHWo5UqMq","auth_method":"local"}', NOW());
+(31, 41, 'user', 5, '{"login":"admin","email":"admin@trinity.local","password_hash":"$2y$12$NcNaoQBLPcGQ37t3GuKwNe95pvgBTPjzMYjgduhSfARyxDI2Abpa2","auth_method":"local"}', NOW());
 
 -- === SYSTEM → ROUTES (42, 32, 33) ===
 INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
