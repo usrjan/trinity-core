@@ -477,11 +477,6 @@ return [
 	// ============================================
 	ConfigService::class => \DI\autowire(),
 
-	// [Лорелея]: NeuronRepository — снова простой autowire.
-	// Без setter injection. Без фабрики. Без ConfigService.
-	// Потому что он больше не знает о ConfigService.
-	//NeuronRepository::class => \DI\autowire(),
-
 	// ============================================
 	// MIME REGISTRY
 	// ============================================
