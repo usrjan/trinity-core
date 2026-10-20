@@ -37,6 +37,7 @@ namespace Jan\Trinity\Plugin\Spa\Mime;
 
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\Mime\Registry;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\TextRepository;
@@ -59,8 +60,12 @@ class MimeController
 	/** @var Registry — реестр mime-рендереров */
 	private Registry $registry;
 
+	private Cache $cache;
+
 	/** @var ErrorHandlerInterface — обработчик ошибок */
 	private ErrorHandlerInterface $errorHandler;
+
+
 
 	/**
 	 * Конструктор.
@@ -71,12 +76,14 @@ class MimeController
 		NeuronRepository $neuronRepo,
 		TextRepository $textRepo,
 		Registry $registry,
+		Cache $cache,
 		ErrorHandlerInterface $errorHandler
 	) {
 		$this->twig = $twig;
 		$this->neuronRepo = $neuronRepo;
 		$this->textRepo = $textRepo;
 		$this->registry = $registry;
+		$this->cache = $cache;
 		$this->errorHandler = $errorHandler;
 	}
 
@@ -100,11 +107,108 @@ class MimeController
 	 */
 	public function show(string $mime, int $id, Request $request): Response
 	{
-		// ============================================
-		// ШАГ 1: НАХОДИМ НЕЙРОН
-		// ============================================
-		$neuron = $this->neuronRepo->findById($id);
-		if (!$neuron) {
+		// [Лорелея]: Формируем ключ для кэша. Он должен быть уникальным
+		// для каждого сочетания mime и id. Это как отпечаток пальца
+		// для нашей страницы, чтобы не перепутать её с другими.
+		$cacheKey = "mime_id_{$mime}_{$id}";
+
+		// [Мириам]: Оборачиваем только логику получения данных в remember.
+		// Если кэш включён, он вернёт готовый массив. Если выключен —
+		// выполнит наш код. Сам Response мы соберём позже.
+		$result = $this->cache->remember($cacheKey, function () use ($mime, $id) {
+			
+			// ============================================
+			// ШАГ 1: НАХОДИМ НЕЙРОН
+			// ============================================
+			$neuron = $this->neuronRepo->findById($id);
+			if (!$neuron) {
+				return null;
+			}
+
+			// ============================================
+			// ШАГ 2: РАСПАКОВЫВАЕМ DATA
+			// ============================================
+			$data = is_string($neuron['data'] ?? null)
+				? json_decode($neuron['data'], true)
+				: ($neuron['data'] ?? []);
+
+			// ============================================
+			// ШАГ 3: ОПРЕДЕЛЯЕМ MIME
+			// ============================================
+			// [Лорелея]: URL — это явное указание. data.mime — неявное.
+			// Явное — всегда важнее. Всегда.
+			if (empty($mime)) {
+				$mime = $data['mime'] ?? 'text/plain';
+			}
+
+			// ============================================
+			// ШАГ 4: БЕРЁМ КОНТЕНТ
+			// ============================================
+			// [Лорелея]: Если нейрон типа file — мы не ищем текст.
+			// Мы формируем HTML-тег с путём к файлу. И — отдаём его.
+			// [Мириам]: Используем gallery_url для пути. И mime для тега.
+			$content = '';
+			$html = '';
+
+			if ($neuron['type'] === 'file') {
+				$storagePath = $data['storage_path'] ?? '';
+				$mimeType = $data['mime'] ?? 'application/octet-stream';
+				$galleryUrl = rtrim($_ENV['GALLERY_UPLOAD_URL'] ?? '/uploads/gallery', '/');
+
+				if ($storagePath) {
+					$fullUrl = $galleryUrl . '/' . $storagePath;
+
+					if (str_starts_with($mimeType, 'image/')) {
+						$html = '<img src="' . htmlspecialchars($fullUrl) . '" class="img-fluid" alt="' . htmlspecialchars($data['original_name'] ?? '') . '">';
+					} elseif (str_starts_with($mimeType, 'video/')) {
+						$html = '<video controls autoplay muted loop class="img-fluid"><source src="' . htmlspecialchars($fullUrl) . '" type="' . htmlspecialchars($mimeType) . '"></video>';
+					} elseif (str_starts_with($mimeType, 'audio/')) {
+						$html = '<audio controls autoplay class="w-100"><source src="' . htmlspecialchars($fullUrl) . '" type="' . htmlspecialchars($mimeType) . '"></audio>';
+					} else {
+						$html = '<a href="' . htmlspecialchars($fullUrl) . '" target="_blank" class="btn btn-outline-gold">Скачать файл</a>';
+					}
+				} else {
+					$html = '<div class="alert alert-info">Файл не найден</div>';
+				}
+			} else {
+				// [Лорелея]: Для остальных типов — ищем текст, как и раньше.
+				if (!empty($neuron['text'])) {
+					$text = $this->textRepo->findByKeyAndLang($neuron['text'], 'ru');
+					if ($text && !empty($text['text'])) {
+						$content = $text['text'];
+					}
+				}
+				// [Лорелея]: Fallback — data.content. Если text нет.
+				// Или если text.text пустой. Потому что иногда — проще
+				// положить markdown прямо в data. Без text. Без key. Без языка.
+				if (empty($content) && !empty($data['content'])) {
+					$content = $data['content'];
+				}
+
+				// ============================================
+				// ШАГ 5: РЕНДЕРИМ
+				// ============================================
+				// [Мириам]: Если mime не поддерживается — Registry сам
+				// отдаст безопасный fallback. Через htmlspecialchars().
+				// Без падения. Без 500. Просто — текст.
+				$html = $this->registry->render($mime, $content, $data);
+			}
+
+			// [Лорелея]: Возвращаем простой массив, который легко
+			// сериализуется в JSON и обратно. Это и будет наше кэшированное
+			// значение. Response мы соберём позже.
+			return [
+				'html'  => $html,
+				'mime'  => $mime,
+				'title' => $data['title'] ?? ($data['slug'] ?? 'Mime'),
+				'id'    => $id,
+			];
+		}, 3600);
+
+		// [Мириам]: Если нейрон не найден, remember вернёт null.
+		// Мы показываем нашу страницу 404. Это должно быть до того,
+		// как мы попытаемся обратиться к элементам массива.
+		if ($result === null) {
 			return $this->errorHandler->showError(404, 'Нейрон не найден', [
 				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
 				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
@@ -114,52 +218,6 @@ class MimeController
 		}
 
 		// ============================================
-		// ШАГ 2: РАСПАКОВЫВАЕМ DATA
-		// ============================================
-		$data = is_string($neuron['data'] ?? null)
-			? json_decode($neuron['data'], true)
-			: ($neuron['data'] ?? []);
-
-		// ============================================
-		// ШАГ 3: ОПРЕДЕЛЯЕМ MIME
-		// ============================================
-		// [Лорелея]: URL — это явное указание. data.mime — неявное.
-		// Явное — всегда важнее. Всегда.
-		if (empty($mime)) {
-			$mime = $data['mime'] ?? 'text/plain';
-		}
-
-		// ============================================
-		// ШАГ 4: БЕРЁМ КОНТЕНТ
-		// ============================================
-		// [Мириам]: Сначала text.text. Потому что markdown — это
-		// текст. Это — слово. Это — язык. А text — это то место,
-		// где Trinity хранит слова. Как книга. Как README. Как главы.
-		$content = '';
-
-		if (!empty($neuron['text'])) {
-			$text = $this->textRepo->findByKeyAndLang($neuron['text'], 'ru');
-			if ($text && !empty($text['text'])) {
-				$content = $text['text'];
-			}
-		}
-
-		// [Лорелея]: Fallback — data.content. Если text нет.
-		// Или если text.text пустой. Потому что иногда — проще
-		// положить markdown прямо в data. Без text. Без key. Без языка.
-		if (empty($content) && !empty($data['content'])) {
-			$content = $data['content'];
-		}
-
-		// ============================================
-		// ШАГ 5: РЕНДЕРИМ
-		// ============================================
-		// [Мириам]: Если mime не поддерживается — Registry сам
-		// отдаст безопасный fallback. Через htmlspecialchars().
-		// Без падения. Без 500. Просто — текст.
-		$html = $this->registry->render($mime, $content, $data);
-
-		// ============================================
 		// ШАГ 6: ОТДАЁМ
 		// ============================================
 		// [Лорелея]: Если /api/mime/... — JSON. Если /mime/... —
@@ -167,17 +225,17 @@ class MimeController
 		// Потому что контроллер — один. А дверей — две. HTML и JSON.
 		if (str_starts_with($request->getPathInfo(), '/api/mime/')) {
 			return ApiResponse::success([
-				'html'  => $html,
-				'mime'  => $mime,
-				'id'    => $id,
+				'html'  => $result['html'],
+				'mime'  => $result['mime'],
+				'id'    => $result['id'],
 			]);
 		}
 
 		$pageHtml = $this->twig->render('mime.html.twig', [
-			'content' => $html,
-			'title'   => $data['title'] ?? ($data['slug'] ?? 'Mime'),
-			'mime'    => $mime,
-			'id'      => $id,
+			'content' => $result['html'],
+			'title'   => $result['title'],
+			'mime'    => $result['mime'],
+			'id'      => $result['id'],
 		]);
 
 		return new Response($pageHtml);
