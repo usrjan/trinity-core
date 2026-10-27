@@ -55,13 +55,13 @@
 namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\JsonHelper;
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
-use Jan\Trinity\Plugin\Guard\GuardController;
+use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -82,10 +82,8 @@ class PageController
 	/** @var NeuronRepository — работа с нейронами */
 	private NeuronRepository $neuronRepo;
 
-	/** @var GuardController — CSRF-защита */
-	private GuardController $guard;
-
-	private ErrorHandlerInterface $errorHandler;
+	/** @var GuardService — CSRF-защита */
+	private GuardService $guard;
 
 	private Validator $validator;
 
@@ -101,15 +99,13 @@ class PageController
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
-		GuardController $guard,
-		ErrorHandlerInterface $errorHandler,
+		GuardService $guard,
 		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->guard = $guard;
-		$this->errorHandler = $errorHandler;
 		$this->validator = $validator;
 
 		// Инициализация middleware авторизации
@@ -150,12 +146,7 @@ class PageController
 		// Ищем страницу внутри PAGES
 		$page = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
 		if (!$page) {
-			return $this->errorHandler->showError(404, 'Страница не найдена', [
-				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
-				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
-				'user'   => 'guest',
-				'time'   => date('Y-m-d H:i:s'),
-			]);
+			throw new \RuntimeException('Страница не найдена', 404);
 		}
 
 		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
@@ -275,18 +266,8 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$sort = (int) ($body['sort'] ?? 100);
 		$lang = $body['lang'] ?? 'ru';
@@ -363,18 +344,8 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$section = $this->neuronRepo->findById($id);
 		if (!$section) {
@@ -418,18 +389,8 @@ class PageController
 			return ApiResponse::error('Секция не найдена', 404);
 		}
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$sort = (int) ($body['sort'] ?? 100);
 		$texts = $body['texts'] ?? [];
@@ -514,18 +475,8 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$name = $body['name'] ?? '';
 		$subSlug = $body['slug'] ?? '';
@@ -572,12 +523,7 @@ class PageController
 	{
 		$page = $this->neuronRepo->findById($id);
 		if (!$page) {
-			return $this->errorHandler->showError(404, 'Подстраница не найдена', [
-				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
-				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
-				'user'   => 'guest',
-				'time'   => date('Y-m-d H:i:s'),
-			]);
+			throw new \RuntimeException('Подстраница не найдена', 404);
 		}
 
 		$lang = 'ru';
@@ -661,18 +607,8 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$sort = (int) ($body['sort'] ?? 100);
 		$texts = $body['texts'] ?? [];
@@ -733,18 +669,8 @@ class PageController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$name = $body['name'] ?? '';
 		$subSlug = $body['slug'] ?? '';

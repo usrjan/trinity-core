@@ -26,7 +26,6 @@
 namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\ErrorHandlerInterface;
 use League\CommonMark\Environment\Environment as MarkdownEnvironment;
 use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
 use League\CommonMark\Extension\Table\TableExtension;
@@ -42,9 +41,6 @@ class ReadmeController
 	/** @var Environment — шаблонизатор Twig */
 	private Environment $twig;
 
-	/** @var ErrorHandlerInterface — обработчик ошибок */
-	private ErrorHandlerInterface $errorHandler;
-
 	/** @var string — путь к корню проекта */
 	private string $basePath;
 
@@ -57,16 +53,13 @@ class ReadmeController
 	 * А корень — один. И он — в .env. Как всё.
 	 * 
 	 * @param Environment $twig
-	 * @param ErrorHandlerInterface $errorHandler
 	 * @param string $basePath
 	 */
 	public function __construct(
 		Environment $twig,
-		ErrorHandlerInterface $errorHandler,
 		string $basePath
 	) {
 		$this->twig = $twig;
-		$this->errorHandler = $errorHandler;
 		$this->basePath = rtrim($basePath, '/');
 	}
 
@@ -91,12 +84,7 @@ class ReadmeController
 
 		// [Лорелея]: Если README нет — 404. Но — с нашим сообщением.
 		if (!file_exists($readmePath)) {
-			return $this->errorHandler->showError(404, 'README.md не найден', [
-				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
-				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
-				'user'   => 'guest',
-				'time'   => date('Y-m-d H:i:s'),
-			]);
+			throw new \RuntimeException('README.md не найден', 404);
 		}
 
 		$markdown = file_get_contents($readmePath);

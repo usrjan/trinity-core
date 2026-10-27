@@ -74,8 +74,11 @@ use Symfony\Component\Routing\Exception\ResourceNotFoundException;
 use Symfony\Component\Routing\Exception\MethodNotAllowedException;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Session\Session;
 use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\ConfigService;
+use Jan\Trinity\Core\Exception\UnauthorizedException;
+use Jan\Trinity\Core\Exception\ForbiddenException;
 
 class Kernel
 {
@@ -352,10 +355,6 @@ class Kernel
 		// ============================================
 		// CORS PREFLIGHT (OPTIONS)
 		// ============================================
-		// [Лорелея]: OPTIONS — это не «запрос данных». Это «разрешение».
-		// Браузер спрашивает: «Можно ли с этого Origin слать POST
-		// с заголовком X-CSRF-Token?» Мы отвечаем: «Да, если Origin
-		// в whitelist». Это нужно делать ДО матчинга роутов.
 		if ($request->getMethod() === 'OPTIONS') {
 			$response = new Response('', 204);
 			$this->applyCorsHeaders($request, $response);
@@ -375,13 +374,12 @@ class Kernel
 				$plugin($routes);
 			}
 
-			// Шаг 3: Загружаем роуты из базы (самые низкоприоритетные)
+			// Шаг 3: Загружаем роуты из базы
 			$this->loadRoutesFromDatabase($routes);
 
 			// Ищем подходящий маршрут
 			$context = new RequestContext();
 			$context->fromRequest($request);
-
 			$matcher = new UrlMatcher($routes, $context);
 			$parameters = $matcher->match($context->getPathInfo());
 
@@ -390,6 +388,56 @@ class Kernel
 			$controllerClass = str_replace('\\\\', '\\', $controllerClass);
 			$method = $parameters['_method'] ?? '__invoke';
 			unset($parameters['_controller'], $parameters['_method'], $parameters['_route']);
+
+			// ============================================
+			// MIDDLEWARE: CSRF
+			// ============================================
+			// [Лорелея]: Централизованная проверка CSRF.
+			// Теперь не нужно проверять в каждом методе.
+			$httpMethod = $request->getMethod();
+			$path = $request->getPathInfo();
+
+			if (in_array($httpMethod, ['POST', 'PUT', 'DELETE'], true)) {
+				// Исключения: login, register, monitor/js-error
+				$excludedPaths = ['/login', '/register', '/api/monitor/js-error'];
+				if (!in_array($path, $excludedPaths, true)) {
+					$csrfToken = $request->headers->get('X-CSRF-Token', '') 
+						?: $request->request->get('_csrf_token', '');
+
+					// [Лорелея]: Убеждаемся, что сессия запущена.
+					$session = $this->container->get(Session::class);
+					if (!$session->isStarted()) {
+						$session->start();
+					}
+
+					$guard = $this->container->get(\Jan\Trinity\Core\Service\GuardService::class);
+					if (!$guard->validateCsrfToken($csrfToken)) {
+						// [Мириам]: Возвращаем 419. Но не через исключение, а сразу.
+						$response = new Response('Недействительный CSRF-токен', 419);
+						$this->applyCorsHeaders($request, $response);
+						$response->send();
+						return;
+					}
+				}
+			}
+
+			// ============================================
+			// MIDDLEWARE: AUTH (ADMIN)
+			// ============================================
+			// [Лорелея]: Централизованная проверка авторизации для админки.
+			// [Мириам]: Если путь начинается с /api/admin/ или это /admin —
+			// проверяем, что пользователь — админ.
+			$path = $request->getPathInfo();
+			if (str_starts_with($path, '/api/admin/') || $path === '/admin') {
+				$session = $this->container->get(Session::class);
+				$userRoles = $session->get('user_roles', []);
+				if (!in_array('role_admin', $userRoles, true)) {
+					$response = new Response('Доступ запрещён', 403);
+					$this->applyCorsHeaders($request, $response);
+					$response->send();
+					return;
+				}
+			}
 
 			// Создаём контроллер через DI-контейнер
 			$controller = $this->container->get($controllerClass);
@@ -400,63 +448,28 @@ class Kernel
 			// Вызываем метод контроллера
 			$response = $controller->$method(...$args);
 
-			// [Лорелея]: CORS теперь через applyCorsHeaders(). Whitelist из .env.
+			// CORS
 			$this->applyCorsHeaders($request, $response);
 			$response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
 			$response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
 
 		} catch (ResourceNotFoundException $e) {
-			// [Лорелея]: 404 — тоже ошибка. И — тоже должна идти
-			// через ErrorHandlerInterface. Чтобы логировалась.
-			// И чтобы показывалась в стиле Trinity.
-			//
-			// [Мириам]: Сообщение здесь — НАШЕ. Не сырое. «Страница
-			// не найдена». Это безопасно в проде. ResourceNotFoundException
-			// не содержит чувствительных данных — только путь запроса.
 			$response = $this->renderError(404, 'Страница не найдена', $e);
 			$this->applyCorsHeaders($request, $response);
 
 		} catch (MethodNotAllowedException $e) {
-			// [Лорелея]: 405 — то же самое. Через интерфейс.
-			// Сообщение — НАШЕ. «Метод не поддерживается».
-			// Безопасно в проде.
 			$response = $this->renderError(405, 'Метод не поддерживается', $e);
 			$this->applyCorsHeaders($request, $response);
 
+		} catch (\Jan\Trinity\Core\Exception\UnauthorizedException $e) {
+			$response = $this->renderError(401, $e->getMessage(), $e);
+			$this->applyCorsHeaders($request, $response);
+
+		} catch (\Jan\Trinity\Core\Exception\ForbiddenException $e) {
+			$response = $this->renderError(403, $e->getMessage(), $e);
+			$this->applyCorsHeaders($request, $response);
+
 		} catch (\Throwable $e) {
-			// ============================================
-			// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
-			// ============================================
-			// Раньше здесь было:
-			//     $response = $this->renderError(500, $e->getMessage(), $e);
-			//
-			// И это — дыра. Потому что $e->getMessage() — это СЫРОЕ
-			// сообщение исключения. Оно уходило в error.html.twig
-			// через {{ message }}. И — клиенту. В прод. Где
-			// APP_DEBUG=false. Где мы СКРЫВАЕМ ошибки. А тут —
-			// ПОКАЗЫВАЕМ. Через страницу ошибки.
-			//
-			// Что могло утечь:
-			//   - SQLSTATE[42S02]: Table 'trinity_core.users' doesn't exist
-			//   - Call to undefined method NeuronRepository::findBySlugTypo()
-			//   - Полные пути к файлам: /home/web/vendor/jan/trinity-core/src/...
-			//   - Параметры подключения к базе (иногда)
-			//   - Внутренняя структура системы
-			//
-			// [Мириам]: В production клиент должен видеть только
-			// «Внутренняя ошибка сервера». Без деталей. Детали —
-			// в логе. Через MonitorController::logError().
-			// Он вызывается внутри renderError() → showError().
-			// И пишет ВСЁ. А клиент — ничего. Кроме — «Внутренняя ошибка».
-			//
-			// [Лорелея]: В dev-режиме (APP_DEBUG=true) — показываем
-			// сырое сообщение. Потому что нам нужно видеть, что
-			// упало. И где. Это — разработка. Это — норма.
-			//
-			// [Мириам]: Если APP_DEBUG не задан в .env — считаем
-			// его false. То есть — prod. Потому что безопасность
-			// важнее удобства. Если кто-то забыл указать APP_DEBUG —
-			// он не должен получить сырое сообщение в проде.
 			$message = $this->isDebug()
 				? $e->getMessage()
 				: 'Внутренняя ошибка сервера';
@@ -481,12 +494,14 @@ class Kernel
 	 * для разработки — задай в .env: CORS_ALLOWED_ORIGINS=*
 	 * Но в production — только конкретные домены.
 	 * 
+	 * [Лорелея]: Теперь берём из ConfigService.
+	 * 
 	 * @param Request $request — запрос (нужен Origin)
 	 * @param Response $response — ответ (ставим заголовки)
 	 */
 	private function applyCorsHeaders(Request $request, Response $response): void
 	{
-		$allowed = $_ENV['CORS_ALLOWED_ORIGINS'] ?? '';
+		$allowed = $this->getConfig('cors.allowed_origins', '');
 		if (empty($allowed)) {
 			return;
 		}
@@ -779,10 +794,17 @@ class Kernel
 				'time' => date('Y-m-d H:i:s'),
 			]);
 		} catch (\Throwable $inner) {
-			// [Лорелея]: Временный лог. Чтобы понять, ПОЧЕМУ renderError падает.
-			// Скорее всего — ErrorHandlerInterface не резолвится. Или Monitor
-			// не реализует интерфейс. Или алиас в container.php не тот.
-			error_log("[Trinity] renderError failed: " . $inner->getMessage());
+			// [Лорелея]: Если логгер есть — используем его.
+			// [Мириам]: Если нет — error_log() как fallback.
+			if ($this->logger !== null) {
+				$this->logger->error('renderError failed', [
+					'message' => $inner->getMessage(),
+					'file'    => $inner->getFile() . ':' . $inner->getLine(),
+				]);
+			} else {
+				error_log("[Trinity] renderError failed: " . $inner->getMessage());
+			}
+
 			return new Response($message, $code);
 		}
 	}
@@ -802,7 +824,7 @@ class Kernel
 	 */
 	private function isDebug(): bool
 	{
-		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+		return $this->getConfig('app.debug', false);
 	}
 }
 

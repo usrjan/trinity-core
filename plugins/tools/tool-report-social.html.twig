@@ -320,4 +320,243 @@
 	{% endif %}
 {% endif %}
 
+{# ============================================ #}
+{# ТЕСТОВЫЙ ОТЧЁТ #}
+{# ============================================ #}
+{% if typeOut == 'chk' %}
+	{% if data.types is not empty %}
+		<div class="card bg-dark border-gold mb-4">
+			<div class="card-header"><h5 class="mb-0">Тип инцидента</h5></div>
+			<div class="card-body">
+				<table class="data-table">
+					<thead>
+						<tr><th>Тип инцидента</th><th>Название</th><th class="text-end">Всего</th><th class="text-end">%</th></tr>
+					</thead>
+					{% if data.types is not empty %}
+						<tbody>
+							{% for key, value in data.types %}
+							<tr>
+								<td>{{ key }}</td>
+								<td>&nbsp;</td>
+								<td class="text-end">{{ value.sum }}</td>
+								<td class="text-end">{{ value.percent|default(100) }}%</td>
+							</tr>
+								{% if value.outcome is defined %}
+									{% for outcomeName, outcome in value.outcome %}
+										<tr>
+											<td>&nbsp;</td>
+											<td>{{ outcomeName }}</td>
+											<td class="text-end">{{ outcome.sum }}</td>
+											<td class="text-end text-muted">{{ outcome.percent }}%</td>
+										</tr>
+									{% endfor %}
+								{% endif %}
+							{% endfor %}
+						</tbody>
+					{% endif %}
+				</table>
+			</div>
+		</div>
+	{% endif %}
+
+	{% if data.municipalities is not empty %}
+		<div class="card bg-dark border-gold mb-4">
+			<div class="card-header"><h5 class="mb-0">Муниципалитеты</h5></div>
+			<div class="card-body">
+				<table class="data-table">
+					<thead>
+						<tr>
+							<th>Название</th>
+							<th class="text-end">Информационный<br/>Разъяснено</th>
+							<th class="text-end">Решаемый<br/>Разъяснено</th>
+							<th class="text-end">Решаемый<br/>Решено</th>
+							<th class="text-end">Автор<br/>доволен</th>
+							<th class="text-end">Автор<br/>недоволен</th>
+							<th class="text-end">Всего: {{ data.sum }}</th>
+							<th class="text-end">%</th>
+						</tr>
+					</thead>
+					{% if data.municipalities is not empty %}
+						<tbody>
+							{% for key, value in data.municipalities %}
+							<tr>
+								<td>{{ key }}</td>
+
+								<td class="text-end">
+								{% if value.type['Информационный'].outcome['Разъяснено'] is defined %}
+									{{ value.type['Информационный'].outcome['Разъяснено'].sum }}
+								{% endif %}
+								</td>
+								<td class="text-end">
+								{% if value.type['Решаемый'].outcome['Разъяснено'] is defined %}
+									{{ value.type['Решаемый'].outcome['Разъяснено'].sum }}
+								{% endif %}
+								</td>
+								<td class="text-end">
+								{% if value.type['Решаемый'].outcome['Решено'] is defined %}
+									{{ value.type['Решаемый'].outcome['Решено'].sum }}
+								{% endif %}
+								</td>
+
+								<td class="text-end">
+								{% if value.reason['Автор доволен'] is defined %}
+									{{ value.reason['Автор доволен'].sum }}
+								{% endif %}
+								</td>
+								<td class="text-end">
+								{% set reason = 0 %}
+								{% if value.reason['Автор недоволен'] is defined %}
+									{% do reason = reason + value.reason['Автор недоволен'].sum %}
+								{% endif %}
+								{% if value.reason['Автор нейтрален'] is defined %}
+									{% do reason = reason + value.reason['Автор нейтрален'].sum %}
+								{% endif %}
+								{{ reason }}
+								</td>
+								<td class="text-end">{{ value.sum }}</td>
+								<td class="text-end">{{ value.percent|default(100) }}%</td>
+							</tr>
+							{% endfor %}
+						</tbody>
+					{% endif %}
+				</table>
+			</div>
+		</div>
+	{% endif %}
+
+	{% if data.ministries is not empty %}
+		<div class="card bg-dark border-gold mb-4">
+			<div class="card-header"><h5 class="mb-0">Министерства</h5></div>
+			<div class="card-body">
+				<table class="data-table">
+					<thead>
+						<tr>
+							<th>Название</th>
+							<th class="text-end">Информационный<br/>Разъяснено</th>
+							<th class="text-end">Решаемый<br/>Разъяснено</th>
+							<th class="text-end">Решаемый<br/>Решено</th>
+							<th class="text-end">Автор<br/>доволен</th>
+							<th class="text-end">Автор<br/>недоволен</th>
+							<th class="text-end">Всего: {{ data.sum }}</th>
+							<th class="text-end">%</th>
+						</tr>
+					</thead>
+					{% if data.ministries is not empty %}
+						<tbody>
+							{% for key, value in data.ministries %}
+							<tr>
+								<td>{{ key }}</td>
+
+								<td class="text-end">
+								{% if value.type['Информационный'].outcome['Разъяснено'] is defined %}
+									{{ value.type['Информационный'].outcome['Разъяснено'].sum }}
+								{% endif %}
+								</td>
+								<td class="text-end">
+								{% if value.type['Решаемый'].outcome['Разъяснено'] is defined %}
+									{{ value.type['Решаемый'].outcome['Разъяснено'].sum }}
+								{% endif %}
+								</td>
+								<td class="text-end">
+								{% if value.type['Решаемый'].outcome['Решено'] is defined %}
+									{{ value.type['Решаемый'].outcome['Решено'].sum }}
+								{% endif %}
+								</td>
+
+								<td class="text-end">
+								{% if value.reason['Автор доволен'] is defined %}
+									{{ value.reason['Автор доволен'].sum }}
+								{% endif %}
+								</td>
+								<td class="text-end">
+								{% set reason = 0 %}
+								{% if value.reason['Автор недоволен'] is defined %}
+									{% do reason = reason + value.reason['Автор недоволен'].sum %}
+								{% endif %}
+								{% if value.reason['Автор нейтрален'] is defined %}
+									{% do reason = reason + value.reason['Автор нейтрален'].sum %}
+								{% endif %}
+								{{ reason }}
+								</td>
+								<td class="text-end">{{ value.sum }}</td>
+								<td class="text-end">{{ value.percent|default(100) }}%</td>
+							</tr>
+							{% endfor %}
+						</tbody>
+					{% endif %}
+				</table>
+			</div>
+		</div>
+	{% endif %}
+
+	{% if data.organizations is not empty %}
+		<div class="card bg-dark border-gold mb-4">
+			<div class="card-header"><h5 class="mb-0">Организации</h5></div>
+			<div class="card-body">
+				<table class="data-table">
+					<thead>
+						<tr>
+							<th>Название</th>
+							<th class="text-end">Информационный<br/>Разъяснено</th>
+							<th class="text-end">Решаемый<br/>Разъяснено</th>
+							<th class="text-end">Решаемый<br/>Решено</th>
+							<th class="text-end">Автор<br/>доволен</th>
+							<th class="text-end">Автор<br/>недоволен</th>
+							<th class="text-end">Всего: {{ data.sum }}</th>
+							<th class="text-end">%</th>
+						</tr>
+					</thead>
+					{% if data.organizations is not empty %}
+						<tbody>
+							{% for key, value in data.organizations %}
+							<tr>
+								<td>{{ key }}</td>
+
+								<td class="text-end">
+								{% if value.type['Информационный'].outcome['Разъяснено'] is defined %}
+									{{ value.type['Информационный'].outcome['Разъяснено'].sum }}
+								{% endif %}
+								</td>
+								<td class="text-end">
+								{% if value.type['Решаемый'].outcome['Разъяснено'] is defined %}
+									{{ value.type['Решаемый'].outcome['Разъяснено'].sum }}
+								{% endif %}
+								</td>
+								<td class="text-end">
+								{% if value.type['Решаемый'].outcome['Решено'] is defined %}
+									{{ value.type['Решаемый'].outcome['Решено'].sum }}
+								{% endif %}
+								</td>
+
+								<td class="text-end">
+								{% if value.reason['Автор доволен'] is defined %}
+									{{ value.reason['Автор доволен'].sum }}
+								{% endif %}
+								</td>
+								<td class="text-end">
+								{% set reason = 0 %}
+								{% if value.reason['Автор недоволен'] is defined %}
+									{% do reason = reason + value.reason['Автор недоволен'].sum %}
+								{% endif %}
+								{% if value.reason['Автор нейтрален'] is defined %}
+									{% do reason = reason + value.reason['Автор нейтрален'].sum %}
+								{% endif %}
+								{{ reason }}
+								</td>
+								<td class="text-end">{{ value.sum }}</td>
+								<td class="text-end">{{ value.percent|default(100) }}%</td>
+							</tr>
+							{% endfor %}
+						</tbody>
+					{% endif %}
+				</table>
+			</div>
+		</div>
+	{% endif %}
+
+{% endif %}
+{#
+{{ data.debug|raw }}
+#}
+{# ============================================ #}
 </div>

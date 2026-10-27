@@ -34,6 +34,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Twig\Environment;
+use Psr\Log\LoggerInterface;
 
 class ToolsController
 {
@@ -50,6 +51,9 @@ class ToolsController
 
     private Validator $validator;
 
+	/** @var LoggerInterface — логгер */
+	private LoggerInterface $logger;
+
     /**
      * Конструктор.
      * Зависимости внедряются автоматически через DI-контейнер.
@@ -59,12 +63,14 @@ class ToolsController
         Session $session,
         TextRepository $textRepo,
         NeuronRepository $neuronRepo,
-		Validator $validator
+		Validator $validator,
+		LoggerInterface $logger
     ) {
         $this->twig = $twig;
         $this->textRepo = $textRepo;
         $this->neuronRepo = $neuronRepo;
         $this->validator = $validator;
+		$this->logger = $logger;
 
         // Инициализация middleware авторизации
         $this->initAuth($session);
@@ -144,7 +150,7 @@ class ToolsController
             'type_out' => $params['type_out'],
             'area'     => $params['area'],
         ], [
-            'type_out' => ['required', 'in:alltheme,top5theme,combined,org'],
+            'type_out' => ['required', 'in:alltheme,top5theme,combined,org,chk'],
             'area'     => ['nullable', 'string', 'max:255'],
         ])) {
             return ApiResponse::error($this->validator->getFirstError(), 400);
@@ -195,10 +201,12 @@ class ToolsController
 			//
 			// [Лорелея]: error_log() — оставляем ВСЕГДА. И — с файлом
 			// и строкой. Чтобы в логе было видно, ГДЕ упало. Не только ЧТО.
-			$logMessage = '[Tools] ReportSocial error: ' . $e->getMessage()
-				. ' in ' . $e->getFile() . ':' . $e->getLine();
-
-			error_log($logMessage);
+			
+			// [Лорелея]: Убираем error_log(). Используем только логгер.
+			$this->logger->error('Tools: ReportSocial error', [
+				'message' => $e->getMessage(),
+				'file'    => $e->getFile() . ':' . $e->getLine(),
+			]);
 
 			$clientMessage = $this->isDebug()
 				? 'Ошибка обработки: ' . $e->getMessage()

@@ -261,15 +261,12 @@ class GalleryImportService
 					}
 
 				} catch (\Throwable $e) {
-					// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
-					// Раньше здесь было: $errors[] = ($fileName ?? '?') . ': ' . $e->getMessage();
-					// И это — дыра. Сырое сообщение уходило клиенту.
-					// Теперь — в лог. А клиенту — только в dev-режиме.
-					$logMessage = '[Gallery Import] File: ' . ($fileName ?? '?')
-						. ' | Error: ' . $e->getMessage()
-						. ' | At: ' . $e->getFile() . ':' . $e->getLine();
-
-					error_log($logMessage);
+					// [Лорелея]: Заменяем error_log на logger.
+					$this->logger->error('gallery import: recursive tree file failed', [
+						'file'      => $fileName ?? '?',
+						'message'   => $e->getMessage(),
+						'file_path' => $e->getFile() . ':' . $e->getLine(),
+					]);
 
 					$clientMessage = $this->isDebug()
 						? ($fileName ?? '?') . ': ' . $e->getMessage()
@@ -482,12 +479,12 @@ class GalleryImportService
 					$this->moveFile($filePath, $itemId);
 					$created++;
 				} catch (\Throwable $e) {
-					// [Мириам]: ТА ЖЕ ЗАЩИТА. См. importRecursiveTree().
-					$logMessage = '[Gallery Import Directory] File: ' . $name
-						. ' | Error: ' . $e->getMessage()
-						. ' | At: ' . $e->getFile() . ':' . $e->getLine();
-
-					error_log($logMessage);
+					// [Лорелея]: Заменяем error_log на logger.
+					$this->logger->error('gallery import: directory item failed', [
+						'file'    => $name,
+						'message' => $e->getMessage(),
+						'file_path' => $e->getFile() . ':' . $e->getLine(),
+					]);
 
 					$clientMessage = $this->isDebug()
 						? $name . ': ' . $e->getMessage()
@@ -564,12 +561,12 @@ class GalleryImportService
 					}
 				}
 			} catch (\Throwable $e) {
-				// [Лорелея]: ТА ЖЕ ЗАЩИТА. См. importRecursiveTree().
-				$logMessage = '[Gallery Import Manifest] Item: ' . ($itemData['name'] ?? '?')
-					. ' | Error: ' . $e->getMessage()
-					. ' | At: ' . $e->getFile() . ':' . $e->getLine();
-
-				error_log($logMessage);
+				// [Лорелея]: Заменяем error_log на logger.
+				$this->logger->error('gallery import: manifest item failed', [
+					'item_name' => $itemData['name'] ?? '?',
+					'message'   => $e->getMessage(),
+					'file'      => $e->getFile() . ':' . $e->getLine(),
+				]);
 
 				$clientMessage = $this->isDebug()
 					? ($itemData['name'] ?? '?') . ': ' . $e->getMessage()

@@ -54,12 +54,13 @@
 namespace Jan\Trinity\Plugin\Monitor;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\JsonHelper;
 use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\NeuronRepository;
-use Jan\Trinity\Plugin\Guard\GuardController;
+use Jan\Trinity\Core\Service\GuardService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -97,8 +98,8 @@ class MonitorController implements ErrorHandlerInterface
     /** @var NeuronRepository — работа с настройками из базы */
     private NeuronRepository $neuronRepo;
 
-    /** @var GuardController — rate limit и CSRF */
-    private GuardController $guard;
+	/** @var GuardService — CSRF-защита */
+	private GuardService $guard;
 
     /**
      * @var LoggerInterface — логгер.
@@ -131,7 +132,7 @@ class MonitorController implements ErrorHandlerInterface
         Session $session,
         string $basePath,
         NeuronRepository $neuronRepo,
-        GuardController $guard,
+        GuardService $guard,
         LoggerInterface $logger,
         ConfigService $configService,
 		Validator $validator
@@ -223,36 +224,23 @@ class MonitorController implements ErrorHandlerInterface
      * 
      * [Лорелея]: URL, method, IP, user — выносим в контекст явно.
      * Чтобы в логе всегда было видно, откуда и кто.
-     */
-    private function logError(int $code, string $message, array $debug): void
-    {
-        if (!$this->isEnabled()) return;
-
-        $this->logger->error($message, [
-            'code'   => $code,
-            'file'   => $debug['file'] ?? 'unknown',
-            'url'    => $_SERVER['REQUEST_URI'] ?? 'unknown',
-            'method' => $_SERVER['REQUEST_METHOD'] ?? 'unknown',
-            'ip'     => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-            'user'   => $debug['user'] ?? 'guest',
-        ]);
-    }
-
-    /**
-     * Записать действие пользователя.
      * 
-     * [Мириам]: Вызывается из других плагинов, когда происходит
-     * важное действие. Логин, логаут, создание нейрона, удаление.
-     * 
-     * [Лорелея]: Уровень — info. Не error. Потому что это не ошибка.
-     * Это событие. И оно должно быть в app.log, а не в error.log.
+     * [Лорелея]: Теперь принимает $request для getClientIp().
+	 * [Мириам]: Если $request нет — fallback на REMOTE_ADDR.
      */
-    public function logAction(string $action, array $context = []): void
-    {
-        if (!$this->isEnabled()) return;
+	private function logError(int $code, string $message, array $debug, ?Request $request = null): void
+	{
+		if (!$this->isEnabled()) return;
 
-        $this->logger->info($action, $context);
-    }
+		$this->logger->error($message, [
+			'code'   => $code,
+			'file'   => $debug['file'] ?? 'unknown',
+			'url'    => $_SERVER['REQUEST_URI'] ?? 'unknown',
+			'method' => $_SERVER['REQUEST_METHOD'] ?? 'unknown',
+			'ip'     => $request ? $request->getClientIp() : ($_SERVER['REMOTE_ADDR'] ?? 'unknown'),
+			'user'   => $debug['user'] ?? 'guest',
+		]);
+	}
 
     // ============================================
     // 3. СБОР JS-ОШИБОК
@@ -288,18 +276,8 @@ class MonitorController implements ErrorHandlerInterface
 
         $this->guard->hit($rateLimitKey);
 
-        $rawBody = $request->getContent();
-        $body = json_decode($rawBody, true);
-
-        // [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return ApiResponse::error('Невалидный JSON', 400);
-        }
-
-        // [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-        if (!is_array($body)) {
-            return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-        }
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
         // [Мириам]: Валидация. Через Validator. И message. И type. И line. И url.
         if (!$this->validator->validate([

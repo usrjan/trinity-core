@@ -56,7 +56,7 @@ use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
-use Jan\Trinity\Plugin\Guard\GuardController;
+use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -77,8 +77,8 @@ class ProfileController
 	/** @var NeuronRepository — загрузка и обновление пользователя */
 	private NeuronRepository $neuronRepo;
 
-	/** @var GuardController — CSRF-защита */
-	private GuardController $guard;
+	/** @var GuardService — CSRF-защита */
+	private GuardService $guard;
 
 	private Validator $validator;
 
@@ -91,7 +91,7 @@ class ProfileController
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
-		GuardController $guard,
+		GuardService $guard,
 		Validator $validator
 	) {
 		$this->twig = $twig;
@@ -252,6 +252,9 @@ class ProfileController
 	 * Раньше можно было сменить пароль, не зная старого.
 	 * Это была дыра в безопасности.
 	 * 
+	 * [Мириам]: Теперь используем PASSWORD_DEFAULT (Argon2id).
+	 * И — password_needs_rehash(). Чтобы старые хеши обновлялись.
+	 * 
 	 * @param Request $request
 	 * @return Response — редирект на /profile или обратно на форму
 	 */
@@ -275,7 +278,7 @@ class ProfileController
 		// Получаем данные формы
 		// ============================================
 		$lang = trim($request->request->get('lang', 'ru'));
-		$email = trim($request->request->get('email', ''));
+		$email = strtolower(trim($request->request->get('email', '')));
 		$phone = trim($request->request->get('phone', ''));
 		$currentPassword = $request->request->get('current_password', '');
 		$newPassword = $request->request->get('new_password', '');
@@ -341,14 +344,14 @@ class ProfileController
 				return new RedirectResponse('/profile/edit');
 			}
 
-			$data['password_hash'] = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 12]);
+			// [Лорелея]: Используем PASSWORD_DEFAULT (Argon2id).
+			$data['password_hash'] = password_hash($newPassword, PASSWORD_DEFAULT);
 		}
 
 		// ============================================
 		// Сохраняем изменения
 		// ============================================
 		$this->neuronRepo->update($userId, ['data' => $data]);
-		error_log("[Profile] update called. user_id={$userId}, data=" . json_encode($data));
 
 		// Редирект на просмотр профиля
 		return new RedirectResponse('/profile');

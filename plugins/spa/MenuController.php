@@ -27,12 +27,13 @@
 namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\JsonHelper;
 use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
-use Jan\Trinity\Plugin\Guard\GuardController;
+use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -52,8 +53,8 @@ class MenuController
 	/** @var NeuronRepository — работа с нейронами */
 	private NeuronRepository $neuronRepo;
 
-	/** @var GuardController — CSRF-защита */
-	private GuardController $guard;
+	/** @var GuardService — CSRF-защита */
+	private GuardService $guard;
 
 	/** @var ConfigService — сервис конфигурации */
 	private ConfigService $configService;
@@ -69,7 +70,7 @@ class MenuController
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
-		GuardController $guard,
+		GuardService $guard,
 		ConfigService $configService,
 		Validator $validator
 	) {
@@ -176,19 +177,8 @@ class MenuController
 		// Проверка прав администратора
 		if ($error = $this->requireAdminForApi()) return $error;
 
-		// Извлекаем данные из запроса
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$name = $body['name'] ?? '';
 		$slug = $body['slug'] ?? '';
@@ -270,18 +260,8 @@ class MenuController
 		// Проверка прав администратора
 		if ($error = $this->requireAdminForApi()) return $error;
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$id = (int) ($body['id'] ?? 0);
 		$name = $body['name'] ?? '';

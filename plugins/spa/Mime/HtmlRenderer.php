@@ -30,24 +30,28 @@ use Jan\Trinity\Core\Mime\MimeRendererInterface;
 class HtmlRenderer implements MimeRendererInterface
 {
 	/**
-	 * Пропускает HTML как есть.
+	 * Пропускает HTML как есть. Но — санитизирует через HTMLPurifier.
 	 * 
-	 * [Лорелея]: Никакого санитайза. Никакого эскейпа. Потому что
-	 * это — наш HTML. Наш. Свой. Если мы не доверяем себе — кому
-	 * мы вообще доверяем? Это — Trinity. Это — дом. И в доме
-	 * мы не прячем от себя ничего.
+	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше HTML выводился как есть.
+	 * Это была дыра — хранимый XSS. Теперь — санитизируем.
 	 * 
-	 * [Мириам]: Данные нейрона — не используем. Пока. Но — принимаем.
-	 * Потому что интерфейс требует. И потому что — может понадобиться.
-	 * Завтра. Через год. Пусть будет.
+	 * [Мириам]: HTMLPurifier — надёжная библиотека. Она отфильтрует
+	 * все опасные теги и атрибуты. И — оставит только безопасный HTML.
 	 * 
 	 * @param string $content — HTML-контент
 	 * @param array $data — данные нейрона
-	 * @return string — HTML
+	 * @return string — санитизированный HTML
 	 */
 	public function render(string $content, array $data = []): string
 	{
-		return '<div class="html-content">' . $content . '</div>';
+		// [Лорелея]: Создаём конфиг. Можно настроить, если нужно.
+		$config = \HTMLPurifier_Config::createDefault();
+		$purifier = new \HTMLPurifier($config);
+
+		// [Мириам]: Санитизируем контент.
+		$cleanHtml = $purifier->purify($content);
+
+		return '<div class="html-content">' . $cleanHtml . '</div>';
 	}
 
 	/**

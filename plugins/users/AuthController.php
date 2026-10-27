@@ -56,7 +56,7 @@ use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
-use Jan\Trinity\Plugin\Guard\GuardController;
+use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -80,8 +80,8 @@ class AuthController
 	/** @var SynapseRepository — получение ролей */
 	private SynapseRepository $synapseRepo;
 
-	/** @var GuardController — защита от перебора и CSRF */
-	private GuardController $guard;
+	/** @var GuardService — защита от перебора и CSRF */
+	private GuardService $guard;
 
 	/** @var LoggerInterface — логгер */
 	private LoggerInterface $logger;
@@ -98,7 +98,7 @@ class AuthController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
-		GuardController $guard,
+		GuardService $guard,
 		LoggerInterface $logger,
 		Validator $validator
 	) {
@@ -267,6 +267,24 @@ class AuthController
 			return new RedirectResponse('/login');
 		}
 
+		// [Лорелея]: Если хеш устарел — перехешируем.
+		if (password_needs_rehash($hash, PASSWORD_DEFAULT)) {
+			$newHash = password_hash($password, PASSWORD_DEFAULT);
+			$userData['password_hash'] = $newHash;
+			$this->neuronRepo->update($user['id'], ['data' => $userData]);
+		}
+
+		// ============================================
+		// ШАГ 6.5: ПРОВЕРКА СТАТУСА ПОЛЬЗОВАТЕЛЯ
+		// ============================================
+		// [Лорелея]: Если статус 'pending' — не пускаем.
+		// [Мириам]: Это защита от спам-аккаунтов.
+		$status = $userData['status'] ?? 'active'; // для старых пользователей
+		if ($status === 'pending') {
+			$this->session->set('login_error', 'Ваш аккаунт ожидает одобрения администратора.');
+			return new RedirectResponse('/login');
+		}
+
 		// ============================================
 		// ШАГ 7: Успешный вход
 		// ============================================
@@ -368,7 +386,6 @@ class AuthController
 		// Flash-сообщение об ошибке
 		$error = $this->session->get('register_error');
 		$this->session->remove('register_error');
-		error_log("[Register] FORM. error=" . var_export($error, true));
 
 		// Рендерим форму
 		$html = $this->twig->render('register.html.twig', [
@@ -446,6 +463,10 @@ class AuthController
 		$email = trim($request->request->get('email') ?? '');
 		$password = $request->request->get('password') ?? '';
 
+		// [Лорелея]: Нормализуем email. Приводим к нижнему регистру.
+		// [Мириам]: Это нужно, чтобы не было дубликатов.
+		$email = strtolower($email);
+
 		// ============================================
 		// Валидация
 		// ============================================
@@ -484,11 +505,18 @@ class AuthController
 		// ============================================
 		// Создаём пользователя
 		// ============================================
+		// [Лорелея]: Добавлены status, ip и registered_at.
+		// status = 'pending' — пользователь ждёт одобрения.
+		// ip — для защиты от спама.
+		// registered_at — время регистрации.
 		$this->neuronRepo->create('user', [
 			'login'         => $login,
 			'email'         => $email,
 			'password_hash' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]),
 			'auth_method'   => 'local',
+			'status'        => 'pending', // <-- новый статус
+			'ip'            => $request->getClientIp(), // <-- IP пользователя
+			'registered_at' => date('Y-m-d H:i:s'), // <-- время регистрации
 		]);
 
 		// Редирект на форму входа

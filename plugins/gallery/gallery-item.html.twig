@@ -1,6 +1,5 @@
-{# Кнопки админа #}
-{# Хлебные крошки #}
-{% if breadcrumbs is not empty %}
+{# [Лорелея]: Выводим крошки только для файлов, чтобы не дублировать. #}
+{% if item.type == 'file' and breadcrumbs is not empty %}
     <div class="mb-3">
 		<a href="#" class="gold-text" onclick="galleryGoHome(); return false;">Главная</a>
         {% for bc in breadcrumbs %}
@@ -14,6 +13,7 @@
     </div>
 {% endif %}
 
+{# Кнопки админа #}
 {% if isAdmin %}
 <div class="mb-3">
 	<button class="btn btn-sm btn-outline-gold" id="galleryEditButton">
@@ -22,10 +22,17 @@
 	<button class="btn btn-sm btn-outline-gold" id="galleryDeleteItemButton">
 		<i class="bi bi-trash"></i> Удалить
 	</button>
+	{% if item.type != 'file' %}
 	<button class="btn btn-sm btn-outline-gold" id="galleryAddPhotoButton">
 		<i class="bi bi-plus-lg"></i> Добавить фото
 	</button>
 	<input type="file" id="galleryAddPhotoInput" multiple accept="image/*" style="display:none">
+	{% endif %}
+
+	{# [Лорелея]: Кнопка скачивания. Для всех файлов. #}
+	<a href="/api/gallery/download/{{ item.id }}" class="btn btn-sm btn-outline-gold" download>
+		<i class="bi bi-download"></i> Скачать
+	</a>
 </div>
 
 {# Форма редактирования #}

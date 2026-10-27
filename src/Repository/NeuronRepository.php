@@ -460,28 +460,6 @@ class NeuronRepository
 	}
 
 	// ============================================
-	// ПОИСК С ТЕКСТОМ
-	// ============================================
-
-	/**
-	 * Найти нейрон с текстом (JOIN с text).
-	 * 
-	 * @param int $id
-	 * @param string $lang
-	 * @return array|null
-	 */
-	public function findWithText(int $id, string $lang = 'ru'): ?array
-	{
-		return $this->db->getConnection()->executeQuery(
-			"SELECT n.*, t.name, t.text as description
-			FROM neuron n
-			LEFT JOIN text t ON n.text = t.key AND t.lang = ? AND t.is_active = 1
-			WHERE n.id = ? AND n.is_deleted = 0",
-			[$lang, $id]
-		)->fetchAssociative() ?: null;
-	}
-
-	// ============================================
 	// ПОИСК ПОЛЬЗОВАТЕЛЯ
 	// ============================================
 

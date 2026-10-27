@@ -74,20 +74,22 @@
 namespace Jan\Trinity\Plugin\Gallery;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\ErrorHandlerInterface;
+use Jan\Trinity\Core\JsonHelper;
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
-use Jan\Trinity\Plugin\Guard\GuardController;
+use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Twig\Environment;
+use Psr\Log\LoggerInterface;
 
 class GalleryController
 {
@@ -107,10 +109,11 @@ class GalleryController
 	/** @var NeuronRepository — работа с нейронами */
 	private NeuronRepository $neuronRepo;
 
-	/** @var GuardController — CSRF и rate limit */
-	private GuardController $guard;
+	/** @var GuardService — CSRF-защита */
+	private GuardService $guard;
 
-	private ErrorHandlerInterface $errorHandler;
+	/** @var LoggerInterface — логгер */
+	private LoggerInterface $logger;
 
 	private Validator $validator;
 
@@ -181,9 +184,9 @@ class GalleryController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		GalleryImportService $galleryImport,
-		GuardController $guard,
-		ErrorHandlerInterface $errorHandler,
+		GuardService $guard,
 		Validator $validator,
+		LoggerInterface $logger,
 		string $galleryUploadDir,
 		string $galleryUploadUrl
 	) {
@@ -192,8 +195,8 @@ class GalleryController
 		$this->neuronRepo = $neuronRepo;
 		$this->galleryImport = $galleryImport;
 		$this->guard = $guard;
-		$this->errorHandler = $errorHandler;
 		$this->validator = $validator;
+		$this->logger = $logger;
 
 		// [Мириам]: Убираем завершающий слэш, чтобы при склейке
 		// путей не получалось «//». Мелочь, но красиво.
@@ -303,7 +306,9 @@ class GalleryController
 			return $this->initGallery();
 		}
 
-		$sections = $this->neuronRepo->findChildren($galleryRoot['id']);
+		// [Лорелея]: Заменил findChildren на findChildrenWithText.
+		// Теперь name приходит из JOIN с text. И warning исчез.
+		$sections = $this->neuronRepo->findChildrenWithText($galleryRoot['id'], 'ru');
 
 		$items = [];
 		foreach ($sections as $child) {
@@ -351,13 +356,14 @@ class GalleryController
 	 */
 	public function section(int $id): JsonResponse
 	{
-		// [Лорелея]: Заменил findChildren на findChildrenWithText.
-		// Теперь name приходит из JOIN с text. И warning исчез.
-		// И не надо ходить в базу второй раз через findAllByKey.
+		// ============================================
+		// ШАГ 1: ЗАГРУЖАЕМ ДЕТЕЙ
+		// ============================================
 		$children = $this->neuronRepo->findChildrenWithText($id, 'ru');
 
-		// [Мириам]: Собираем id всех tree-папок, у которых есть дети.
-		// Для них нам нужны файлы-превьюшки.
+		// ============================================
+		// ШАГ 2: СОБИРАЕМ ID ВСЕХ TREE-ПАПОК
+		// ============================================
 		$treeIds = [];
 		foreach ($children as $child) {
 			if ($child['type'] === 'tree' && (int) ($child['child_count'] ?? 0) > 0) {
@@ -365,7 +371,9 @@ class GalleryController
 			}
 		}
 
-		// [Лорелея]: Один запрос за всеми файлами. Группируем в PHP.
+		// ============================================
+		// ШАГ 3: ОДИН ЗАПРОС ЗА ВСЕМИ ФАЙЛАМИ
+		// ============================================
 		$filesByTree = [];
 		if (!empty($treeIds)) {
 			$filesByTree = $this->neuronRepo->findFilesForTrees($treeIds);
@@ -547,7 +555,8 @@ class GalleryController
 		}
 
 		// ДЛЯ ITEM/TREE: загружаем вложенные файлы
-		$files = $this->neuronRepo->findChildren($id, 'file');
+		// [Лорелея]: Заменил findChildren на findChildrenWithText.
+		$files = $this->neuronRepo->findChildrenWithText($id, 'ru', 'file');
 		$photos = [];
 		foreach ($files as $file) {
 			$fileData = is_string($file['data'] ?? null)
@@ -582,19 +591,28 @@ class GalleryController
 	 * GET /api/gallery/download/{id}
 	 *
 	 * Отдаёт файл для скачивания с оригинальным именем.
-	 * [Лорелея]: Здесь права не проверяем — это публичная ссылка.
-	 * Если файл в галерее, значит, он уже был кем-то загружен как админ.
+	 * 
+	 * [Лорелея]: ИСПРАВЛЕНИЕ HTTP HEADER INJECTION.
+	 * Раньше имя файла подставлялось в Content-Disposition как есть.
+	 * И если в нём были кавычки или перевод строки — заголовок ломался.
+	 * Теперь — используем basename() и rawurlencode().
+	 * 
+	 * [Мириам]: basename() отсекает любые пути. rawurlencode()
+	 * кодирует специальные символы. И — заголовок остаётся целым.
+	 * 
+	 * [Лорелея]: ИСПРАВЛЕНИЕ ПАМЯТИ. Раньше использовался file_get_contents,
+	 * который загружал весь файл в память. Теперь — BinaryFileResponse.
+	 * Он отдаёт файл потоком, без загрузки в память.
+	 * 
+	 * [Мириам]: ИСПРАВЛЕНИЕ ЗАВИСИМОСТЕЙ. Убран ErrorHandlerInterface.
+	 * Теперь контроллер не знает о том, как показывать ошибки.
+	 * Он просто выбрасывает исключение. А Kernel — обрабатывает.
 	 */
 	public function download(int $id): Response
 	{
 		$file = $this->neuronRepo->findById($id);
 		if (!$file || $file['type'] !== 'file') {
-			return $this->errorHandler->showError(404, 'Файл не найден', [
-				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
-				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
-				'user'   => 'guest',
-				'time'   => date('Y-m-d H:i:s'),
-			]);
+			throw new \RuntimeException('Файл не найден', 404);
 		}
 
 		$fileData = is_string($file['data'] ?? null)
@@ -604,24 +622,23 @@ class GalleryController
 		$storagePath = $this->resolveGalleryPath($fileData['storage_path'] ?? '');
 		$originalName = $fileData['original_name'] ?? 'download';
 
+		// [Лорелея]: Безопасное имя файла для заголовка.
+		$safeName = basename($originalName);
+		$safeName = rawurlencode($safeName);
+
 		if ($storagePath === null || !file_exists($storagePath)) {
-			return $this->errorHandler->showError(404, 'Файл не найден на диске', [
-				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
-				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
-				'user'   => 'guest',
-				'time'   => date('Y-m-d H:i:s'),
-			]);
+			throw new \RuntimeException('Файл не найден на диске', 404);
 		}
 
-		return new Response(
-			file_get_contents($storagePath),
-			200,
-			[
-				'Content-Type'        => $fileData['mime'] ?? 'application/octet-stream',
-				'Content-Disposition' => 'attachment; filename="' . $originalName . '"',
-				'Content-Length'      => filesize($storagePath),
-			]
+		// [Мириам]: BinaryFileResponse отдаёт файл потоком.
+		$response = new BinaryFileResponse($storagePath);
+		$response->headers->set('Content-Type', $fileData['mime'] ?? 'application/octet-stream');
+		$response->setContentDisposition(
+			\Symfony\Component\HttpFoundation\ResponseHeaderBag::DISPOSITION_ATTACHMENT,
+			$safeName
 		);
+
+		return $response;
 	}
 
 	// ============================================
@@ -634,6 +651,9 @@ class GalleryController
 	 * [Мириам]: Добавлен requireCsrf. Раньше любой сайт мог
 	 * отправить форму от имени админа и загрузить файл.
 	 * Теперь — только со своим CSRF-токеном.
+	 *
+	 * [Лорелея]: ИСПРАВЛЕНИЕ УТЕЧКИ ЛОГОВ. Раньше $e->getMessage()
+	 * уходило в JSON. Теперь — в лог. А клиенту — только общее сообщение.
 	 */
 	public function upload(Request $request): JsonResponse
 	{
@@ -663,41 +683,12 @@ class GalleryController
 				$uploaded[] = $id;
 
 			} catch (\Throwable $e) {
-				// ============================================
-				// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
-				// ============================================
-				// Раньше здесь было:
-				//     $errors[] = $file->getClientOriginalName() . ': ' . $e->getMessage();
-				//
-				// И это — дыра. Потому что $e->getMessage() — это
-				// СЫРОЕ сообщение исключения. Оно уходило в JSON.
-				// Через ApiResponse::success(['errors' => $errors]).
-				// И — клиенту. В прод. Где APP_DEBUG=false.
-				//
-				// Что могло утечь:
-				//   - «Недопустимый MIME-тип: application/x-php»
-				//   - «Недопустимый путь хранения: ../../etc/passwd»
-				//   - «move_uploaded_file(): Unable to move '/tmp/phpXXXX'
-				//      to '/home/web/www/uploads/gallery/2026/10/09/...'»
-				//   - «mkdir(): Permission denied»
-				//   - Полные пути, имена таблиц, структура кода
-				//
-				// [Мириам]: В production клиент должен видеть только
-				// «Ошибка загрузки». Без деталей. Детали — в error_log.
-				// И — в логгер, если он есть.
-				//
-				// [Лорелея]: Я заменила `catch (\Exception $e)` на
-				// `catch (\Throwable $e)`. Потому что \Exception не
-				// ловит \Error (TypeError, ValueError, DivisionByZeroError).
-				// А они могут случиться. И — утечь. Потому что не поймаются.
-				//
-				// [Мириам]: error_log() — оставляем ВСЕГДА. И — с файлом
-				// и строкой. Чтобы в логе было видно, ГДЕ упало.
-				$logMessage = '[Gallery Upload] File: ' . $file->getClientOriginalName()
-					. ' | Error: ' . $e->getMessage()
-					. ' | At: ' . $e->getFile() . ':' . $e->getLine();
-
-				error_log($logMessage);
+				// [Лорелея]: Убираем error_log(). Используем только логгер.
+				$this->logger->error('gallery: upload failed', [
+					'file'    => $file->getClientOriginalName(),
+					'message' => $e->getMessage(),
+					'file_path' => $e->getFile() . ':' . $e->getLine(),
+				]);
 
 				$clientMessage = $this->isDebug()
 					? $file->getClientOriginalName() . ': ' . $e->getMessage()
@@ -718,6 +709,9 @@ class GalleryController
 	 * POST /api/gallery/item/{id}/upload
 	 *
 	 * [Мириам]: Добавлен requireCsrf. То же, что и в upload.
+	 *
+	 * [Лорелея]: ИСПРАВЛЕНИЕ УТЕЧКИ ЛОГОВ. Раньше $e->getMessage()
+	 * уходило в JSON. Теперь — в лог. А клиенту — только общее сообщение.
 	 */
 	public function uploadToItem(int $id, Request $request): JsonResponse
 	{
@@ -743,18 +737,13 @@ class GalleryController
 				$uploaded[] = $fileId;
 
 			} catch (\Throwable $e) {
-				// ============================================
-				// [Мириам]: ТА ЖЕ ДЫРА. ТА ЖЕ ЗАЩИТА.
-				// ============================================
-				// См. комментарий в upload(). Здесь — то же самое.
-				// Разница только в контексте: мы загружаем в item,
-				// а не в раздел. Но утечка — та же. И защита — та же.
-				$logMessage = '[Gallery UploadToItem] File: ' . $file->getClientOriginalName()
-					. ' | Item: ' . $id
-					. ' | Error: ' . $e->getMessage()
-					. ' | At: ' . $e->getFile() . ':' . $e->getLine();
-
-				error_log($logMessage);
+				// [Лорелея]: Убираем error_log(). Используем только логгер.
+				$this->logger->error('gallery: upload to item failed', [
+					'file'    => $file->getClientOriginalName(),
+					'item_id' => $id,
+					'message' => $e->getMessage(),
+					'file_path' => $e->getFile() . ':' . $e->getLine(),
+				]);
 
 				$clientMessage = $this->isDebug()
 					? $file->getClientOriginalName() . ': ' . $e->getMessage()
@@ -787,18 +776,8 @@ class GalleryController
 			return ApiResponse::error('Элемент не найден', 404);
 		}
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$name = $body['name'] ?? null;
 		$description = $body['description'] ?? null;
@@ -827,10 +806,8 @@ class GalleryController
 
 		if ($name !== null || $description !== null) {
 			if ($item['text']) {
-				$textKey = $this->textRepo->findOrCreate('ru', $name ?? '', $description ?? '');
-				if ($textKey !== (int) $item['text']) {
-					$this->neuronRepo->update($id, ['text' => $textKey]);
-				}
+				// [Лорелея]: Обновляем существующий текст, а не создаём новый.
+				$this->textRepo->updateByKey((int) $item['text'], 'ru', $name ?? '', $description ?? '');
 			} elseif ($name || $description) {
 				$textKey = $this->textRepo->findOrCreate('ru', $name ?? '', $description ?? '');
 				$this->neuronRepo->update($id, ['text' => $textKey]);
@@ -841,7 +818,19 @@ class GalleryController
 			? json_decode($item['data'], true)
 			: ($item['data'] ?? []);
 
-		if ($meta !== null) $currentData['meta'] = $meta;
+		if ($meta !== null) {
+			// [Лорелея]: Фильтруем meta перед сохранением.
+			// Оставляем только непустые поля.
+			$filteredMeta = array_filter($meta, function($value) {
+				return !empty(trim((string)$value));
+			});
+
+			if (!empty($filteredMeta)) {
+				$currentData['meta'] = $filteredMeta;
+			} else {
+				unset($currentData['meta']);
+			}
+		}
 		if ($year !== null) $currentData['year'] = $year;
 		if ($tags !== null) $currentData['tags'] = $tags;
 
@@ -859,6 +848,9 @@ class GalleryController
 	 *
 	 * [Мириам]: Добавлен requireCsrf. Раньше DELETE проходил
 	 * без защиты. Теперь — нет.
+	 * 
+	 * [Лорелея]: ИСПРАВЛЕНИЕ ЛОГИРОВАНИЯ. Раньше использовался error_log.
+	 * Теперь — LoggerInterface. И — без утечки путей в клиент.
 	 */
 	public function deleteItem(int $id, Request $request): JsonResponse
 	{
@@ -877,19 +869,25 @@ class GalleryController
 				? json_decode($file['data'], true)
 				: ($file['data'] ?? []);
 
-			// [Лорелея]: Логируем неудачные unlink. Если файл не удалился —
-			// узнаем об этом из error.log, а не будем гадать.
+			// [Лорелея]: Заменяем error_log на logger.
 			if (!empty($fileData['storage_path'])) {
 				$path = $this->resolveGalleryPath($fileData['storage_path']);
 				if ($path !== null && !unlink($path)) {
-					error_log("[Gallery] Failed to unlink storage: {$path}");
+					$this->logger->warning('gallery: failed to unlink storage', [
+						'path'    => $path,
+						'file_id' => $file['id'] ?? null,
+					]);
 				}
 			}
 
+			// [Мириам]: Заменяем error_log на logger.
 			if (!empty($fileData['thumb_path'])) {
 				$path = $this->resolveGalleryPath($fileData['thumb_path']);
 				if ($path !== null && !unlink($path)) {
-					error_log("[Gallery] Failed to unlink thumb: {$path}");
+					$this->logger->warning('gallery: failed to unlink thumb', [
+						'path'    => $path,
+						'file_id' => $file['id'] ?? null,
+					]);
 				}
 			}
 
@@ -911,6 +909,9 @@ class GalleryController
 	 * [Лорелея]: С этого метода началось наше исправление безопасности.
 	 * Здесь уже был CSRF, но теперь он ещё и через requireCsrf() —
 	 * единообразно с остальными методами.
+	 * 
+	 * [Мириам]: ИСПРАВЛЕНИЕ ЛОГИРОВАНИЯ. Раньше использовался error_log.
+	 * Теперь — LoggerInterface. И — без утечки путей в клиент.
 	 */
 	public function deleteFile(int $id, Request $request): JsonResponse
 	{
@@ -934,14 +935,22 @@ class GalleryController
 		if (!empty($fileData['storage_path'])) {
 			$path = $this->resolveGalleryPath($fileData['storage_path']);
 			if ($path !== null && !unlink($path)) {
-				error_log("[Gallery] Failed to unlink storage: {$path}");
+				// [Лорелея]: Заменяем error_log на logger.
+				$this->logger->warning('gallery: failed to unlink storage', [
+					'path'    => $path,
+					'file_id' => $id,
+				]);
 			}
 		}
 
 		if (!empty($fileData['thumb_path'])) {
 			$path = $this->resolveGalleryPath($fileData['thumb_path']);
 			if ($path !== null && !unlink($path)) {
-				error_log("[Gallery] Failed to unlink thumb: {$path}");
+				// [Мириам]: Заменяем error_log на logger.
+				$this->logger->warning('gallery: failed to unlink thumb', [
+					'path'    => $path,
+					'file_id' => $id,
+				]);
 			}
 		}
 
@@ -1020,16 +1029,12 @@ class GalleryController
         // ============================================
         // ШАГ 1: ВАЛИДАЦИЯ ФАЙЛА
         // ============================================
-        // [Лорелея]: Проверяем расширение и MIME. До move().
-        // Если файл недопустим — RuntimeException. И — ошибка.
         $validated = $this->validateUpload($uploadedFile);
         $extension = $validated['extension'];
 
         // ============================================
         // ШАГ 2: ПОДГОТОВКА ПАПКИ
         // ============================================
-        // [Мириам]: Папка — по дате. Y/m/d. Например 2026/10/07.
-        // Чтобы файлов в одной папке не было слишком много.
         $datePath = date('Y/m/d');
         $storageDir = $this->galleryUploadDir . '/' . $datePath;
         if (!is_dir($storageDir)) {
@@ -1039,8 +1044,6 @@ class GalleryController
         // ============================================
         // ШАГ 3: УНИКАЛЬНОЕ ИМЯ ФАЙЛА
         // ============================================
-        // [Мириам]: uniqid защищает от коллизий. Раньше был только time(),
-        // и два файла в одну секунду перезаписывали друг друга.
         $unique = md5($validated['originalName'] . time() . uniqid('', true));
         $storageName = $unique . '.' . $extension;
         $thumbName = null;
@@ -1049,15 +1052,11 @@ class GalleryController
         // ============================================
         // ШАГ 4: ПЕРЕМЕЩЕНИЕ ФАЙЛА
         // ============================================
-        // [Лорелея]: UploadedFile::move() перемещает файл из tmp
-        // в указанную папку. Безопасно. С проверкой прав.
         $uploadedFile->move($storageDir, $storageName);
 
         // ============================================
         // ШАГ 5: МИНИАТЮРА (только для изображений)
         // ============================================
-        // [Мириам]: Для видео и аудио миниатюра не нужна.
-        // Только для изображений. Через ThumbnailTrait.
         if (in_array($extension, self::ALLOWED_IMAGE_EXT, true)) {
             $thumbName = $unique . '_thumb.' . $extension;
             $imageInfo = $this->createThumbnail(
@@ -1069,34 +1068,30 @@ class GalleryController
         // ============================================
         // ШАГ 6: ФОРМИРОВАНИЕ ОТНОСИТЕЛЬНЫХ ПУТЕЙ
         // ============================================
-        // [Лорелея]: ЗАЩИТА ОТ PATH TRAVERSAL. ГЛАВНОЕ ИЗМЕНЕНИЕ.
-        // storage_path и thumb_path — относительные. Внутри
-        // uploads/gallery. Проверяем, что не содержат '..' и
-        // не начинаются с '/'. Если содержат — RuntimeException.
-        // Потому что даже если мы формируем их сами, лучше
-        // проверить. Чтобы исключить любую возможность.
         $storagePath = $datePath . '/' . $storageName;
         $thumbPath = $thumbName ? ($datePath . '/' . $thumbName) : null;
 
         // Проверяем storage_path
         if (strpos($storagePath, '..') !== false || strpos($storagePath, '/') === 0) {
-            // [Мириам]: Логируем попытку. Это важно. Если это
-            // происходит — значит, где-то что-то пошло не так.
-            error_log("[Gallery] Invalid storage_path: {$storagePath}");
+            // [Лорелея]: Заменяем error_log на logger.
+            $this->logger->warning('gallery: invalid storage_path', [
+                'storage_path' => $storagePath,
+            ]);
             throw new \RuntimeException('Недопустимый путь хранения: ' . $storagePath);
         }
 
         // Проверяем thumb_path (если есть)
         if ($thumbPath !== null && (strpos($thumbPath, '..') !== false || strpos($thumbPath, '/') === 0)) {
-            error_log("[Gallery] Invalid thumb_path: {$thumbPath}");
+            // [Мириам]: Заменяем error_log на logger.
+            $this->logger->warning('gallery: invalid thumb_path', [
+                'thumb_path' => $thumbPath,
+            ]);
             throw new \RuntimeException('Недопустимый путь миниатюры: ' . $thumbPath);
         }
 
         // ============================================
         // ШАГ 7: ФОРМИРОВАНИЕ DATA
         // ============================================
-        // [Лорелея]: В data — только безопасные пути.
-        // Никаких абсолютных. Никаких '..'.
         $data = [
             'original_name' => $validated['originalName'],
             'mime'          => $validated['mime'],
@@ -1117,8 +1112,6 @@ class GalleryController
         // ============================================
         // ШАГ 8: СОЗДАНИЕ НЕЙРОНА
         // ============================================
-        // [Мириам]: neuronRepo->create() создаёт file-нейрон.
-        // С data. С parentId. С textKey (если есть).
         return $this->neuronRepo->create('file', $data, $parentId, $textKey);
     }
 
@@ -1193,18 +1186,8 @@ class GalleryController
 			return ApiResponse::error('Раздел не найден', 404);
 		}
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$fileId = (int) ($body['file_id'] ?? 0);
 
@@ -1242,18 +1225,8 @@ class GalleryController
 		if ($error = $this->requireAdminForApi()) return $error;
 		if ($error = $this->requireCsrf($request)) return $error;
 
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$name = trim($body['name'] ?? '');
 		$parentId = (int) ($body['parent_id'] ?? 0);
@@ -1290,7 +1263,7 @@ class GalleryController
      * Тогда — тоже null. Потому что удалять нечего.
      * 
      * [Мириам]: Если realpath не начинается с baseDir — это
-     * попытка Path Traversal. Логируем в error_log. И — null.
+     * попытка Path Traversal. Логируем через LoggerInterface. И — null.
      * Чтобы в новом диалоге было видно — кто и что пытался.
      * 
      * @param string $relativePath — относительный путь из data
@@ -1331,7 +1304,10 @@ class GalleryController
             // [Лорелея]: Логируем попытку Path Traversal. Это важно.
             // Если это происходит — значит, кто-то пытается удалить
             // файл вне uploads/gallery. И — надо знать, кто и когда.
-            error_log("[Gallery] Path traversal attempt: {$relativePath} -> {$realPath}");
+            $this->logger->warning('gallery: path traversal attempt', [
+                'relative_path' => $relativePath,
+                'real_path'     => $realPath,
+            ]);
             return null;
         }
 

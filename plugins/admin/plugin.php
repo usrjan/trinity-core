@@ -9,11 +9,6 @@ return function ($routes) {
 		'_method'     => 'index',
 	]));
 
-	$routes->add('admin_tree', new Route('/api/admin/tree', [
-		'_controller' => AdminController::class,
-		'_method'     => 'tree',
-	]));
-
 	$routes->add('admin_dashboard', new Route('/api/admin/dashboard', [
 		'_controller' => AdminController::class,
 		'_method'     => 'dashboard',
@@ -48,6 +43,16 @@ return function ($routes) {
 		'_controller' => AdminController::class,
 		'_method'     => 'getTypes',
 	]));
+
+    $routes->add('admin_user_approve', new Route('/api/admin/user/{id}/approve', [
+        '_controller' => AdminController::class,
+        '_method'     => 'approveUser',
+    ], ['id' => '\d+'], [], '', [], ['POST']));
+
+    $routes->add('admin_user_delete', new Route('/api/admin/user/{id}', [
+        '_controller' => AdminController::class,
+        '_method'     => 'deleteUser',
+    ], ['id' => '\d+'], [], '', [], ['DELETE']));
 
 	$routes->add('admin_import', new Route('/api/admin/import', [
 		'_controller' => AdminController::class,

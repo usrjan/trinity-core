@@ -36,7 +36,6 @@
 namespace Jan\Trinity\Plugin\Spa\Mime;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\Mime\Registry;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -62,11 +61,6 @@ class MimeController
 
 	private Cache $cache;
 
-	/** @var ErrorHandlerInterface — обработчик ошибок */
-	private ErrorHandlerInterface $errorHandler;
-
-
-
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются через DI-контейнер.
@@ -76,15 +70,13 @@ class MimeController
 		NeuronRepository $neuronRepo,
 		TextRepository $textRepo,
 		Registry $registry,
-		Cache $cache,
-		ErrorHandlerInterface $errorHandler
+		Cache $cache
 	) {
 		$this->twig = $twig;
 		$this->neuronRepo = $neuronRepo;
 		$this->textRepo = $textRepo;
 		$this->registry = $registry;
 		$this->cache = $cache;
-		$this->errorHandler = $errorHandler;
 	}
 
 	/**
@@ -122,7 +114,7 @@ class MimeController
 			// ============================================
 			$neuron = $this->neuronRepo->findById($id);
 			if (!$neuron) {
-				return null;
+				throw new \RuntimeException('Нейрон не найден', 404);
 			}
 
 			// ============================================

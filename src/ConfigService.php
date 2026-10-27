@@ -47,7 +47,23 @@ class ConfigService
 	public function get(string $key, $default = null): mixed
 	{
 		$this->ensureLoaded();
-		return $this->config[$key] ?? $default;
+		$value = $this->config[$key] ?? $default;
+		return $this->normalizeValue($value);
+	}
+
+	/**
+	 * Получить значение из .env.
+	 * 
+	 * [Лорелея]: Добавлен для чтения .env через ConfigService.
+	 * [Мириам]: Это нужно, чтобы не читать $_ENV напрямую.
+	 * 
+	 * @param string $key — ключ из .env (APP_DEBUG, APP_ENV, ...)
+	 * @param mixed $default — значение по умолчанию
+	 * @return mixed
+	 */
+	public function getEnv(string $key, $default = null): mixed
+	{
+		return $_ENV[$key] ?? $default;
 	}
 
 	public function has(string $key): bool
@@ -67,7 +83,11 @@ class ConfigService
 		if ($this->loaded) {
 			return;
 		}
-		$this->config = $this->neuronRepo->findAllConfigValues();
+		$rawConfig = $this->neuronRepo->findAllConfigValues();
+		$this->config = [];
+		foreach ($rawConfig as $key => $value) {
+			$this->config[$key] = $this->normalizeValue($value);
+		}
 		$this->loaded = true;
 	}
 
@@ -82,5 +102,32 @@ class ConfigService
 		if (!$this->loaded) {
 			$this->load();
 		}
+	}
+
+	/**
+	 * Нормализовать значение конфига.
+	 * 
+	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. (bool)"false" === true.
+	 * Поэтому мы явно проверяем строки "true" и "false".
+	 * 
+	 * [Мириам]: Если значение — строка, приводим к нижнему регистру
+	 * и проверяем. Если "true" — true. Если "false" — false.
+	 * Остальные строки — оставляем как есть.
+	 * 
+	 * @param mixed $value
+	 * @return mixed
+	 */
+	private function normalizeValue($value)
+	{
+		if (is_string($value)) {
+			$lower = strtolower(trim($value));
+			if ($lower === 'true') {
+				return true;
+			}
+			if ($lower === 'false') {
+				return false;
+			}
+		}
+		return $value;
 	}
 }

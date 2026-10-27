@@ -296,27 +296,7 @@ function loadItem(id, name) {
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
 			if (d.success) {
-				var breadcrumb = '<div id="galleryBreadcrumb" class="mb-3">' +
-					'<a href="#" class="gold-text" onclick="galleryGoHome(); return false;">Главная</a>';
-
-				for (var i = 0; i < navigationHistory.length; i++) {
-					breadcrumb += ' <span class="text-muted">/</span> ' +
-						'<a href="#" class="gold-text" onclick="jumpTo(' + i + '); return false;">' +
-						navigationHistory[i].name + '</a>';
-				}
-
-				if (currentParentId !== {{ rootId }}) {
-					breadcrumb += ' <span class="text-muted">/</span> ' +
-						'<a href="#" class="gold-text" onclick="goToSection(' + currentParentId + ', \'' + currentParentName + '\'); return false;">' +
-						currentParentName + '</a>';
-				}
-
-				breadcrumb += ' <span class="text-muted">/</span> ' +
-					'<span class="text-muted">' + (name || '...') + '</span>';
-
-				breadcrumb += '</div>';
-
-				document.getElementById('galleryContent').innerHTML = breadcrumb + d.data.html;
+				document.getElementById('galleryContent').innerHTML = d.data.html;
 			}
 		})
 		.catch(function() {

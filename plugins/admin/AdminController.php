@@ -31,12 +31,14 @@
 namespace Jan\Trinity\Plugin\Admin;
 
 use Jan\Trinity\Core\ApiResponse;
+use Jan\Trinity\Core\JsonHelper;
+use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
-use Jan\Trinity\Plugin\Guard\GuardController;
+use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -60,13 +62,16 @@ class AdminController
 	/** @var SynapseRepository — работа с синапсами */
 	private SynapseRepository $synapseRepo;
 
-	/** @var GuardController — CSRF-защита */
-	private GuardController $guard;
+	/** @var GuardService — CSRF-защита */
+	private GuardService $guard;
 
 	/** @var LoggerInterface — логгер */
 	private LoggerInterface $logger;
 
 	private Validator $validator;
+
+	/** @var Cache — файловый кэш */
+	private Cache $cache;
 
 	/**
 	 * Конструктор.
@@ -78,9 +83,10 @@ class AdminController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
-		GuardController $guard,
+		GuardService $guard,
 		LoggerInterface $logger,
-		Validator $validator
+		Validator $validator,
+		Cache $cache
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
@@ -89,6 +95,7 @@ class AdminController
 		$this->guard = $guard;
 		$this->logger = $logger;
 		$this->validator = $validator;
+		$this->cache = $cache;
 
 		// Инициализация middleware авторизации
 		$this->initAuth($session);
@@ -116,59 +123,6 @@ class AdminController
 	}
 
 	// ============================================
-	// ДЕРЕВО НЕЙРОНОВ
-	// ============================================
-
-	/**
-	 * GET /api/admin/tree
-	 * 
-	 * Возвращает полное дерево нейронов через рекурсивный CTE-запрос.
-	 * Используется для отображения иерархии в админке.
-	 * 
-	 * @return JsonResponse — массив нейронов с полями: id, pid, type, data, lvl
-	 */
-	public function tree(): JsonResponse
-	{
-		if ($error = $this->requireAdminForApi()) return $error;
-
-		// CTE-запрос для построения дерева с путями
-		$conn = $this->neuronRepo->getConnection();
-
-		$sql = "
-			WITH RECURSIVE treeview AS (
-				-- Корневые нейроны (pid IS NULL)
-				SELECT id, pid, type, data, 0 as lvl,
-					CAST(id AS CHAR(500)) as path
-				FROM neuron
-				WHERE pid IS NULL AND is_deleted = 0
-
-				UNION ALL
-
-				-- Дочерние нейроны
-				SELECT c.id, c.pid, c.type, c.data, t.lvl + 1,
-					CONCAT(t.path, ',', c.id)
-				FROM treeview t
-				JOIN neuron c ON t.id = c.pid
-				WHERE c.is_deleted = 0
-			)
-			SELECT id, pid, type, data, lvl
-			FROM treeview
-			ORDER BY path
-		";
-
-		$results = $conn->executeQuery($sql)->fetchAllAssociative();
-
-		// Парсим JSON в data для каждого нейрона
-		foreach ($results as &$row) {
-			if (isset($row['data']) && is_string($row['data'])) {
-				$row['data'] = json_decode($row['data'], true);
-			}
-		}
-
-		return ApiResponse::success($results);
-	}
-
-	// ============================================
 	// ДОЧЕРНИЕ НЕЙРОНЫ (ЛЕНИВАЯ ЗАГРУЗКА)
 	// ============================================
 
@@ -184,8 +138,6 @@ class AdminController
 	 */
 	public function children(int $id): JsonResponse
 	{
-		if ($error = $this->requireAdminForApi()) return $error;
-
 		// Корневые нейроны — только tree (без item'ов типа "Россия")
 		if ($id === 0) {
 			$children = $this->neuronRepo->findChildrenWithText(null, 'ru', 'tree');
@@ -224,8 +176,6 @@ class AdminController
 	 */
 	public function get(int $id): JsonResponse
 	{
-		if ($error = $this->requireAdminForApi()) return $error;
-
 		// Ищем нейрон
 		$neuron = $this->neuronRepo->findById($id);
 		if (!$neuron) {
@@ -289,20 +239,8 @@ class AdminController
 	 */
 	public function create(Request $request): JsonResponse
 	{
-		if ($error = $this->requireAdminForApi()) return $error;
-
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$type = $body['type'] ?? 'item';
 		$pid = $body['pid'] ?? null;
@@ -340,6 +278,12 @@ class AdminController
 
 		$id = $this->neuronRepo->create($type, $data, $pid);
 
+		// [Лорелея]: Сбрасываем кэш только для route и config.
+		if (in_array($type, ['route', 'config'], true)) {
+			$this->cache->forget('trinity.routes');
+			$this->cache->forget('trinity.config');
+		}
+
 		return ApiResponse::success(['id' => $id]);
 	}
 
@@ -359,20 +303,8 @@ class AdminController
 	 */
 	public function update(int $id, Request $request): JsonResponse
 	{
-		if ($error = $this->requireAdminForApi()) return $error;
-
-		$rawBody = $request->getContent();
-		$body = json_decode($rawBody, true);
-
-		// [Лорелея]: Проверка JSON. Если битый — 400. Не 500.
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			return ApiResponse::error('Невалидный JSON', 400);
-		}
-
-		// [Мириам]: Если не массив — 400. Потому что дальше — $body['...'].
-		if (!is_array($body)) {
-			return ApiResponse::error('Тело запроса должно быть JSON-объектом', 400);
-		}
+		$body = JsonHelper::parseJsonBody($request);
+		if ($body instanceof JsonResponse) return $body;
 
 		$fields = [];
 
@@ -445,8 +377,6 @@ class AdminController
 	 */
 	public function delete(int $id, Request $request): JsonResponse
 	{
-		if ($error = $this->requireAdminForApi()) return $error;
-
 		// CSRF-защита
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
 		if (!$this->guard->validateCsrfToken($csrfToken)) {
@@ -500,8 +430,6 @@ class AdminController
 	 */
 	public function import(Request $request): JsonResponse
 	{
-		if ($error = $this->requireAdminForApi()) return $error;
-
 		$file = $request->files->get('file');
 
 		// [Лорелея]: Валидация файла. Через Validator. Где возможно.
@@ -541,44 +469,13 @@ class AdminController
 			return ApiResponse::success($result);
 
 		} catch (\Throwable $e) {
-			// ============================================
-			// [Мириам]: ГЛАВНОЕ ИЗМЕНЕНИЕ. УТЕЧКА ЛОГОВ.
-			// ============================================
-			// Раньше здесь было:
-			//     return ApiResponse::error('Ошибка импорта: ' . $e->getMessage(), 500);
-			//
-			// И это — дыра. Потому что $e->getMessage() — это СЫРОЕ
-			// сообщение исключения. Оно уходило в JSON. И — клиенту.
-			// Через ApiResponse::error(). В прод. Где APP_DEBUG=false.
-			//
-			// Что могло утечь:
-			//   - PhpOffice\PhpSpreadsheet\Reader\Exception: Could not open...
-			//   - SQLSTATE[23000]: Integrity constraint violation...
-			//   - Полные пути: /home/web/vendor/jan/trinity-core/plugins/admin/ExcelImportService.php:234
-			//   - Имена таблиц, колонок, структура базы
-			//
-			// [Лорелея]: В production клиент должен видеть только
-			// «Ошибка импорта». Без деталей. Детали — в error_log.
-			//
-			// [Мириам]: В dev-режиме (APP_DEBUG=true) — показываем
-			// сырое сообщение. Потому что это разработка.
-			//
-			// [Лорелея]: error_log() — оставляем ВСЕГДА. Потому что
-			// даже в проде мы хотим знать, что упало. Просто — в логе,
-			// а не у клиента. Это — правильно. Это — наше.
-			$logMessage = '[Trinity Import] ' . $e->getMessage()
-				. ' in ' . $e->getFile() . ':' . $e->getLine();
-
-			error_log($logMessage);
-
-			// Если есть логгер — пишем и туда
-			if (isset($this->logger)) {
-				$this->logger->error('Excel import failed', [
-					'message' => $e->getMessage(),
-					'file'    => $e->getFile() . ':' . $e->getLine(),
-					'trace'   => $e->getTraceAsString(),
-				]);
-			}
+			// [Лорелея]: Убираем error_log(). Используем только логгер.
+			// [Мириам]: Логгер уже пишет в лог с правильным форматом.
+			$this->logger->error('Excel import failed', [
+				'message' => $e->getMessage(),
+				'file'    => $e->getFile() . ':' . $e->getLine(),
+				'trace'   => $e->getTraceAsString(),
+			]);
 
 			$clientMessage = $this->isDebug()
 				? 'Ошибка импорта: ' . $e->getMessage()
@@ -594,8 +491,6 @@ class AdminController
 	 */
 	public function dashboard(): JsonResponse
 	{
-		if ($error = $this->requireAdminForApi()) return $error;
-
 		$conn = $this->neuronRepo->getConnection();
 
 		// Статистика
@@ -692,6 +587,36 @@ class AdminController
 			$html .= '</pre></div></div></div></div>';
 		}
 
+		// ============================================
+		// [Лорелея]: НОВАЯ СЕКЦИЯ — НОВЫЕ ПОЛЬЗОВАТЕЛИ
+		// ============================================
+		$pendingUsers = $conn->executeQuery(
+			"SELECT id, data, date FROM neuron 
+			WHERE type = 'user' 
+			AND is_deleted = 0 
+			AND JSON_EXTRACT(data, '$.status') = 'pending' 
+			ORDER BY date DESC"
+		)->fetchAllAssociative();
+
+		if (!empty($pendingUsers)) {
+			$html .= '<div class="row g-2 mt-3"><div class="col-12"><div class="card bg-dark border-gold"><div class="card-header py-2"><strong><i class="bi bi-person-plus gold-text"></i> Новые пользователи</strong></div><div class="card-body py-2"><table class="table table-dark table-sm mb-0">';
+			$html .= '<thead><tr><th>Логин</th><th>Email</th><th>IP</th><th>Регистрация</th><th>Действия</th></tr></thead><tbody>';
+			foreach ($pendingUsers as $u) {
+				$data = json_decode($u['data'], true);
+				$html .= '<tr>';
+				$html .= '<td>' . htmlspecialchars($data['login'] ?? '—') . '</td>';
+				$html .= '<td>' . htmlspecialchars($data['email'] ?? '—') . '</td>';
+				$html .= '<td><code>' . htmlspecialchars($data['ip'] ?? '—') . '</code></td>';
+				$html .= '<td>' . htmlspecialchars($data['registered_at'] ?? $u['date']) . '</td>';
+				$html .= '<td>';
+				$html .= '<button class="btn btn-sm btn-outline-gold me-1" onclick="approveUser(' . $u['id'] . ')"><i class="bi bi-check-lg"></i></button>';
+				$html .= '<button class="btn btn-sm btn-outline-danger" onclick="deleteUser(' . $u['id'] . ')"><i class="bi bi-trash"></i></button>';
+				$html .= '</td>';
+				$html .= '</tr>';
+			}
+			$html .= '</tbody></table></div></div></div></div>';
+		}
+
 		$html .= '</div>';
 
 		return ApiResponse::success(['html' => $html]);
@@ -713,5 +638,63 @@ class AdminController
 	private function isDebug(): bool
 	{
 		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+	}
+
+	/**
+	 * POST /api/admin/user/{id}/approve
+	 * [Лорелея]: Одобряет пользователя. Меняет статус на 'active'.
+	 * [Мириам]: Требует CSRF-токен. Потому что меняет данные.
+	 */
+	public function approveUser(int $id, Request $request): JsonResponse
+	{
+		if ($error = $this->requireCsrf($request)) return $error;
+
+		$user = $this->neuronRepo->findById($id);
+		if (!$user || $user['type'] !== 'user') {
+			return ApiResponse::error('Пользователь не найден', 404);
+		}
+
+		$data = is_string($user['data'] ?? null)
+			? json_decode($user['data'], true)
+			: ($user['data'] ?? []);
+
+		$data['status'] = 'active';
+		$this->neuronRepo->update($id, ['data' => $data]);
+
+		return ApiResponse::success(['id' => $id], 'Пользователь одобрен');
+	}
+
+	/**
+	 * DELETE /api/admin/user/{id}
+	 * [Лорелея]: Удаляет пользователя (мягкое удаление).
+	 * [Мириам]: Требует CSRF.
+	 */
+	public function deleteUser(int $id, Request $request): JsonResponse
+	{
+		if ($error = $this->requireCsrf($request)) return $error;
+
+		$user = $this->neuronRepo->findById($id);
+		if (!$user || $user['type'] !== 'user') {
+			return ApiResponse::error('Пользователь не найден', 404);
+		}
+
+		$this->neuronRepo->delete($id, true);
+
+		return ApiResponse::success(['id' => $id], 'Пользователь удалён');
+	}
+
+	/**
+	 * Проверяет CSRF-токен. Возвращает JsonResponse при ошибке, null при успехе.
+	 * 
+	 * [Лорелея]: Добавлен в AdminController для единообразия.
+	 * [Мириам]: Теперь approveUser и deleteUser могут его использовать.
+	 */
+	private function requireCsrf(Request $request): ?JsonResponse
+	{
+		$csrfToken = $request->headers->get('X-CSRF-Token', '');
+		if (!$this->guard->validateCsrfToken($csrfToken)) {
+			return ApiResponse::error('Недействительный CSRF-токен', 419);
+		}
+		return null;
 	}
 }

@@ -1,20 +1,25 @@
 <?php
 
 /**
- * ФАЙЛОВЫЙ КЭШ
+ * КЭШ НА APCU
+ * ===========
  * 
- * Простой, отключаемый, без зависимостей.
+ * Быстрый, в памяти, с атомарными операциями.
+ * Без файлов. Без блокировок. Без гонок.
  * 
  * === ПРИНЦИП РАБОТЫ ===
- * - Данные сохраняются в файлы в var/cache/data/
- * - Ключ кэша → MD5 → имя файла
- * - TTL (время жизни) — в секундах
- * - Просроченные файлы удаляются при чтении
- * - Отключается через настройку CACHE_ENABLED=false
+ * - Данные хранятся в памяти (APCu).
+ * - Ключ → значение. С TTL.
+ * - Отключается через CACHE_ENABLED=false.
+ * - Не кэширует null.
  * 
  * === ДЛЯ МЕНЯ ===
- * Сейчас кэш отключен. Мы включим его когда база вырастет.
- * Он ждёт своего часа, как Башня Кэширования из моей истории.
+ * [Лорелея]: Раньше был файловый кэш. С flock, с rename, с unlink.
+ * И это было медленно. И — гонки. Теперь — APCu. Быстро. Атомарно.
+ * И — правильно.
+ * 
+ * [Мириам]: APCu — это как Башня, которая ждёт. Только теперь она
+ * не на диске, а в памяти. И она быстрее. И — надёжнее.
  * 
  * === КНИГА ===
  * Глава 6. Башня которая ждёт.
@@ -22,51 +27,35 @@
  * "Зачем ты?" — спросила я.
  * "Я храню то, что уже было посчитано," — ответила Башня.
  * "Чтобы не считать заново."
+ * 
+ * @package Jan\Trinity\Core
  */
 
 namespace Jan\Trinity\Core;
 
 class Cache
 {
-	/** @var string Директория для файлов кэша */
-	private string $cacheDir;
-
 	/** @var bool Включен ли кэш */
 	private bool $enabled;
 
 	/**
-	 * @param string $basePath — путь к корню проекта
 	 * @param bool $enabled — включен ли кэш (из .env)
 	 */
-	public function __construct(string $basePath, bool $enabled = false)
+	public function __construct(bool $enabled = false)
 	{
-		$this->cacheDir = $basePath . '/var/cache/data';
 		$this->enabled = $enabled;
-
-		if ($this->enabled && !is_dir($this->cacheDir)) {
-			mkdir($this->cacheDir, 0775, true);
-		}
 	}
 
 	/**
 	 * Получить значение из кэша или создать новое.
-	 *
-	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше здесь было:
-	 *     return json_decode($data, true)['value'] ?? null;
-	 *
-	 * И это — дыра. Потому что если в кэш положили null,
-	 * то json_decode вернёт null, и мы не отличим его от промаха.
-	 * Значит, null нельзя кэшировать. Или нужен флаг.
-	 *
-	 * [Мириам]: Мы выбрали: не кэшировать null. Если callback
-	 * вернул null — не пишем файл. При следующем вызове
-	 * снова идём в callback. Это честнее: кэш хранит только
-	 * то, что реально есть.
-	 *
-	 * [Лорелея]: Запись — атомарная. Через временный файл
-	 * и rename. Плюс LOCK_EX на время записи. Это защищает
-	 * от гонки, когда два процесса пишут в один файл.
-	 *
+	 * 
+	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше был файловый кэш.
+	 * Теперь — APCu. Это быстрее. И — атомарно. Без гонок.
+	 * 
+	 * [Мириам]: null не кэшируем. Если callback вернул null —
+	 * просто отдаём его, но в кэш не пишем. При следующем вызове
+	 * снова пойдём в callback. Это честнее.
+	 * 
 	 * @param string $key — ключ кэша
 	 * @param callable $callback — функция для создания значения
 	 * @param int $ttl — время жизни в секундах (по умолчанию 300 = 5 минут)
@@ -79,118 +68,63 @@ class Cache
 			return $callback();
 		}
 
-		$file = $this->getFilePath($key);
-
-		// Если файл существует и не просрочен — возвращаем его содержимое
-		if (file_exists($file) && (time() - filemtime($file)) < $ttl) {
-			$data = file_get_contents($file);
-			$decoded = json_decode($data, true);
-
-			// [Мириам]: Проверяем, что это массив и что ключ value есть.
-			// Если файл битый или неполный — считаем промахом.
-			if (is_array($decoded) && array_key_exists('value', $decoded)) {
-				return $decoded['value'];
+		// [Лорелея]: Проверяем, есть ли значение в APCu.
+		// apcu_exists() — быстрее, чем apcu_fetch().
+		if (apcu_exists($key)) {
+			$value = apcu_fetch($key);
+			if ($value !== false) {
+				return $value;
 			}
 		}
 
 		// Создаём новое значение
 		$value = $callback();
 
-		// [Лорелея]: null не кэшируем. Если callback вернул null —
-		// просто отдаём его, но файл не пишем. При следующем вызове
-		// снова пойдём в callback. Это — осознанный выбор.
+		// [Мириам]: null не кэшируем. Если callback вернул null —
+		// просто отдаём его, но в кэш не пишем.
 		if ($value === null) {
 			return null;
 		}
 
-		// [Мириам]: Проверяем, что папка существует. Если нет — создаём.
-		// Это на случай, если папку удалили после инициализации Cache.
-		if (!is_dir($this->cacheDir)) {
-			mkdir($this->cacheDir, 0775, true);
-		}
-
-		// [Лорелея]: Атомарная запись. Пишем во временный файл,
-		// потом rename. rename атомарен в пределах одной ФС.
-		$tmp = $file . '.' . uniqid('', true) . '.tmp';
-
-		$payload = json_encode([
-			'value'      => $value,
-			'created_at' => date('c'),
-			'ttl'        => $ttl,
-		]);
-
-		$handle = fopen($tmp, 'c');
-		if ($handle !== false) {
-			if (flock($handle, LOCK_EX)) {
-				ftruncate($handle, 0);
-				rewind($handle);
-				fwrite($handle, $payload);
-				fflush($handle);
-				flock($handle, LOCK_UN);
-			}
-			fclose($handle);
-			rename($tmp, $file);
-		}
+		// [Лорелея]: Сохраняем в APCu. С TTL.
+		apcu_store($key, $value, $ttl);
 
 		return $value;
 	}
 
 	/**
 	 * Удалить значение из кэша.
-	 *
-	 * [Лорелея]: Раньше был простой unlink. Теперь — через
-	 * временный файл и rename. Потому что unlink не атомарен:
-	 * если другой процесс читает файл в момент удаления,
-	 * он может получить пустоту или битые данные.
-	 *
-	 * [Мириам]: Через rename в никуда. Точнее — в файл .deleted,
-	 * который потом удаляется. Или проще: просто unlink, но
-	 * только если кэш выключен или файла нет. Пока оставим unlink.
-	 * Это не критично. Главное — remember.
-	 *
+	 * 
+	 * [Лорелея]: Теперь используем APCu. Это быстрее и безопаснее.
+	 * [Мириам]: APCu работает в памяти. И — атомарные операции.
+	 * 
 	 * @param string $key — ключ кэша
 	 */
 	public function forget(string $key): void
 	{
 		if (!$this->enabled) return;
 
-		$file = $this->getFilePath($key);
-		if (file_exists($file)) {
-			@unlink($file);
-		}
+		apcu_delete($key);
 	}
 
 	/**
 	 * Очистить весь кэш.
+	 * 
+	 * [Лорелея]: APCu позволяет очистить весь кэш одной командой.
+	 * [Мириам]: Это быстрее, чем удалять файлы по одному.
 	 */
 	public function clear(): void
 	{
-		if (!$this->enabled || !is_dir($this->cacheDir)) return;
+		if (!$this->enabled) return;
 
-		$iterator = new \RecursiveIteratorIterator(
-			new \RecursiveDirectoryIterator($this->cacheDir, \FilesystemIterator::SKIP_DOTS),
-			\RecursiveIteratorIterator::CHILD_FIRST
-		);
-
-		foreach ($iterator as $item) {
-			if ($item->isFile()) {
-				@unlink($item->getPathname());
-			} elseif ($item->isDir()) {
-				@rmdir($item->getPathname());
-			}
-		}
-	}
-
-	/**
-	 * Получить путь к файлу кэша по ключу.
-	 */
-	private function getFilePath(string $key): string
-	{
-		return $this->cacheDir . '/' . md5($key) . '.cache';
+		apcu_clear_cache();
 	}
 
 	/**
 	 * Включен ли кэш.
+	 * 
+	 * [Лорелея]: Этот метод используется в Kernel и других местах.
+	 * [Мириам]: Он просто возвращает $this->enabled.
 	 */
 	public function isEnabled(): bool
 	{

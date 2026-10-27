@@ -34,7 +34,6 @@
 namespace Jan\Trinity\Plugin\Map;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -58,8 +57,6 @@ class MapController
 	/** @var SynapseRepository — работа с синапсами */
 	private SynapseRepository $synapseRepo;
 
-	private ErrorHandlerInterface $errorHandler;
-
 	private Validator $validator;
 
 	/**
@@ -71,14 +68,12 @@ class MapController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
-		ErrorHandlerInterface $errorHandler,
 		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
-		$this->errorHandler = $errorHandler;
 		$this->validator = $validator;
 	}
 
@@ -364,12 +359,7 @@ class MapController
 		// Ищем нейрон
 		$neuron = $this->neuronRepo->findById($id);
 		if (!$neuron) {
-			return $this->errorHandler->showError(404, 'Объект не найден', [
-				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
-				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
-				'user'   => 'guest',
-				'time'   => date('Y-m-d H:i:s'),
-			]);
+			throw new \RuntimeException('Объект не найден', 404);
 		}
 
 		$data = is_string($neuron['data'] ?? null)

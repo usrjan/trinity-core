@@ -304,4 +304,24 @@ class TextRepository
 
         return array_column($results, 'lang');
     }
+
+	/**
+	 * Обновляет текст по ключу и языку.
+	 * 
+	 * [Лорелея]: Вместо findOrCreate — простое обновление.
+	 * [Мириам]: Если записи нет — ничего не делает.
+	 * 
+	 * @param int $key — ключ текста
+	 * @param string $lang — язык
+	 * @param string|null $name — новое название
+	 * @param string|null $text — новый текст
+	 */
+	public function updateByKey(int $key, string $lang, ?string $name, ?string $text): void
+	{
+		$conn = $this->db->getConnection();
+		$conn->executeStatement(
+			'UPDATE text SET name = ?, text = ? WHERE `key` = ? AND lang = ?',
+			[$name, $text, $key, $lang]
+		);
+	}
 }

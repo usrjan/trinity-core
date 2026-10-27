@@ -69,6 +69,36 @@
 	};
 
 	/**
+	 * Разворачивает/сворачивает узел.
+	 */
+	window.adminToggleChildren = function(id) {
+		var node = findNode(tree, id);
+		if (!node) return;
+
+		if (node.expanded) {
+			// Сворачиваем
+			node.expanded = false;
+			renderTree();
+			return;
+		}
+
+		// Загружаем детей с сервера
+		fetch('/api/admin/children/' + id)
+			.then(function(r) { return r.json(); })
+			.then(function(d) {
+				if (d.success) {
+					node.children = d.data || [];
+					node.expanded = true;
+					node.has_children = node.children.length > 0;
+					renderTree();
+				}
+			})
+			.catch(function(e) {
+				console.error('Ошибка загрузки детей:', e);
+			});
+	};
+
+	/**
 	 * Отрисовывает дерево нейронов.
 	 */
 	function renderTree() {
@@ -471,6 +501,56 @@
 				importBtn.innerHTML = '<i class="bi bi-upload"></i>';
 			}
 			document.getElementById('importFile').value = '';
+		});
+	};
+
+	// ============================================
+	// ОДОБРЕНИЕ ПОЛЬЗОВАТЕЛЯ
+	// ============================================
+	// [Лорелея]: Отправляет POST-запрос на /api/admin/user/{id}/approve.
+	// [Мириам]: После успеха обновляет дашборд.
+	window.approveUser = function(id) {
+		if (!confirm('Одобрить пользователя #' + id + '?')) return;
+
+		fetch('/api/admin/user/' + id + '/approve', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' }
+		})
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
+			if (d.success) {
+				loadDashboard();
+			} else {
+				alert(d.message || 'Ошибка');
+			}
+		})
+		.catch(function() {
+			alert('Ошибка сети');
+		});
+	};
+
+	// ============================================
+	// УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ
+	// ============================================
+	// [Лорелея]: Отправляет DELETE-запрос на /api/admin/user/{id}.
+	// [Мириам]: После успеха обновляет дашборд.
+	window.deleteUser = function(id) {
+		if (!confirm('Удалить пользователя #' + id + '?')) return;
+
+		fetch('/api/admin/user/' + id, {
+			method: 'DELETE',
+			headers: { 'Content-Type': 'application/json' }
+		})
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
+			if (d.success) {
+				loadDashboard();
+			} else {
+				alert(d.message || 'Ошибка');
+			}
+		})
+		.catch(function() {
+			alert('Ошибка сети');
 		});
 	};
 

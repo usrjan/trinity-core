@@ -22,7 +22,6 @@
 namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -43,8 +42,6 @@ class HomeController
 	/** @var NeuronRepository — работа с нейронами */
 	private NeuronRepository $neuronRepo;
 
-	private ErrorHandlerInterface $errorHandler;
-
 	private Validator $validator;
 
 	use AuthMiddleware;
@@ -58,13 +55,11 @@ class HomeController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		Session $session,
-		ErrorHandlerInterface $errorHandler,
 		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
-		$this->errorHandler = $errorHandler;
 		$this->validator = $validator;
 
 		$this->initAuth($session);
@@ -99,12 +94,7 @@ class HomeController
 		$page = $this->neuronRepo->findBySlug($slug);
 
 		if (!$page) {
-			return $this->errorHandler->showError(404, 'Страница не найдена', [
-				'url' => $_SERVER['REQUEST_URI'] ?? '/',
-				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
-				'user' => 'guest',
-				'time' => date('Y-m-d H:i:s'),
-			]);
+			throw new \RuntimeException('Страница не найдена', 404);
 		}
 
 		// Извлекаем данные нейрона

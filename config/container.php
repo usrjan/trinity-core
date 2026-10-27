@@ -46,6 +46,7 @@ use Jan\Trinity\Core\Mime\Registry;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
+use Jan\Trinity\Core\Service\GuardService;
 
 use Jan\Trinity\Plugin\Admin\AdminController;
 use Jan\Trinity\Plugin\Users\AuthController;
@@ -103,17 +104,14 @@ return [
 		->constructorParameter('config', \DI\get('db.config')),
 
 	// ============================================
-	// 3. КЭШ (отключаемый)
+	// 3. КЭШ (APCu)
 	// ============================================
-	// [Лорелея]: Cache создаётся через фабрику, потому что он
-	// принимает $basePath и $enabled. $basePath не внедрить через
-	// autowire. $enabled — из .env. Пока кэш отключён.
-	// Включим, когда база вырастет.
-	// ============================================
+	// [Лорелея]: Теперь используем APCu. Это быстрее и безопаснее.
+	// [Мириам]: APCu работает в памяти. И — атомарные операции.
+	// Это решает проблему гонок.
 	Cache::class => function () {
-		$basePath = dirname(__DIR__);
 		$enabled = ($_ENV['CACHE_ENABLED'] ?? 'false') === 'true';
-		return new Cache($basePath, $enabled);
+		return new Cache($enabled);
 	},
 
 	// ============================================
@@ -126,9 +124,14 @@ return [
 	Session::class => function () {
 		$storage = new NativeSessionStorage([
 			'cookie_lifetime' => (int)($_ENV['SESSION_LIFETIME'] ?? 86400),
+			'cookie_secure'   => ($_ENV['APP_ENV'] ?? 'prod') === 'prod',
+			'cookie_httponly' => true,
+			'cookie_samesite' => 'lax',
 		]);
 		$session = new Session($storage);
-		$session->start();
+		if (!$session->isStarted()) {
+			$session->start();
+		}
 		return $session;
 	},
 
@@ -255,22 +258,11 @@ return [
 			$validator
 		);
 	},
-	GuardController::class => function (
-		NeuronRepository $neuronRepo,
-		Session $session,
-		\Psr\Log\LoggerInterface $logger,
-		ConfigService $configService,
-		Validator $validator
-	) {
-		return new \Jan\Trinity\Plugin\Guard\GuardController(
-			$neuronRepo,
-			$session,
-			dirname(__DIR__),
-			$logger,
-			$configService,
-			$validator
-		);
-	},
+
+	GuardService::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
+
+	GuardController::class => \DI\autowire(),
 	AuthController::class => \DI\autowire(),
 	AdminController::class => \DI\autowire(),
 	ProfileController::class => \DI\autowire(),
