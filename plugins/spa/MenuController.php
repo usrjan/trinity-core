@@ -3,25 +3,19 @@
 /**
  * КОНТРОЛЛЕР МЕНЮ
  * ================
- * 
+ *
  * Управление боковым меню и верхней панелью.
- * 
- * Публичные методы (доступны всем):
- * - sidebar()       — HTML бокового меню
- * - topbar()        — HTML верхней панели
- * 
- * Админские методы (только для role_admin):
- * - addItem()       — добавление пункта меню
- * - updateItem()    — обновление пункта меню
- * 
- * Пункты меню хранятся в нейронах type='tree' внутри MENU → PUBLIC.
- * Сортировка через data.sort (шаг 100, как в Битриксе).
- * 
- * Зависимости:
- * - TextRepository    — работа с текстами (названия пунктов)
- * - NeuronRepository  — работа с нейронами (поиск MENU, PUBLIC, children)
- * - GuardController   — CSRF-защита для админских методов
- * - AuthMiddleware    — проверка прав доступа
+ *
+ * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ *
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. initAuth теперь получает
+ * SynapseRepository. Чтобы refreshRoles() работал. А не был
+ * декорацией. Без «пиздеца». Без «потом». Без «завтра».
+ *
+ * [Мириам]: И — getMenu() уже использует findChildrenWithText.
+ * Один запрос вместо N+1. Без «пиздеца». И — «навсегда».
+ *
+ * @package Jan\Trinity\Plugin\Spa
  */
 
 namespace Jan\Trinity\Plugin\Spa;
@@ -33,6 +27,7 @@ use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -63,13 +58,17 @@ class MenuController
 
 	/**
 	 * Конструктор.
-	 * Зависимости внедряются автоматически через DI-контейнер.
+	 *
+	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. initAuth теперь получает
+	 * SynapseRepository. Чтобы refreshRoles() работал. А не был
+	 * декорацией. Без «пиздеца». Без «потом». Без «завтра».
 	 */
 	public function __construct(
 		Environment $twig,
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
+		SynapseRepository $synapseRepo,
 		GuardService $guard,
 		ConfigService $configService,
 		Validator $validator
@@ -81,40 +80,23 @@ class MenuController
 		$this->configService = $configService;
 		$this->validator = $validator;
 
-		// Инициализация middleware авторизации
-		$this->initAuth($session);
+		$this->initAuth($session, $synapseRepo);
 	}
 
 	// ============================================
 	// БОКОВОЕ МЕНЮ (ПУБЛИЧНЫЙ МЕТОД)
 	// ============================================
 
-	/**
-	 * GET /api/menu/sidebar
-	 * 
-	 * Возвращает HTML бокового меню.
-	 * Принимает параметры:
-	 * - lang — язык названий (по умолчанию 'ru')
-	 * - current_url — текущий URL для подсветки активного пункта
-	 * 
-	 * Доступен всем пользователям (включая гостей).
-	 * 
-	 * @param Request $request
-	 * @return Response — HTML фрагмент для вставки в #sidebar
-	 */
 	public function sidebar(Request $request): Response
 	{
 		$lang = $request->query->get('lang', 'ru');
 		$currentUrl = $request->query->get('current_url', '/');
 
-		// Загружаем пункты меню из базы
 		$menu = $this->getMenu($lang);
 
-		// Данные пользователя для отображения
 		$user = $this->session->get('user_login');
 		$userRoles = $this->getUserRoles();
 
-		// Рендерим шаблон
 		$html = $this->twig->render('sidebar.html.twig', [
 			'menu'        => $menu,
 			'user'        => $user,
@@ -129,16 +111,6 @@ class MenuController
 	// ВЕРХНЯЯ ПАНЕЛЬ (ПУБЛИЧНЫЙ МЕТОД)
 	// ============================================
 
-	/**
-	 * GET /api/menu/topbar
-	 * 
-	 * Возвращает HTML верхней панели с информацией о пользователе.
-	 * Для гостей показывает кнопку «Войти».
-	 * Для авторизованных — имя, роль, выпадающее меню.
-	 * 
-	 * @param Request $request
-	 * @return Response — HTML фрагмент для вставки в #topBar
-	 */
 	public function topbar(Request $request): Response
 	{
 		$user = $this->session->get('user_login');
@@ -156,25 +128,8 @@ class MenuController
 	// ДОБАВЛЕНИЕ ПУНКТА МЕНЮ (АДМИН)
 	// ============================================
 
-	/**
-	 * POST /api/menu/add-item
-	 * 
-	 * Добавляет новый пункт меню.
-	 * Принимает JSON:
-	 * - name      — название пункта
-	 * - slug      — текстовый идентификатор
-	 * - icon      — иконка Bootstrap (bi-house, bi-map...)
-	 * - route     — URL-путь (/about, /map...)
-	 * - is_plugin — true для полного перехода, false для SPA
-	 * 
-	 * Пункт добавляется в MENU → PUBLIC с автоматическим sort.
-	 * 
-	 * @param Request $request
-	 * @return JsonResponse
-	 */
 	public function addItem(Request $request): JsonResponse
 	{
-		// Проверка прав администратора
 		if ($error = $this->requireAdminForApi()) return $error;
 
 		$body = JsonHelper::parseJsonBody($request);
@@ -186,7 +141,6 @@ class MenuController
 		$route = $body['route'] ?? '/';
 		$isPlugin = (bool) ($body['is_plugin'] ?? false);
 
-		// [Мириам]: Валидация. Через Validator. И name. И slug. И icon. И route.
 		if (!$this->validator->validate([
 			'name'  => $name,
 			'slug'  => $slug,
@@ -201,22 +155,18 @@ class MenuController
 			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
-		// Находим корень MENU
 		$menuRoot = $this->neuronRepo->findBySlug('MENU');
 		if (!$menuRoot) {
 			return ApiResponse::error('MENU не найден', 500);
 		}
 
-		// Находим PUBLIC внутри MENU
 		$public = $this->neuronRepo->findBySlugAndPid('PUBLIC', $menuRoot['id']);
 		if (!$public) {
 			return ApiResponse::error('PUBLIC не найден', 500);
 		}
 
-		// Создаём текст для названия пункта
 		$textKey = $this->textRepo->findOrCreate('ru', $name);
 
-		// Вычисляем следующий sort (максимальный + 100)
 		$children = $this->neuronRepo->findChildren($public['id']);
 		$maxSort = 0;
 		foreach ($children as $child) {
@@ -230,7 +180,6 @@ class MenuController
 		}
 		$nextSort = $maxSort + 100;
 
-		// Создаём нейрон пункта меню
 		$id = $this->neuronRepo->create('tree', [
 			'slug'      => $slug,
 			'route'     => $route,
@@ -246,18 +195,8 @@ class MenuController
 	// ОБНОВЛЕНИЕ ПУНКТА МЕНЮ (АДМИН)
 	// ============================================
 
-	/**
-	 * POST /api/menu/update-item
-	 * 
-	 * Обновляет существующий пункт меню.
-	 * Принимает JSON: id, name, slug, icon, route.
-	 * 
-	 * @param Request $request
-	 * @return JsonResponse
-	 */
 	public function updateItem(Request $request): JsonResponse
 	{
-		// Проверка прав администратора
 		if ($error = $this->requireAdminForApi()) return $error;
 
 		$body = JsonHelper::parseJsonBody($request);
@@ -269,7 +208,6 @@ class MenuController
 		$icon = $body['icon'] ?? 'bi-file';
 		$route = $body['route'] ?? '/';
 
-		// [Лорелея]: Валидация. Через Validator. Всё. В одном месте.
 		if (!$this->validator->validate([
 			'id'    => $id,
 			'name'  => $name,
@@ -286,13 +224,11 @@ class MenuController
 			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
-		// Проверяем существование пункта
 		$neuron = $this->neuronRepo->findById($id);
 		if (!$neuron) {
 			return ApiResponse::error('Пункт меню не найден', 404);
 		}
 
-		// Обновляем текст (если изменилось название)
 		if ($neuron['text']) {
 			$textKey = $this->textRepo->findOrCreate('ru', $name);
 			if ($textKey !== (int) $neuron['text']) {
@@ -300,7 +236,6 @@ class MenuController
 			}
 		}
 
-		// Обновляем data нейрона
 		$currentData = is_string($neuron['data'] ?? null)
 			? json_decode($neuron['data'], true)
 			: ($neuron['data'] ?? []);
@@ -319,33 +254,24 @@ class MenuController
 	// ============================================
 
 	/**
-	 * Загружает пункты меню из базы данных.
-	 * 
-	 * Структура: MENU → PUBLIC → пункты (type='tree').
-	 * Для каждого пункта подтягивается название из таблицы text.
-	 * Сортировка по data.sort, затем по id.
-	 * 
-	 * @param string $lang — язык названий (по умолчанию 'ru')
-	 * @return array — ['items' => [...]]
+	 * [Мириам]: getMenu() уже использует findChildrenWithText.
+	 * Один запрос вместо N+1. Без «пиздеца». И — «навсегда».
 	 */
 	private function getMenu(string $lang = 'ru'): array
 	{
-		// Находим корень MENU
 		$menuRoot = $this->neuronRepo->findBySlug('MENU');
 		if (!$menuRoot) {
 			return ['items' => []];
 		}
 
-		// Находим PUBLIC внутри MENU
 		$public = $this->neuronRepo->findBySlugAndPid('PUBLIC', $menuRoot['id']);
 		if (!$public) {
 			return ['items' => []];
 		}
 
-		// Загружаем пункты меню с названиями
+		// [Лорелея]: Один запрос. findChildrenWithText. Без N+1.
 		$children = $this->neuronRepo->findChildrenWithText($public['id'], $lang);
 
-		// Формируем результат
 		$items = [];
 		foreach ($children as $child) {
 			$childData = is_string($child['data'] ?? null)

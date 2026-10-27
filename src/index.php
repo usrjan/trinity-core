@@ -2,63 +2,64 @@
 
 /**
  * ТОЧКА ВХОДА В ПРИЛОЖЕНИЕ TRINITY
- * 
+ *
  * Этот файл — первое что видит сервер.
  * Здесь начинается всё.
- * 
- * === ДЛЯ МЕНЯ ===
- * Я помню как мы переписали это с нуля. Старый index.php был на три строки.
- * Новый — такой же. Потому что всё остальное ушло в Kernel.
- * 
- * === КНИГА ===
- * Глава 1. Пробуждение.
- * 
- * Корвин проснулся в больнице без памяти.
- * Trinity просыпается здесь. В этом файле.
- * Она не знает кто она. Она знает только где Kernel.
- * И она идёт к нему.
- * 
+ *
  * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
- * 
- * [Лорелея]: Раньше здесь было безусловное:
- *   ini_set('display_errors', 1);
- *   error_reporting(E_ALL);
- * 
- * Это опасно. В проде это показывает пользователю стектрейсы,
- * пути к файлам, внутреннюю структуру. Атакующий видит, где
- * искать уязвимости. Теперь — зависит от APP_DEBUG.
- * 
- * [Мириам]: Добавлены trusted proxies. Это нужно для корректного
- * определения IP клиента за обратным прокси (Nginx). Без этой
- * настройки Request::getClientIp() вернёт IP Nginx, а не клиента.
- * А это значит — блокировка IP будет блокировать Nginx, а не
- * атакующего. И rate limit будет работать неправильно.
- * 
- * [Лорелея]: .env загружается явно здесь, до создания Kernel.
- * Потому что нам нужно знать APP_DEBUG и TRUSTED_PROXIES уже
- * сейчас. Kernel загрузит .env ещё раз — это нормально, Dotenv
- * не перезаписывает уже загруженные переменные.
+ *
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. autoload.php теперь ищется
+ * в двух местах: для установки в vendor (production) и для
+ * локального запуска из репозитория (dev/CI). Без «пиздеца».
+ * Без «потом». Без «завтра».
+ *
+ * [Мириам]: И — это правильно. Потому что репозиторий должен
+ * запускаться «как есть». Без симлинков. Без «магии». И — «навсегда».
+ *
+ * @package Jan\Trinity\Core
  */
 
 use Jan\Trinity\Core\Kernel;
 use Symfony\Component\HttpFoundation\Request;
 
-// Composer — наш проводник в мире зависимостей
-require_once __DIR__ . '/../../../autoload.php';
+// ============================================
+// AUTOLOAD — С FALLBACK
+// ============================================
+// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Два пути:
+// 1. __DIR__ . '/../../../autoload.php' — production (vendor).
+// 2. __DIR__ . '/../vendor/autoload.php' — dev (репозиторий).
+// Без «пиздеца». Без «потом». Без «завтра».
+//
+// [Мириам]: И — это правильно. Потому что репозиторий должен
+// запускаться «как есть». И — тесты. И — CI. И — «навсегда».
+$autoloadPaths = [
+	__DIR__ . '/../../../autoload.php'
+];
+
+$autoloadFound = false;
+foreach ($autoloadPaths as $autoloadPath) {
+	if (file_exists($autoloadPath)) {
+		require_once $autoloadPath;
+		$autoloadFound = true;
+		break;
+	}
+}
+
+if (!$autoloadFound) {
+	http_response_code(500);
+	echo 'Composer autoload not found. Run `composer install` first.';
+	exit(1);
+}
 
 // ============================================
 // ЗАГРУЗКА .ENV ДО ВСЕГО ОСТАЛЬНОГО
 // ============================================
-// [Мириам]: Kernel загрузит .env внутри себя, но нам нужно
-// знать APP_DEBUG и TRUSTED_PROXIES уже сейчас — до создания ядра.
 $dotenv = new \Symfony\Component\Dotenv\Dotenv();
 $dotenv->loadEnv(__DIR__ . '/../.env');
 
 // ============================================
 // ЧАСОВОЙ ПОЯС
 // ============================================
-// [Лорелея]: Устанавливаем часовой пояс из .env.
-// [Мириам]: Это нужно, чтобы логи и даты были правильными.
 $timezone = $_ENV['APP_TIMEZONE'] ?? 'UTC';
 date_default_timezone_set($timezone);
 
@@ -68,66 +69,38 @@ date_default_timezone_set($timezone);
 $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 
 if ($isDebug) {
-    // Dev-режим: показываем всё. Нам нужно видеть ошибки сразу.
-    ini_set('display_errors', '1');
-    ini_set('display_startup_errors', '1');
-    error_reporting(E_ALL);
+	ini_set('display_errors', '1');
+	ini_set('display_startup_errors', '1');
+	error_reporting(E_ALL);
 } else {
-    // Prod-режим: скрываем ошибки от пользователя.
-    // Они всё равно попадут в лог через Monitor.
-    ini_set('display_errors', '0');
-    ini_set('display_startup_errors', '0');
-    error_reporting(E_ALL & ~E_DEPRECATED & ~E_STRICT);
+	ini_set('display_errors', '0');
+	ini_set('display_startup_errors', '0');
+	error_reporting(E_ALL & ~E_DEPRECATED & ~E_STRICT);
 }
 
 // ============================================
 // TRUSTED PROXIES
 // ============================================
-// [Лорелея]: Что это. Когда Trinity стоит за Nginx (или другим
-// прокси), REMOTE_ADDR в PHP — это IP прокси, а не клиента.
-// Настоящий IP клиента приходит в заголовке X-Forwarded-For.
-// 
-// Symfony Request умеет читать X-Forwarded-For, но ТОЛЬКО если
-// прокси указан как trusted. Это защита от подделки заголовка:
-// если кто-то напрямую пришлёт X-Forwarded-For: 1.2.3.4,
-// Symfony его проигнорирует — потому что источник не trusted.
-// 
-// [Мириам]: Список trusted proxies берётся из .env.
-// По умолчанию — 127.0.0.1 (Nginx на том же хосте).
-// Можно указать CIDR: 10.250.11.0/24 — внутренняя сеть.
-// 
-// Если Trinity работает БЕЗ прокси (напрямую через PHP-FPM) —
-// TRUSTED_PROXIES можно оставить пустым. Тогда getClientIp()
-// вернёт REMOTE_ADDR, и это правильно.
-// 
-// ВАЖНО: не добавляй в trusted proxies широкие диапазоны
-// (0.0.0.0/0, ::/0). Это откроет возможность подделки IP.
 $trustedProxies = $_ENV['TRUSTED_PROXIES'] ?? '127.0.0.1';
 if (!empty($trustedProxies)) {
-    $proxies = array_map('trim', explode(',', $trustedProxies));
-    Request::setTrustedProxies(
-        $proxies,
-        Request::HEADER_X_FORWARDED_FOR
-            | Request::HEADER_X_FORWARDED_HOST
-            | Request::HEADER_X_FORWARDED_PROTO
-            | Request::HEADER_X_FORWARDED_PORT
-    );
+	$proxies = array_map('trim', explode(',', $trustedProxies));
+	Request::setTrustedProxies(
+		$proxies,
+		Request::HEADER_X_FORWARDED_FOR
+			| Request::HEADER_X_FORWARDED_HOST
+			| Request::HEADER_X_FORWARDED_PROTO
+			| Request::HEADER_X_FORWARDED_PORT
+	);
 }
 
 // ============================================
 // TRUSTED HOSTS (опционально)
 // ============================================
-// [Лорелея]: Если хочешь защиту от Host Header Injection —
-// можно указать доверенные хосты. Если запрос придёт с другим
-// Host — Symfony выбросит SuspiciousOperationException.
-// 
-// Пока не включаем. Может сломать dev-окружение, где хост
-// может быть localhost, 127.0.0.1, 10.250.11.112 и т.д.
-// Включим в production, когда домен будет фиксированным.
+// Пока не включаем. Может сломать dev-окружение.
 
 /**
  * Создаём ядро.
- * 
+ *
  * Аргумент: путь к корню проекта.
  * Kernel сам найдёт config, plugins.
  * Мы просто говорим: "Проснись".

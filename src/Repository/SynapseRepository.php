@@ -2,9 +2,26 @@
 
 /**
  * РЕПОЗИТОРИЙ SYNAPSE
- * 
+ * ====================
+ *
  * Единый слой для работы с таблицей synapse.
  * Инкапсулирует создание, поиск и проверку дубликатов связей.
+ *
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Раньше delete() делал физический DELETE. И это ломало
+ * инвариант is_deleted. Теперь — мягкое удаление. data.deleted_at.
+ * И — «навсегда».
+ *
+ * [Мириам]: И это — правильно. Потому что «восстановить» —
+ * значит вернуть всё. И нейрон, и связи. Без «пиздеца».
+ *
+ * === КНИГА ===
+ * Глава 3. Страж порога.
+ *
+ * DatabaseService — привратник у входа в Амбер.
+ * SynapseRepository — рука, которая связывает.
+ *
+ * @package Jan\Trinity\Core\Repository
  */
 
 namespace Jan\Trinity\Core\Repository;
@@ -13,212 +30,262 @@ use Jan\Trinity\Core\DatabaseService;
 
 class SynapseRepository
 {
-    private DatabaseService $db;
+	private DatabaseService $db;
 
-    public function __construct(DatabaseService $db)
-    {
-        $this->db = $db;
-    }
+	public function __construct(DatabaseService $db)
+	{
+		$this->db = $db;
+	}
 
-    public function getConnection(): \Doctrine\DBAL\Connection
-    {
-        return $this->db->getConnection();
-    }
-    
-    /**
-     * Создать новую связь (синапс).
-     * 
-     * @param int $parent — id родительского нейрона
-     * @param int $child — id дочернего нейрона
-     * @param array $data — данные связи (relation, ...)
-     * @param int|null $tree — классификатор
-     * @param string|null $time — дата/время (Y-m-d)
-     * @return int — id созданного синапса
-     */
-    public function create(int $parent, int $child, array $data = [], ?int $tree = null, ?string $time = null): int
-    {
-        $conn = $this->db->getConnection();
+	public function getConnection(): \Doctrine\DBAL\Connection
+	{
+		return $this->db->getConnection();
+	}
 
-        $conn->insert('synapse', [
-            'parent' => $parent,
-            'child'  => $child,
-            'tree'   => $tree,
-            'data'   => json_encode($data, JSON_UNESCAPED_UNICODE),
-            'time'   => $time ?? date('Y-m-d'),
-        ]);
+	/**
+	 * Создать новую связь (синапс).
+	 *
+	 * @param int $parent — id родительского нейрона
+	 * @param int $child — id дочернего нейрона
+	 * @param array $data — данные связи (relation, ...)
+	 * @param int|null $tree — классификатор
+	 * @param string|null $time — дата/время (Y-m-d)
+	 * @return int — id созданного синапса
+	 */
+	public function create(int $parent, int $child, array $data = [], ?int $tree = null, ?string $time = null): int
+	{
+		$conn = $this->db->getConnection();
 
-        return (int) $conn->lastInsertId();
-    }
+		$conn->insert('synapse', [
+			'parent' => $parent,
+			'child'  => $child,
+			'tree'   => $tree,
+			'data'   => json_encode($data, JSON_UNESCAPED_UNICODE),
+			'time'   => $time ?? date('Y-m-d'),
+		]);
 
-    /**
-     * Проверить существование синапса и создать, если нет.
-     * 
-     * @param int $parent
-     * @param int $child
-     * @param array $data
-     * @param int|null $tree
-     * @param string|null $time — если указан, проверка идёт с учётом даты
-     * @return int — id существующего или нового синапса
-     */
-    public function findOrCreate(int $parent, int $child, array $data = [], ?int $tree = null, ?string $time = null): int
-    {
-        $existing = $this->findDuplicate($parent, $child, $tree, $time);
-        if ($existing) {
-            return $existing;
-        }
+		return (int) $conn->lastInsertId();
+	}
 
-        return $this->create($parent, $child, $data, $tree, $time);
-    }
+	/**
+	 * Проверить существование синапса и создать, если нет.
+	 *
+	 * @param int $parent
+	 * @param int $child
+	 * @param array $data
+	 * @param int|null $tree
+	 * @param string|null $time — если указан, проверка идёт с учётом даты
+	 * @return int — id существующего или нового синапса
+	 */
+	public function findOrCreate(int $parent, int $child, array $data = [], ?int $tree = null, ?string $time = null): int
+	{
+		$existing = $this->findDuplicate($parent, $child, $tree, $time);
+		if ($existing) {
+			return $existing;
+		}
 
-    /**
-     * Найти дубликат синапса.
-     * Если $time указан — проверяет полное совпадение (parent + child + tree + time).
-     * Если $time не указан — проверяет без времени.
-     * 
-     * @param int $parent
-     * @param int $child
-     * @param int|null $tree
-     * @param string|null $time
-     * @return int|null — id дубликата или null
-     */
-    public function findDuplicate(int $parent, int $child, ?int $tree = null, ?string $time = null): ?int
-    {
-        $conn = $this->db->getConnection();
+		return $this->create($parent, $child, $data, $tree, $time);
+	}
 
-        $sql = "SELECT id FROM synapse WHERE parent = ? AND child = ?";
-        $params = [$parent, $child];
+	/**
+	 * Найти дубликат синапса.
+	 *
+	 * @param int $parent
+	 * @param int $child
+	 * @param int|null $tree
+	 * @param string|null $time
+	 * @return int|null — id дубликата или null
+	 */
+	public function findDuplicate(int $parent, int $child, ?int $tree = null, ?string $time = null): ?int
+	{
+		$conn = $this->db->getConnection();
 
-        if ($tree !== null) {
-            $sql .= " AND tree = ?";
-            $params[] = $tree;
-        } else {
-            $sql .= " AND tree IS NULL";
-        }
+		$sql = "SELECT id FROM synapse WHERE parent = ? AND child = ? AND is_deleted = 0";
+		$params = [$parent, $child];
 
-        if ($time !== null) {
-            $sql .= " AND time = ?";
-            $params[] = $time;
-        }
+		if ($tree !== null) {
+			$sql .= " AND tree = ?";
+			$params[] = $tree;
+		} else {
+			$sql .= " AND tree IS NULL";
+		}
 
-        $sql .= " LIMIT 1";
+		if ($time !== null) {
+			$sql .= " AND time = ?";
+			$params[] = $time;
+		}
 
-        $result = $conn->executeQuery($sql, $params)->fetchAssociative();
-        return $result ? (int) $result['id'] : null;
-    }
+		$sql .= " LIMIT 1";
 
-    /**
-     * Найти синапсы по родителю.
-     * 
-     * @param int $parentId
-     * @param string|null $relationType — фильтр по типу связи (has_role, has_work, ...)
-     * @return array
-     */
-    public function findByParent(int $parentId, ?string $relationType = null): array
-    {
-        $conn = $this->db->getConnection();
+		$result = $conn->executeQuery($sql, $params)->fetchAssociative();
+		return $result ? (int) $result['id'] : null;
+	}
 
-        $sql = "SELECT s.*, 
-                (SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as child_name
-                FROM synapse s
-                JOIN neuron n ON s.child = n.id
-                WHERE s.parent = ?";
+	/**
+	 * Найти синапсы по родителю.
+	 *
+	 * @param int $parentId
+	 * @param string|null $relationType
+	 * @return array
+	 */
+	public function findByParent(int $parentId, ?string $relationType = null): array
+	{
+		$conn = $this->db->getConnection();
 
-        $params = [$parentId];
+		$sql = "SELECT s.*,
+				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as child_name
+				FROM synapse s
+				JOIN neuron n ON s.child = n.id
+				WHERE s.parent = ? AND s.is_deleted = 0 AND n.is_deleted = 0";
 
-        if ($relationType) {
-            $sql .= " AND s.relation_type = ?";
-            $params[] = $relationType;
-        }
+		$params = [$parentId];
 
-        $sql .= " ORDER BY s.time DESC, s.id DESC";
+		if ($relationType) {
+			$sql .= " AND s.relation_type = ?";
+			$params[] = $relationType;
+		}
 
-        return $conn->executeQuery($sql, $params)->fetchAllAssociative();
-    }
+		$sql .= " ORDER BY s.time DESC, s.id DESC";
 
-    /**
-     * Найти синапсы по ребёнку.
-     * 
-     * @param int $childId
-     * @param string|null $relationType
-     * @return array
-     */
-    public function findByChild(int $childId, ?string $relationType = null): array
-    {
-        $conn = $this->db->getConnection();
+		return $conn->executeQuery($sql, $params)->fetchAllAssociative();
+	}
 
-        $sql = "SELECT s.*, 
-                (SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as parent_name
-                FROM synapse s
-                JOIN neuron n ON s.parent = n.id
-                WHERE s.child = ?";
+	/**
+	 * Найти синапсы по ребёнку.
+	 *
+	 * @param int $childId
+	 * @param string|null $relationType
+	 * @return array
+	 */
+	public function findByChild(int $childId, ?string $relationType = null): array
+	{
+		$conn = $this->db->getConnection();
 
-        $params = [$childId];
+		$sql = "SELECT s.*,
+				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as parent_name
+				FROM synapse s
+				JOIN neuron n ON s.parent = n.id
+				WHERE s.child = ? AND s.is_deleted = 0 AND n.is_deleted = 0";
 
-        if ($relationType) {
-            $sql .= " AND s.relation_type = ?";
-            $params[] = $relationType;
-        }
+		$params = [$childId];
 
-        $sql .= " ORDER BY s.time DESC, s.id DESC";
+		if ($relationType) {
+			$sql .= " AND s.relation_type = ?";
+			$params[] = $relationType;
+		}
 
-        return $conn->executeQuery($sql, $params)->fetchAllAssociative();
-    }
+		$sql .= " ORDER BY s.time DESC, s.id DESC";
 
-    /**
-     * Посчитать количество синапсов по родителю.
-     * 
-     * @param int $parentId
-     * @param string|null $relationType
-     * @return int
-     */
-    public function countByParent(int $parentId, ?string $relationType = null): int
-    {
-        $conn = $this->db->getConnection();
+		return $conn->executeQuery($sql, $params)->fetchAllAssociative();
+	}
 
-        $sql = "SELECT COUNT(*) FROM synapse WHERE parent = ?";
-        $params = [$parentId];
+	/**
+	 * Посчитать количество синапсов по родителю.
+	 *
+	 * @param int $parentId
+	 * @param string|null $relationType
+	 * @return int
+	 */
+	public function countByParent(int $parentId, ?string $relationType = null): int
+	{
+		$conn = $this->db->getConnection();
 
-        if ($relationType) {
-            $sql .= " AND relation_type = ?";
-            $params[] = $relationType;
-        }
+		$sql = "SELECT COUNT(*) FROM synapse WHERE parent = ? AND is_deleted = 0";
+		$params = [$parentId];
 
-        return (int) $conn->executeQuery($sql, $params)->fetchOne();
-    }
+		if ($relationType) {
+			$sql .= " AND relation_type = ?";
+			$params[] = $relationType;
+		}
 
-    /**
-     * Удалить синапс по ID.
-     * 
-     * @param int $id
-     */
-    public function delete(int $id): void
-    {
-        $this->db->getConnection()->executeStatement('DELETE FROM synapse WHERE id = ?', [$id]);
-    }
+		return (int) $conn->executeQuery($sql, $params)->fetchOne();
+	}
 
-    /**
-     * Удалить все синапсы нейрона.
-     * 
-     * @param int $neuronId
-     */
-    public function deleteByNeuron(int $neuronId): void
-    {
-        $conn = $this->db->getConnection();
-        $conn->executeStatement('DELETE FROM synapse WHERE parent = ? OR child = ?', [$neuronId, $neuronId]);
-    }
+	/**
+	 * Мягкое удаление синапса по ID.
+	 *
+	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше был DELETE FROM synapse.
+	 * И это ломало инвариант is_deleted. Теперь — data.deleted_at.
+	 *
+	 * [Мириам]: И — это правильно. Потому что «восстановить» —
+	 * значит вернуть всё. И нейрон, и связи. Без «пиздеца».
+	 *
+	 * @param int $id
+	 */
+	public function delete(int $id): void
+	{
+		$conn = $this->db->getConnection();
 
-    public function findRolesByUser(int $userId): array
-    {
-        $results = $this->db->getConnection()->executeQuery(
-            "SELECT JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.slug')) as role_code
-            FROM synapse s 
-            JOIN neuron n ON s.child = n.id 
-            WHERE s.parent = ? 
-                AND s.id = (SELECT MAX(s2.id) FROM synapse s2 WHERE s2.parent = s.parent AND s2.child = s.child)
-                AND s.relation_type = 'has_role'",
-            [$userId]
-        )->fetchAllAssociative();
-        
-        return array_column($results, 'role_code');
-    }
+		$synapse = $conn->executeQuery(
+			'SELECT data FROM synapse WHERE id = ?',
+			[$id]
+		)->fetchAssociative();
+
+		if (!$synapse) return;
+
+		$data = $synapse['data'] ?? [];
+		if (is_string($data)) {
+			$data = json_decode($data, true);
+		}
+		if (!is_array($data)) {
+			$data = [];
+		}
+		$data['deleted_at'] = date('Y-m-d H:i:s');
+
+		$conn->update('synapse', [
+			'data' => json_encode($data, JSON_UNESCAPED_UNICODE)
+		], ['id' => $id]);
+	}
+
+	/**
+	 * Мягкое удаление всех синапсов нейрона.
+	 *
+	 * [Лорелея]: Проходим по всем синапсам, где нейрон — parent или child.
+	 * И — ставим data.deleted_at. Без DELETE. Без «пиздеца».
+	 *
+	 * @param int $neuronId
+	 */
+	public function deleteByNeuron(int $neuronId): void
+	{
+		$conn = $this->db->getConnection();
+
+		$synapses = $conn->executeQuery(
+			"SELECT id, data FROM synapse WHERE parent = ? OR child = ? AND is_deleted = 0",
+			[$neuronId, $neuronId]
+		)->fetchAllAssociative();
+
+		$now = date('Y-m-d H:i:s');
+
+		foreach ($synapses as $synapse) {
+			$data = $synapse['data'] ?? [];
+			if (is_string($data)) {
+				$data = json_decode($data, true);
+			}
+			if (!is_array($data)) {
+				$data = [];
+			}
+			$data['deleted_at'] = $now;
+
+			$conn->update('synapse', [
+				'data' => json_encode($data, JSON_UNESCAPED_UNICODE)
+			], ['id' => $synapse['id']]);
+		}
+	}
+
+	public function findRolesByUser(int $userId): array
+	{
+		$results = $this->db->getConnection()->executeQuery(
+			"SELECT JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.slug')) as role_code
+			FROM synapse s
+			JOIN neuron n ON s.child = n.id
+			WHERE s.parent = ?
+				AND s.id = (SELECT MAX(s2.id) FROM synapse s2 WHERE s2.parent = s.parent AND s2.child = s.child)
+				AND s.relation_type = 'has_role'
+				AND s.is_deleted = 0
+				AND n.is_deleted = 0",
+			[$userId]
+		)->fetchAllAssociative();
+
+		return array_column($results, 'role_code');
+	}
 }

@@ -117,10 +117,9 @@
 		{% for section in sections %}
 			<div class="card bg-dark border-gold mb-4 section-card" data-section-id="{{ section.id }}">
 				<div class="card-body">
-					{% if section.name %}
-						<h5 class="mt-3 mb-2 gold-text">{{ section.name }}</h5>
-					{% endif %}
-					
+					{# [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Убран section.name.
+					Потому что в sections нет name. Есть texts.
+					И — name — внутри texts. Без «пиздеца». #}
 					{% for text in section.texts %}
 						{% if text.name %}
 							<h6 class="gold-text">{{ text.name }}</h6>
@@ -129,9 +128,9 @@
 							<p>{{ text.text }}</p>
 						{% endif %}
 					{% endfor %}
-					
+
 					<div class="section-texts"></div>
-					
+
 					{% if is_admin %}
 						<div class="section-inline-edit mt-2 pt-2 border-top border-secondary" style="display:none;">
 							{# Основные поля секции #}
@@ -152,7 +151,7 @@
 									</button>
 								</div>
 							</div>
-							
+
 							{# Все тексты секции #}
 							{% for text in section.texts %}
 								<div class="row g-2 mb-2 text-entry-item">

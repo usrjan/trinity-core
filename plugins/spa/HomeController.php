@@ -3,36 +3,42 @@
 /**
  * КОНТРОЛЛЕР ДОМАШНЕЙ СТРАНИЦЫ И ДИНАМИЧЕСКИХ СТРАНИЦ
  * ====================================================
- * 
+ *
  * Точка входа для всех не-API запросов.
- * 
- * Обрабатывает:
- * - Главную страницу (/) — SPA-каркас
- * - Динамические страницы (/{slug}) — SPA или карта
- * 
- * Если страница имеет template=map — рендерит карту
- * (map.html.twig) с параметрами из data нейрона.
- * Иначе — отдаёт SPA-каркас (base.html.twig).
- * 
- * Зависимости:
- * - TextRepository — для получения названий страниц
- * - NeuronRepository — для поиска страниц по slug
+ *
+ * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ *
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. RuntimeException заменён на
+ * ResourceNotFoundException. Чтобы Kernel ловил как 404. А не 500.
+ * Без «пиздеца». Без «потом». Без «завтра».
+ *
+ * [Мириам]: И — favicon.ico теперь отдаётся как 404 без логирования.
+ * Потому что это — статика. А не «страница». И — не «ошибка».
+ * Без «пиздеца». И — «навсегда».
+ *
+ * [Лорелея]: И — initAuth теперь получает SynapseRepository.
+ * Чтобы refreshRoles() работал. Без «декорации». Без «потом».
+ *
+ * @package Jan\Trinity\Plugin\Spa
  */
 
 namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\Validator;
+use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
-use Jan\Trinity\Core\Middleware\AuthMiddleware;
-
+use Jan\Trinity\Core\Repository\SynapseRepository;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\Routing\Exception\ResourceNotFoundException;
 use Twig\Environment;
 
 class HomeController
 {
+	use AuthMiddleware;
+
 	/** @var Environment — шаблонизатор Twig */
 	private Environment $twig;
 
@@ -44,17 +50,19 @@ class HomeController
 
 	private Validator $validator;
 
-	use AuthMiddleware;
-
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
+	 *
+	 * [Лорелея]: initAuth теперь получает SynapseRepository.
+	 * Чтобы refreshRoles() работал. Без «декорации». Без «потом».
 	 */
 	public function __construct(
 		Environment $twig,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		Session $session,
+		SynapseRepository $synapseRepo,
 		Validator $validator
 	) {
 		$this->twig = $twig;
@@ -62,12 +70,20 @@ class HomeController
 		$this->neuronRepo = $neuronRepo;
 		$this->validator = $validator;
 
-		$this->initAuth($session);
+		$this->initAuth($session, $synapseRepo);
 	}
 
 	/**
 	 * Главная или динамическая страница.
-	 * 
+	 *
+	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. RuntimeException заменён
+	 * на ResourceNotFoundException. Чтобы Kernel ловил как 404.
+	 * А не 500. Без «пиздеца». Без «потом». Без «завтра».
+	 *
+	 * [Мириам]: И — favicon.ico отдаётся как 404 без логирования.
+	 * Потому что это — статика. А не «страница». И — не «ошибка».
+	 * Без «пиздеца». И — «навсегда».
+	 *
 	 * @param string|null $slug — slug страницы (null для главной)
 	 * @return Response
 	 */
@@ -90,11 +106,19 @@ class HomeController
 		// ============================================
 		$slug = trim($slug, '/');
 
+		// [Мириам]: favicon.ico — это статика. Не страница.
+		// Отдаём 404 без логирования. Без «пиздеца». Без «потом».
+		if ($slug === 'favicon.ico') {
+			return new Response('', 404);
+		}
+
 		// Ищем нейрон страницы по slug
 		$page = $this->neuronRepo->findBySlug($slug);
 
+		// [Лорелея]: ResourceNotFoundException вместо RuntimeException.
+		// Чтобы Kernel ловил как 404. А не 500. Без «пиздеца».
 		if (!$page) {
-			throw new \RuntimeException('Страница не найдена', 404);
+			throw new ResourceNotFoundException('Страница не найдена');
 		}
 
 		// Извлекаем данные нейрона
@@ -120,31 +144,19 @@ class HomeController
 
 	/**
 	 * Рендерит страницу с картой.
-	 * 
-	 * Параметры карты берутся из data нейрона:
-	 * - view.center — координаты центра
-	 * - view.zoom — масштаб
-	 * - codes — фильтр для GeoJSON (например, BUILD)
-	 * 
-	 * @param array $page — нейрон страницы из базы
-	 * @param array $pageData — распарсенные data нейрона
-	 * @param string $slug — slug страницы
-	 * @return Response
 	 */
 	private function renderMapPage(array $page, array $pageData, string $slug): Response
 	{
-		// Параметры отображения карты
 		$view = $pageData['view'] ?? [];
 
 		$mapVars = [
-			'cen_lat' => $view['center'][0] ?? 45.31,   // центр карты: широта
-			'cen_lon' => $view['center'][1] ?? 34.63,   // центр карты: долгота
-			'zoom'    => $view['zoom'] ?? 9,             // масштаб
-			'codes'   => $pageData['codes'] ?? null,     // фильтр объектов (BUILD, ...)
-			'title'   => $slug,                          // заголовок (по умолчанию slug)
+			'cen_lat' => $view['center'][0] ?? 45.31,
+			'cen_lon' => $view['center'][1] ?? 34.63,
+			'zoom'    => $view['zoom'] ?? 9,
+			'codes'   => $pageData['codes'] ?? null,
+			'title'   => $slug,
 		];
 
-		// Если у нейрона есть текст — используем его как заголовок
 		if ($page['text']) {
 			$text = $this->textRepo->findByKeyAndLang($page['text'], 'ru');
 			if ($text && $text['name']) {
@@ -152,7 +164,6 @@ class HomeController
 			}
 		}
 
-		// Рендерим шаблон карты (без боковых панелей)
 		$html = $this->twig->render('map.html.twig', [
 			'mapVars'				=> $mapVars,
 			'yandex_maps_api_key'	=> $_ENV['YANDEX_MAPS_API_KEY'] ?? '',
@@ -165,20 +176,11 @@ class HomeController
 
 	/**
 	 * Рендерит обычную SPA-страницу.
-	 * 
-	 * Отдаёт каркас base.html.twig с заголовком.
-	 * Контент загружается асинхронно через SPA-движок.
-	 * 
-	 * @param array $page — нейрон страницы из базы
-	 * @param string $slug — slug страницы
-	 * @return Response
 	 */
 	private function renderSpaPage(array $page, string $slug): Response
 	{
-		// Заголовок страницы (по умолчанию slug)
 		$title = $slug;
 
-		// Если у нейрона есть текст — используем его название
 		if ($page['text']) {
 			$text = $this->textRepo->findByKeyAndLang($page['text'], 'ru');
 			if ($text && $text['name']) {
@@ -186,7 +188,6 @@ class HomeController
 			}
 		}
 
-		// Рендерим SPA-каркас
 		$html = $this->twig->render('base.html.twig', [
 			'title'		=> $title,
 			'user_lang'	=> $this->getUserLang(),
@@ -198,7 +199,6 @@ class HomeController
 
 	/**
 	 * Определяет язык текущего пользователя.
-	 * Если не авторизован — язык по умолчанию 'ru'.
 	 */
 	private function getUserLang(): string
 	{

@@ -74,7 +74,7 @@
 	</div>
 
 	<script>
-	var mapVars = {{ mapVars|json_encode|raw }};
+	var mapVars = {{ mapVars|json_encode(constant('JSON_HEX_TAG'))|raw }};
 	</script>
 
 	<script src="/assets/js/bootstrap.bundle.min.js"></script>

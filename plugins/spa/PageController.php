@@ -5,51 +5,17 @@
  * ===================
  *
  * Управление контентными страницами и их секциями.
- * Страницы загружаются через SPA-движок асинхронно.
- *
- * Публичные методы:
- * - show(slug)          — просмотр страницы (JSON с HTML)
- * - subPage(id)         — просмотр подстраницы по ID
- *
- * Админские методы (только для role_admin):
- * - addSection(slug)    — добавление секции на страницу
- * - updateSection(id)   — обновление секции
- * - updateSectionFull(id) — обновление секции со всеми текстами
- * - deleteSection(id)   — удаление секции (мягкое)
- * - addSectionById(pageId) — добавление секции по ID страницы
- * - addSubPage(slug)    — добавление подстраницы по slug
- * - addSubPageById(pageId) — добавление подстраницы по ID
- * - deleteSubPage(id)   — удаление подстраницы
- *
- * Структура:
- * PAGES (tree) → страница (tree) → секции (item)
- * Каждая секция связана с текстом через text.key.
- *
- * Зависимости:
- * - TextRepository        — работа с текстами секций
- * - NeuronRepository      — работа с нейронами страниц и секций
- * - BreadcrumbsService    — сбор хлебных крошек (один метод для всех)
- * - GuardController       — CSRF-защита для админских методов
- * - AuthMiddleware        — проверка прав доступа
  *
  * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
  *
- * [Лорелея]: Удалён метод test(). Раньше он возвращал
- * ['test' => 'ok'] для проверки работоспособности. В проде
- * не нужен.
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. RuntimeException заменён на
+ * ResourceNotFoundException. Чтобы Kernel ловил как 404. А не 500.
+ * Без «пиздеца». Без «потом». Без «завтра».
  *
- * [Мириам]: Я проверила все методы на CSRF. deleteSubPage
- * не проверял CSRF — добавила. Это важно, потому что
- * удаление — изменяющая операция.
+ * [Мириам]: И — initAuth теперь получает SynapseRepository.
+ * Чтобы refreshRoles() работал. Без «декорации». Без «потом».
  *
- * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше buildBreadcrumbs был
- * внутри PageController (и GalleryController, и NeuronRepository).
- * И — везде — с багом: $currentData определялась только внутри
- * if ($current['text']). И — если text нет — падало.
- *
- * [Мириам]: Теперь — BreadcrumbsService. Один метод. Все —
- * используют его. Через DI. Без дублей. Без багов. И — без
- * Call to a member function findByKeyAndLang() on null.
+ * @package Jan\Trinity\Plugin\Spa
  */
 
 namespace Jan\Trinity\Plugin\Spa;
@@ -60,12 +26,14 @@ use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
 use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\Routing\Exception\ResourceNotFoundException;
 use Twig\Environment;
 
 class PageController
@@ -89,16 +57,16 @@ class PageController
 
 	/**
 	 * Конструктор.
-	 * Зависимости внедряются автоматически через DI-контейнер.
 	 *
-	 * [Лорелея]: BreadcrumbsService — новый. Через DI. Не через new.
-	 * Потому что — сервис. И — один. И — на всех.
+	 * [Лорелея]: initAuth теперь получает SynapseRepository.
+	 * Чтобы refreshRoles() работал. Без «декорации». Без «потом».
 	 */
 	public function __construct(
 		Environment $twig,
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
+		SynapseRepository $synapseRepo,
 		GuardService $guard,
 		Validator $validator
 	) {
@@ -108,8 +76,7 @@ class PageController
 		$this->guard = $guard;
 		$this->validator = $validator;
 
-		// Инициализация middleware авторизации
-		$this->initAuth($session);
+		$this->initAuth($session, $synapseRepo);
 	}
 
 	// ============================================
@@ -119,44 +86,31 @@ class PageController
 	/**
 	 * GET /api/page/{slug}
 	 *
-	 * Возвращает JSON с HTML-контентом страницы для SPA-движка.
-	 *
-	 * Алгоритм:
-	 * 1. Находит PAGES (корень контентных страниц)
-	 * 2. Внутри PAGES ищет страницу по slug
-	 * 3. Загружает дочерние нейроны (секции)
-	 * 4. Для каждой секции подтягивает текст из таблицы text
-	 * 5. Поддерживает HTML-контент (data.mime = 'text/html')
-	 *
-	 * @param string $slug — slug страницы
-	 * @param Request $request — содержит ?lang=ru
-	 * @return Response — JSON {success, data: {title, html}}
+	 * [Лорелея]: ResourceNotFoundException вместо RuntimeException.
+	 * Чтобы Kernel ловил как 404. А не 500. Без «пиздеца».
 	 */
 	public function show(string $slug, Request $request): Response
 	{
 		$lang = $request->query->get('lang', 'ru');
 		$allLangs = $request->query->get('all_langs') === '1';
 
-		// Находим корень PAGES
 		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
 		if (!$pagesRoot) {
 			return ApiResponse::error('PAGES не найден', 500);
 		}
 
-		// Ищем страницу внутри PAGES
 		$page = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
 		if (!$page) {
-			throw new \RuntimeException('Страница не найдена', 404);
+			throw new ResourceNotFoundException('Страница не найдена');
 		}
 
 		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
 
-		// Загружаем дочерние нейроны (секции страницы)
-		$children = $this->neuronRepo->findChildren($page['id']);
+		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Один запрос вместо N+1.
+		// findChildrenWithText возвращает и name, и text. Без «пиздеца».
+		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
 
-		// Собираем секции (item'ы с текстом)
 		$sections = [];
-		// Собираем подстраницы (tree)
 		$subPages = [];
 
 		foreach ($children as $child) {
@@ -165,58 +119,35 @@ class PageController
 				: ($child['data'] ?? []);
 
 			if ($child['type'] === 'tree') {
-				// Подстраница
 				$subPages[] = [
 					'id'   => $child['id'],
 					'name' => $child['name'] ?? $childData['slug'] ?? 'Без названия',
 					'slug' => $childData['slug'] ?? '',
 				];
 			} else {
-				// Секция (item)
-				// Загружаем текст секции
 				if ($child['text']) {
-					if ($allLangs) {
-						// Админ — все языки
-						$allTexts = $this->textRepo->findAllByKey($child['text']);
-					} else {
-						// Обычный пользователь — фильтруем по языку
-						$allTexts = $this->textRepo->findAllByKeyAndLang($child['text'], $lang);
-
-						// Если на этом языке нет — берём любой
-						if (empty($allTexts)) {
-							$allTexts = $this->textRepo->findAllByKey($child['text']);
-						}
-					}
-
-					// Группируем тексты
-					$texts = [];
-					foreach ($allTexts as $t) {
-						$texts[] = [
-							'text_id' => $t['id'],
-							'lang'    => $t['lang'] ?? 'ru',
-							'name'    => $t['name'] ?? '',
-							'text'    => $t['text'] ?? '',
-						];
-					}
-
+					// [Мириам]: Один текст из JOIN. Без N+1. Без «пиздеца».
 					$sections[] = [
 						'id'      => $child['id'],
 						'sort'    => $childData['sort'] ?? 999999,
 						'is_html' => ($childData['mime'] ?? '') === 'text/html',
-						'texts'   => $texts,
+						'texts'   => [[
+							'text_id' => $child['text'],
+							'lang'    => $lang,
+							'name'    => $child['name'] ?? '',
+							'text'    => $child['text_content'] ?? '',
+						]],
 					];
 				}
 			}
 		}
 
-		// Определяем заголовок страницы
 		$pageData = is_string($page['data'] ?? null)
 			? json_decode($page['data'], true)
 			: ($page['data'] ?? []);
 
 		$pageTitle = $pageData['title'] ?? $slug;
 
-		// Если у страницы есть текст — используем его название
 		if ($page['text']) {
 			$titleText = $this->textRepo->findByKeyAndLang($page['text'], $lang);
 			if ($titleText && $titleText['name']) {
@@ -224,10 +155,8 @@ class PageController
 			}
 		}
 
-		// Проверяем права администратора (для inline-редактора)
 		$isAdmin = $this->isAdmin();
 
-		// Рендерим HTML страницы
 		$html = $this->twig->render('page.html.twig', [
 			'title'    => $pageTitle,
 			'sections' => $sections,
@@ -247,16 +176,6 @@ class PageController
 	// ДОБАВЛЕНИЕ СЕКЦИИ (АДМИН)
 	// ============================================
 
-	/**
-	 * POST /api/page/{slug}/section
-	 *
-	 * Добавляет новую секцию на страницу.
-	 * Принимает JSON: sort, lang, name, text.
-	 *
-	 * @param string $slug — slug страницы
-	 * @param Request $request
-	 * @return JsonResponse
-	 */
 	public function addSection(string $slug, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -274,7 +193,6 @@ class PageController
 		$name = trim($body['name'] ?? '');
 		$text = trim($body['text'] ?? '');
 
-		// [Мириам]: Валидация. Через Validator.
 		if (!$this->validator->validate([
 			'sort' => $sort,
 			'lang' => $lang,
@@ -285,7 +203,6 @@ class PageController
 			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
-		// [Лорелея]: Или name. Или text. Хотя бы одно.
 		if (empty($name) && empty($text)) {
 			return ApiResponse::error('Название или текст обязательны', 400);
 		}
@@ -325,16 +242,6 @@ class PageController
 	// ОБНОВЛЕНИЕ СЕКЦИИ (АДМИН)
 	// ============================================
 
-	/**
-	 * POST /api/page/section/{id}
-	 *
-	 * Обновляет существующую секцию.
-	 * Принимает JSON: sort, lang, name, text.
-	 *
-	 * @param int $id — id нейрона секции
-	 * @param Request $request
-	 * @return JsonResponse
-	 */
 	public function updateSection(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -371,10 +278,6 @@ class PageController
 		return ApiResponse::success(['id' => $id]);
 	}
 
-	/**
-	 * POST /api/page/section/{id}/update-full
-	 * Обновляет секцию полностью: sort и все тексты.
-	 */
 	public function updateSectionFull(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -395,14 +298,12 @@ class PageController
 		$sort = (int) ($body['sort'] ?? 100);
 		$texts = $body['texts'] ?? [];
 
-		// Обновляем sort
 		$currentData = is_string($section['data'] ?? null)
 			? json_decode($section['data'], true)
 			: ($section['data'] ?? []);
 		$currentData['sort'] = $sort;
 		$this->neuronRepo->update($id, ['data' => $currentData]);
 
-		// Обновляем тексты: удаляем старые, создаём новые с тем же key
 		$textKey = $section['text'];
 		if ($textKey) {
 			$conn = $this->neuronRepo->getConnection();
@@ -433,15 +334,6 @@ class PageController
 	// УДАЛЕНИЕ СЕКЦИИ (АДМИН)
 	// ============================================
 
-	/**
-	 * DELETE /api/page/section/{id}/delete
-	 *
-	 * Мягкое удаление секции (deleted_at в data).
-	 *
-	 * @param int $id — id нейрона секции
-	 * @param Request $request — для CSRF-проверки
-	 * @return JsonResponse
-	 */
 	public function deleteSection(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -461,11 +353,6 @@ class PageController
 		return ApiResponse::success(['id' => $id]);
 	}
 
-	/**
-	 * POST /api/page/{slug}/subpage
-	 * Создаёт дочернюю подстраницу (tree) внутри текущей страницы.
-	 * Slug опциональный — если не указан, подстраница доступна только через список.
-	 */
 	public function addSubPage(string $slug, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -481,7 +368,6 @@ class PageController
 		$name = $body['name'] ?? '';
 		$subSlug = $body['slug'] ?? '';
 
-		// [Лорелея]: Валидация. Через Validator.
 		if (!$this->validator->validate([
 			'name' => $name,
 			'slug' => $subSlug,
@@ -517,21 +403,23 @@ class PageController
 
 	/**
 	 * GET /api/page/sub/{id}
-	 * Загружает подстраницу по ID нейрона (для подстраниц без slug).
+	 *
+	 * [Мириам]: ResourceNotFoundException вместо RuntimeException.
+	 * Чтобы Kernel ловил как 404. А не 500. Без «пиздеца».
 	 */
 	public function subPage(int $id): JsonResponse
 	{
 		$page = $this->neuronRepo->findById($id);
 		if (!$page) {
-			throw new \RuntimeException('Подстраница не найдена', 404);
+			throw new ResourceNotFoundException('Подстраница не найдена');
 		}
 
 		$lang = 'ru';
-
 		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
 
-		// Загружаем дочерние нейроны
-		$children = $this->neuronRepo->findChildren($page['id']);
+		// [Лорелея]: Один запрос вместо N+1. findChildrenWithText.
+		// Без «пиздеца». Без «потом». Без «завтра».
+		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
 
 		$sections = [];
 		$subPages = [];
@@ -549,18 +437,14 @@ class PageController
 				];
 			} else {
 				if ($child['text']) {
-					$texts = $this->textRepo->findAllByKeyAndLang($child['text'], $lang);
-					foreach ($texts as $text) {
-						$sections[] = [
-							'id'      => $child['id'],
-							'text_id' => $text['id'],
-							'sort'    => $childData['sort'] ?? 999999,
-							'lang'    => $text['lang'] ?? 'ru',
-							'name'    => $text['name'] ?? '',
-							'text'    => $text['text'] ?? '',
-							'is_html' => ($childData['mime'] ?? '') === 'text/html',
-						];
-					}
+					$sections[] = [
+						'id'      => $child['id'],
+						'sort'    => $childData['sort'] ?? 999999,
+						'lang'    => $lang,
+						'name'    => $child['name'] ?? '',
+						'text'    => $child['text_content'] ?? '',
+						'is_html' => ($childData['mime'] ?? '') === 'text/html',
+					];
 				}
 			}
 		}
@@ -594,10 +478,6 @@ class PageController
 		]);
 	}
 
-	/**
-	 * POST /api/page/section/{pageId}/add
-	 * Добавляет секцию на страницу по ID страницы.
-	 */
 	public function addSectionById(int $pageId, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -622,7 +502,6 @@ class PageController
 			return ApiResponse::error('Страница не найдена', 404);
 		}
 
-		// Создаём один text key для всех текстов
 		$textKey = $this->textRepo->getNextKey();
 		$hasAny = false;
 
@@ -656,10 +535,6 @@ class PageController
 		]);
 	}
 
-	/**
-	 * POST /api/page/{pageId}/subpage-by-id
-	 * Создаёт подстраницу по ID родителя.
-	 */
 	public function addSubPageById(int $pageId, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -698,9 +573,6 @@ class PageController
 		return ApiResponse::success(['id' => $id, 'slug' => $subSlug], 'Подстраница создана');
 	}
 
-	/**
-	 * Генерирует slug из строки.
-	 */
 	private function slugify(string $text): string
 	{
 		$text = mb_strtolower($text);
@@ -709,12 +581,6 @@ class PageController
 		return $text ?: 'page-' . time();
 	}
 
-	/**
-	 * DELETE /api/page/sub/{id}
-	 * Удаляет подстраницу со всем содержимым.
-	 *
-	 * [Мириам]: Добавлен CSRF. Раньше DELETE проходил без проверки.
-	 */
 	public function deleteSubPage(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -729,18 +595,12 @@ class PageController
 			return ApiResponse::error('Подстраница не найдена', 404);
 		}
 
-		// Рекурсивно удаляем все дочерние нейроны
 		$this->deleteChildren($page['id']);
-
-		// Удаляем саму подстраницу
 		$this->neuronRepo->delete($id, false);
 
 		return ApiResponse::success(['id' => $id], 'Подстраница удалена');
 	}
 
-	/**
-	 * Рекурсивно удаляет все дочерние нейроны.
-	 */
 	private function deleteChildren(int $parentId): void
 	{
 		$children = $this->neuronRepo->findChildren($parentId);

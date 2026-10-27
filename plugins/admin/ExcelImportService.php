@@ -2,13 +2,23 @@
 
 /**
  * СЕРВИС ИМПОРТА ИЗ EXCEL
- * 
+ * ========================
+ *
  * Читает Excel-файл и создаёт нейроны с текстами.
- * 
- * Поддерживает три типа листов:
- * 1. TREE  — классификатор (нейроны type='tree')
- * 2. ITEM  — данные с привязкой к классификатору (нейроны type='item')
- * 3. Любой другой (MON, CITY...) — дата-лист, создаёт нейроны и синапсы по схемам BUILD и WORK
+ *
+ * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ *
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. На время импорта отключаем
+ * FULLTEXT-индекс на таблице text. Через ALTER TABLE text
+ * DISABLE KEYS. И — после импорта — ENABLE KEYS. Чтобы не
+ * было FULLTEXT rebuild на каждой строке. Без «пиздеца».
+ * Без «потом». Без «завтра».
+ *
+ * [Мириам]: И — это правильно. Потому что FULLTEXT rebuild —
+ * дорогой. И — на 10k строк — минуты. А мы — не хотим
+ * минуты. Мы хотим — быстро. И — «навсегда».
+ *
+ * @package Jan\Trinity\Plugin\Admin
  */
 
 namespace Jan\Trinity\Plugin\Admin;
@@ -45,6 +55,15 @@ class ExcelImportService
 
 	/**
 	 * Главный метод импорта.
+	 *
+	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. На время импорта отключаем
+	 * FULLTEXT-индекс. Через DISABLE KEYS. И — после импорта —
+	 * ENABLE KEYS. Чтобы не было FULLTEXT rebuild на каждой строке.
+	 * Без «пиздеца». Без «потом». Без «завтра».
+	 *
+	 * [Мириам]: И — это правильно. Потому что FULLTEXT rebuild —
+	 * дорогой. И — на 10k строк — минуты. А мы — не хотим
+	 * минуты. Мы хотим — быстро. И — «навсегда».
 	 */
 	public function import(string $filePath): array
 	{
@@ -54,49 +73,85 @@ class ExcelImportService
 		$created = 0;
 		$errors = [];
 
-		foreach ($spreadsheet->getSheetNames() as $sheetName) {
-			$sheet = $spreadsheet->getSheetByName($sheetName);
-			$rows = $sheet->toArray();
+		// [Лорелея]: Отключаем FULLTEXT-индекс на время импорта.
+		// Без «пиздеца». Без «потом». Без «завтра».
+		$conn = $this->neuronRepo->getConnection();
+		$fulltextDisabled = false;
+		try {
+			$conn->executeStatement('ALTER TABLE `text` DISABLE KEYS');
+			$fulltextDisabled = true;
+			if ($this->logger !== null) {
+				$this->logger->info('excel import: fulltext disabled');
+			}
+		} catch (\Throwable $e) {
+			if ($this->logger !== null) {
+				$this->logger->warning('excel import: failed to disable fulltext', [
+					'message' => $e->getMessage(),
+				]);
+			}
+		}
 
-			if (empty($rows)) continue;
+		try {
+			foreach ($spreadsheet->getSheetNames() as $sheetName) {
+				$sheet = $spreadsheet->getSheetByName($sheetName);
+				$rows = $sheet->toArray();
 
-			$headers = array_shift($rows);
-			$headers = array_map('trim', $headers);
-			$type = strtolower(trim($sheetName));
+				if (empty($rows)) continue;
 
-			foreach ($rows as $rowIndex => $row) {
-				if (empty(array_filter($row, fn($v) => $v !== null && trim((string) $v) !== ''))) continue;
+				$headers = array_shift($rows);
+				$headers = array_map('trim', $headers);
+				$type = strtolower(trim($sheetName));
 
-				$data = array_combine($headers, $row);
-				$data = array_map(fn($v) => $v === null ? '' : $v, $data);
+				foreach ($rows as $rowIndex => $row) {
+					if (empty(array_filter($row, fn($v) => $v !== null && trim((string) $v) !== ''))) continue;
 
+					$data = array_combine($headers, $row);
+					$data = array_map(fn($v) => $v === null ? '' : $v, $data);
+
+					try {
+						if ($type === 'tree') {
+							$this->importTreeRow($data);
+						} elseif ($type === 'item') {
+							$this->importItemRow($data);
+						} else {
+							$this->importDataRow($data, $sheetName, $fileDate);
+						}
+						$created++;
+					} catch (\Throwable $e) {
+						if ($this->logger !== null) {
+							$this->logger->error('Excel import failed', [
+								'sheet'   => $sheetName,
+								'row'     => $rowIndex + 2,
+								'message' => $e->getMessage(),
+								'file'    => $e->getFile() . ':' . $e->getLine(),
+							]);
+						} else {
+							error_log("[Excel Import] Sheet: {$sheetName} | Row: " . ($rowIndex + 2) . " | Error: " . $e->getMessage());
+						}
+
+						$clientMessage = $this->isDebug()
+							? "Лист '{$sheetName}', строка " . ($rowIndex + 2) . ": " . $e->getMessage()
+							: "Лист '{$sheetName}', строка " . ($rowIndex + 2) . ": ошибка импорта";
+
+						$errors[] = $clientMessage;
+					}
+				}
+			}
+		} finally {
+			// [Лорелея]: Включаем FULLTEXT-индекс обратно. Всегда.
+			// Даже если импорт упал. Без «пиздеца». Без «потом».
+			if ($fulltextDisabled) {
 				try {
-					if ($type === 'tree') {
-						$this->importTreeRow($data);
-					} elseif ($type === 'item') {
-						$this->importItemRow($data);
-					} else {
-						$this->importDataRow($data, $sheetName, $fileDate);
-					}
-					$created++;
-				} catch (\Throwable $e) {
-					// [Лорелея]: Убираем error_log(). Используем только логгер.
+					$conn->executeStatement('ALTER TABLE `text` ENABLE KEYS');
 					if ($this->logger !== null) {
-						$this->logger->error('Excel import failed', [
-							'sheet'   => $sheetName,
-							'row'     => $rowIndex + 2,
-							'message' => $e->getMessage(),
-							'file'    => $e->getFile() . ':' . $e->getLine(),
-						]);
-					} else {
-						error_log("[Excel Import] Sheet: {$sheetName} | Row: " . ($rowIndex + 2) . " | Error: " . $e->getMessage());
+						$this->logger->info('excel import: fulltext enabled');
 					}
-
-					$clientMessage = $this->isDebug()
-						? "Лист '{$sheetName}', строка " . ($rowIndex + 2) . ": " . $e->getMessage()
-						: "Лист '{$sheetName}', строка " . ($rowIndex + 2) . ": ошибка импорта";
-
-					$errors[] = $clientMessage;
+				} catch (\Throwable $e) {
+					if ($this->logger !== null) {
+						$this->logger->warning('excel import: failed to enable fulltext', [
+							'message' => $e->getMessage(),
+						]);
+					}
 				}
 			}
 		}
@@ -131,7 +186,6 @@ class ExcelImportService
 			}
 
 			$existing = $this->neuronRepo->findBySlugAndPid($segment, $pid);
-			// Проверяем что родитель совпадает
 			if ($existing) {
 				$pid = (int) $existing['id'];
 				$this->slugCache[$cacheKey] = $pid;
@@ -280,7 +334,6 @@ class ExcelImportService
 		$treeNeuron = $this->neuronRepo->findBySlug(end($parts));
 		if ($treeNeuron) $treeId = (int) $treeNeuron['id'];
 
-		// Ищем или создаём нейрон для текста работы
 		$workNeuronId = null;
 		if ($treeId) {
 			$duplicate = $this->neuronRepo->findDuplicate('item', $treeId, $textKey, null);
@@ -295,7 +348,6 @@ class ExcelImportService
 
 		$synapseData['relation'] = 'has_work';
 
-		// Проверка дубликата синапса
 		$existingSynapse = $this->synapseRepo->findDuplicate(
 			$parentNeuronId,
 			$workNeuronId,
@@ -325,7 +377,6 @@ class ExcelImportService
 			}
 		}
 
-		// Создаём мультиязычный текст
 		$translations = [];
 		foreach (['ru', 'en'] as $lang) {
 			$name = $data["name_{$lang}"] ?? null;
@@ -406,7 +457,7 @@ class ExcelImportService
 	}
 
 	// ============================================
-	// ГЕОМЕТРИЯ (без изменений)
+	// ГЕОМЕТРИЯ
 	// ============================================
 	private function processGeometry(array $geometry): array
 	{
@@ -462,17 +513,6 @@ class ExcelImportService
 
 	/**
 	 * Режим отладки из .env.
-	 *
-	 * [Лорелея]: Тот же метод, что и в GalleryController,
-	 * GalleryImportService, Kernel, AdminController, ToolsController.
-	 *
-	 * [Мириам]: Шестое место. Пора выносить в trait. Но — пока
-	 * не будем. Потому что — шесть файлов. И — каждый со своим
-	 * контекстом. Если вынесем — придётся подключать trait везде.
-	 * А это — ещё больше связности. Пока — дублируем. Три строки.
-	 * Не критично. Потом — решим.
-	 *
-	 * @return bool
 	 */
 	private function isDebug(): bool
 	{

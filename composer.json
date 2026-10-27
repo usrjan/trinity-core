@@ -13,7 +13,8 @@
 		"doctrine/dbal": "^4.4",
 		"twig/twig": "^3.0",
 		"monolog/monolog": "^3.10",
-		"league/commonmark": "^2.10"
+		"league/commonmark": "^2.10",
+		"ezyang/htmlpurifier": "*"
 	},
 	"autoload": {
 		"psr-4": {

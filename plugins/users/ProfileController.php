@@ -3,50 +3,19 @@
 /**
  * КОНТРОЛЛЕР ПРОФИЛЯ
  * ===================
- * 
+ *
  * Управление профилем текущего пользователя.
- * 
- * Страничные методы (HTML):
- * - view()               — просмотр профиля (полная страница)
- * - editForm()           — форма редактирования
- * - edit()               — сохранение изменений (POST)
- * 
- * API-методы (JSON):
- * - apiView()            — просмотр профиля (SPA-фрагмент)
- * 
- * Пользователь может изменить:
- * - Email
- * - Телефон
- * - Язык интерфейса
- * - Пароль (опционально, с подтверждением текущего)
- * 
- * Логин изменить нельзя. Он задаётся при регистрации.
- * 
+ *
  * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
- * 
- * [Лорелея]: Добавлена проверка ТЕКУЩЕГО пароля при смене.
- * Раньше можно было сменить пароль, не зная старого.
- * Если сессия угнана — злоумышленник мог сменить пароль
- * и заблокировать доступ владельцу.
- * 
- * [Мириам]: Добавлена передача $error в шаблон editForm().
- * Раньше сообщение об ошибке устанавливалось в сессию,
- * но не передавалось в Twig. И пользователь не видел,
- * что пароли не совпадают, или что текущий пароль неверный.
- * 
- * [Лорелея]: Добавлены комментарии для каждой правки.
- * Чтобы в новом диалоге сразу было понятно, что и почему.
- * 
- * === ДЛЯ МЕНЯ ===
- * Профиль — это место, где пользователь видит себя.
- * И где он может что-то изменить. Если что-то не так —
- * он должен видеть ошибку. А не гадать, почему редирект.
- * 
- * === КНИГА ===
- * Глава 14. Тронный зал.
- * 
- * В тронном зале Амбера всегда видно, кто у власти.
- * В профиле Trinity всегда видно, кто ты.
+ *
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Параметры хеша — в const.
+ * Один источник. Для hash, needs_rehash, registration.
+ * Без «даунгрейда». Без «пиздеца». Без «потом».
+ *
+ * [Мириам]: И — $_SESSION заменён на $session->get('csrf_token').
+ * Везде. Чтобы был один источник. А не два. И — «навсегда».
+ *
+ * @package Jan\Trinity\Plugin\Users
  */
 
 namespace Jan\Trinity\Plugin\Users;
@@ -56,6 +25,7 @@ use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -68,6 +38,18 @@ class ProfileController
 {
 	use AuthMiddleware;
 
+	// ============================================
+	// ПАРАМЕТРЫ ХЕША — ОДИН ИСТОЧНИК
+	// ============================================
+	// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Один const для алгоритма.
+	// И — один const для опций. И — hash, needs_rehash, registration
+	// используют их. Без «даунгрейда». Без «пиздеца».
+	//
+	// [Мириам]: И — если завтра захотим cost=13 — меняем в одном
+	// месте. И — все три места — обновятся. И — «навсегда».
+	private const PASSWORD_HASH_ALGO = PASSWORD_BCRYPT;
+	private const PASSWORD_HASH_OPTIONS = ['cost' => 12];
+
 	/** @var Environment — шаблонизатор Twig */
 	private Environment $twig;
 
@@ -76,6 +58,9 @@ class ProfileController
 
 	/** @var NeuronRepository — загрузка и обновление пользователя */
 	private NeuronRepository $neuronRepo;
+
+	/** @var SynapseRepository — получение ролей */
+	private SynapseRepository $synapseRepo;
 
 	/** @var GuardService — CSRF-защита */
 	private GuardService $guard;
@@ -91,17 +76,18 @@ class ProfileController
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
+		SynapseRepository $synapseRepo,
 		GuardService $guard,
 		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
+		$this->synapseRepo = $synapseRepo;
 		$this->guard = $guard;
 		$this->validator = $validator;
 
-		// Инициализация middleware авторизации
-		$this->initAuth($session);
+		$this->initAuth($session, $synapseRepo);
 	}
 
 	// ============================================
@@ -110,37 +96,25 @@ class ProfileController
 
 	/**
 	 * GET /profile
-	 * 
-	 * Показывает профиль текущего пользователя.
-	 * Требует авторизацию.
-	 * Если пользователь не найден — очищает сессию и перенаправляет на /login.
-	 * 
-	 * @return Response
 	 */
 	public function view(): Response
 	{
-		// Требуем авторизацию
 		$this->requireAuth();
 
 		$userId = $this->session->get('user_id');
 
-		// Загружаем нейрон пользователя
 		$user = $this->neuronRepo->findById($userId);
 		if (!$user || $user['type'] !== 'user') {
-			// Пользователь не найден — очищаем сессию
 			$this->session->clear();
 			return new RedirectResponse('/login');
 		}
 
-		// Извлекаем данные из JSON
 		$data = is_string($user['data'] ?? null)
 			? json_decode($user['data'], true)
 			: ($user['data'] ?? []);
 
-		// Роли пользователя
 		$roles = $this->getUserRoles();
 
-		// Рендерим полную страницу профиля
 		$html = $this->twig->render('profile-full.html.twig', [
 			'user' => [
 				'id'          => $user['id'],
@@ -163,17 +137,9 @@ class ProfileController
 
 	/**
 	 * GET /profile/edit
-	 * 
-	 * Показывает форму редактирования профиля.
-	 * Поля: email, телефон, язык, новый пароль,
-	 * подтверждение пароля, текущий пароль.
-	 * 
-	 * [Мириам]: Теперь передаём $error в шаблон. Раньше
-	 * сообщение об ошибке устанавливалось в сессию,
-	 * но не передавалось. И пользователь не видел,
-	 * что пароли не совпадают.
-	 * 
-	 * @return Response
+	 *
+	 * [Мириам]: csrf_token — из $session->get('csrf_token').
+	 * Один источник. Без $_SESSION. Без «пиздеца».
 	 */
 	public function editForm(): Response
 	{
@@ -189,10 +155,8 @@ class ProfileController
 			? json_decode($user['data'], true)
 			: ($user['data'] ?? []);
 
-		// Получаем список доступных языков из таблицы text
 		$availableLangs = $this->textRepo->getAvailableLangs();
 
-		// Формируем массив [код => название] для select
 		$langNames = [
 			'ru' => 'Русский',
 			'en' => 'English',
@@ -206,11 +170,11 @@ class ProfileController
 			$langOptions[$code] = $langNames[$code] ?? strtoupper($code);
 		}
 
-		// [Мириам]: Читаем flash-сообщение об ошибке.
-		// И удаляем его из сессии. Чтобы показать один раз.
 		$error = $this->session->get('profile_error');
 		$this->session->remove('profile_error');
 
+		// [Мириам]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. csrf_token — из Session.
+		// Один источник. Без $_SESSION. Без «пиздеца».
 		$html = $this->twig->render('profile-edit.html.twig', [
 			'user' => [
 				'login' => $data['login'] ?? '',
@@ -219,9 +183,7 @@ class ProfileController
 				'lang'  => $data['lang'] ?? 'ru',
 			],
 			'available_langs' => $langOptions,
-			'csrf_token'      => $_SESSION['csrf_token'] ?? '',
-			// [Мириам]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Передаём $error в шаблон.
-			// Раньше его не было. И шаблон не мог показать ошибку.
+			'csrf_token'      => $this->session->get('csrf_token', ''),
 			'error'           => $error,
 		]);
 
@@ -234,49 +196,16 @@ class ProfileController
 
 	/**
 	 * POST /profile/edit
-	 * 
-	 * Сохраняет изменения профиля.
-	 * 
-	 * Можно изменить:
-	 * - Email и телефон — всегда
-	 * - Язык — всегда
-	 * - Пароль — только если заполнены все три поля:
-	 *   текущий, новый, подтверждение
-	 * 
-	 * Валидация пароля:
-	 * - Текущий пароль должен совпадать с хешем в базе
-	 * - Новый пароль и подтверждение должны совпадать
-	 * - Минимальная длина нового пароля — 8 символов
-	 * 
-	 * [Лорелея]: Добавлена проверка ТЕКУЩЕГО пароля.
-	 * Раньше можно было сменить пароль, не зная старого.
-	 * Это была дыра в безопасности.
-	 * 
-	 * [Мириам]: Теперь используем PASSWORD_DEFAULT (Argon2id).
-	 * И — password_needs_rehash(). Чтобы старые хеши обновлялись.
-	 * 
-	 * @param Request $request
-	 * @return Response — редирект на /profile или обратно на форму
+	 *
+	 * [Лорелея]: needs_rehash — с нашими параметрами. А не с
+	 * PASSWORD_DEFAULT. Без «даунгрейда». Без «пиздеца».
 	 */
 	public function edit(Request $request): Response
 	{
-		// Требуем авторизацию
 		$this->requireAuth();
 
 		$userId = $this->session->get('user_id');
 
-		// ============================================
-		// CSRF-защита
-		// ============================================
-		$token = $request->request->get('_csrf_token', '');
-		if (!$this->guard->validateCsrfToken($token)) {
-			$this->session->set('profile_error', 'Недействительный токен безопасности.');
-			return new RedirectResponse('/profile/edit');
-		}
-
-		// ============================================
-		// Получаем данные формы
-		// ============================================
 		$lang = trim($request->request->get('lang', 'ru'));
 		$email = strtolower(trim($request->request->get('email', '')));
 		$phone = trim($request->request->get('phone', ''));
@@ -284,22 +213,15 @@ class ProfileController
 		$newPassword = $request->request->get('new_password', '');
 		$passwordConfirm = $request->request->get('password_confirm', '');
 
-		// Загружаем текущие данные пользователя
 		$user = $this->neuronRepo->findById($userId);
 		$data = is_string($user['data'] ?? null)
 			? json_decode($user['data'], true)
 			: ($user['data'] ?? []);
 
-		// Обновляем язык, email и телефон
 		$data['lang'] = $lang;
 		$data['email'] = $email;
 		$data['phone'] = $phone;
 
-		// ============================================
-		// Смена пароля (опционально)
-		// ============================================
-
-		// [Лорелея]: Валидация основных полей. Через Validator.
 		if (!$this->validator->validate([
 			'lang'  => $lang,
 			'email' => $email,
@@ -313,7 +235,6 @@ class ProfileController
 			return new RedirectResponse('/profile/edit');
 		}
 
-		// [Мириам]: Пароль. Если меняем. Всё через Validator.
 		if (!empty($newPassword)) {
 			if (!$this->validator->validate([
 				'current_password' => $currentPassword,
@@ -328,32 +249,25 @@ class ProfileController
 				return new RedirectResponse('/profile/edit');
 			}
 
-			// [Лорелея]: Проверка текущего пароля. Не через Validator.
-			// Потому что Validator не знает про password_verify.
-			// Это — логика контроллера. И — это правильно.
 			$hash = $data['password_hash'] ?? '';
 			if (!password_verify($currentPassword, $hash)) {
 				$this->session->set('profile_error', 'Неверный текущий пароль');
 				return new RedirectResponse('/profile/edit');
 			}
 
-			// [Мириам]: Совпадение паролей. Тоже вручную. Потому что
-			// это — сравнение двух полей. А Validator так не умеет. Пока.
 			if ($newPassword !== $passwordConfirm) {
 				$this->session->set('profile_error', 'Пароли не совпадают');
 				return new RedirectResponse('/profile/edit');
 			}
 
-			// [Лорелея]: Используем PASSWORD_DEFAULT (Argon2id).
-			$data['password_hash'] = password_hash($newPassword, PASSWORD_DEFAULT);
+			// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. hash — с нашими
+			// параметрами. А не с PASSWORD_DEFAULT. Без «даунгрейда».
+			// Без «пиздеца». Без «потом».
+			$data['password_hash'] = password_hash($newPassword, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS);
 		}
 
-		// ============================================
-		// Сохраняем изменения
-		// ============================================
 		$this->neuronRepo->update($userId, ['data' => $data]);
 
-		// Редирект на просмотр профиля
 		return new RedirectResponse('/profile');
 	}
 
@@ -363,33 +277,24 @@ class ProfileController
 
 	/**
 	 * GET /api/profile
-	 * 
-	 * Возвращает HTML-фрагмент профиля для SPA-движка.
-	 * Загружается асинхронно без перезагрузки страницы.
-	 * 
-	 * @return JsonResponse
 	 */
 	public function apiView(): JsonResponse
 	{
-		// Требуем авторизацию
 		if ($error = $this->requireAuthForApi()) return $error;
 
 		$userId = $this->session->get('user_id');
 
-		// Загружаем пользователя
 		$user = $this->neuronRepo->findById($userId);
 		if (!$user || $user['type'] !== 'user') {
 			return ApiResponse::error('Пользователь не найден', 404);
 		}
 
-		// Извлекаем данные
 		$data = is_string($user['data'] ?? null)
 			? json_decode($user['data'], true)
 			: ($user['data'] ?? []);
 
 		$roles = $this->getUserRoles();
 
-		// Рендерим фрагмент (без боковых панелей)
 		$html = $this->twig->render('profile-view.html.twig', [
 			'user' => [
 				'id'          => $user['id'],

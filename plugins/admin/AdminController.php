@@ -3,29 +3,21 @@
 /**
  * АДМИН-КОНТРОЛЛЕР
  * =================
- * 
+ *
  * Управление нейронами через веб-интерфейс.
  * Все методы требуют роль администратора.
- * 
- * Страничный метод (HTML):
- * - index()          — интерфейс админки
- * 
- * API-методы (JSON):
- * - tree()           — полное дерево нейронов (CTE)
- * - children(id)     — дочерние нейроны (ленивая загрузка)
- * - get(id)          — информация о нейроне + тексты + дети
- * - create()         — создание нейрона
- * - update(id)       — обновление нейрона
- * - delete(id)       — мягкое удаление нейрона
- * - getTypes()       — список типов нейронов
- * - import()         — импорт Excel-файла
- * 
- * Зависимости:
- * - TextRepository    — работа с текстами
- * - NeuronRepository  — работа с нейронами
- * - SynapseRepository — работа с синапсами
- * - GuardController   — CSRF-защита
- * - AuthMiddleware    — проверка прав доступа
+ *
+ * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ *
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Убран костыль str_replace из Kernel.
+ * Теперь controller берётся как есть. А данные в базе — чиним
+ * здесь. Через валидацию. Чтобы не было «двойных бэкслешей».
+ * Без «пиздеца». Без «потом». Без «завтра».
+ *
+ * [Мириам]: И — это правильно. Потому что «не прятаться за
+ * Validator» — это наш урок. И мы его — помним. И — «навсегда».
+ *
+ * @package Jan\Trinity\Plugin\Admin
  */
 
 namespace Jan\Trinity\Plugin\Admin;
@@ -39,6 +31,7 @@ use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Service\GuardService;
+use Jan\Trinity\Plugin\Spa\Mime\MimeController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -74,6 +67,13 @@ class AdminController
 	private Cache $cache;
 
 	/**
+	 * @var MimeController — контроллер mime.
+	 * [Лорелея]: Нужен для сброса кэша при обновлении/удалении.
+	 * [Мириам]: Чтобы правки были видны сразу. А не через час.
+	 */
+	private MimeController $mimeController;
+
+	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
 	 */
@@ -86,7 +86,8 @@ class AdminController
 		GuardService $guard,
 		LoggerInterface $logger,
 		Validator $validator,
-		Cache $cache
+		Cache $cache,
+		MimeController $mimeController
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
@@ -96,26 +97,17 @@ class AdminController
 		$this->logger = $logger;
 		$this->validator = $validator;
 		$this->cache = $cache;
+		$this->mimeController = $mimeController;
 
-		// Инициализация middleware авторизации
-		$this->initAuth($session);
+		$this->initAuth($session, $synapseRepo);
 	}
 
 	// ============================================
 	// СТРАНИЦА АДМИНКИ
 	// ============================================
 
-	/**
-	 * GET /admin
-	 * 
-	 * Отображает интерфейс управления нейронами.
-	 * Доступ только для администраторов.
-	 * 
-	 * @return Response — HTML страница админки
-	 */
 	public function index(): Response
 	{
-		// Проверка прав (исключение, если не админ)
 		$this->requireAdmin();
 
 		$html = $this->twig->render('index.html.twig');
@@ -126,33 +118,18 @@ class AdminController
 	// ДОЧЕРНИЕ НЕЙРОНЫ (ЛЕНИВАЯ ЗАГРУЗКА)
 	// ============================================
 
-	/**
-	 * GET /api/admin/children/{id}
-	 * 
-	 * Возвращает дочерние нейроны для построения дерева.
-	 * id=0 — корневые нейроны (только type='tree').
-	 * id>0 — дети указанного нейрона.
-	 * 
-	 * @param int $id — id родительского нейрона (0 для корня)
-	 * @return JsonResponse
-	 */
 	public function children(int $id): JsonResponse
 	{
-		// Корневые нейроны — только tree (без item'ов типа "Россия")
 		if ($id === 0) {
 			$children = $this->neuronRepo->findChildrenWithText(null, 'ru', 'tree');
 		} else {
-			// Дети конкретного нейрона
 			$children = $this->neuronRepo->findChildrenWithText($id, 'ru');
 		}
 
-		// Подготавливаем данные для фронтенда
 		foreach ($children as &$row) {
-			// Парсим JSON
 			if (isset($row['data']) && is_string($row['data'])) {
 				$row['data'] = json_decode($row['data'], true);
 			}
-			// Флаг наличия дочерних элементов (для иконки [+]/[-])
 			$row['has_children'] = (int) ($row['child_count'] ?? 0) > 0;
 		}
 
@@ -163,47 +140,32 @@ class AdminController
 	// ИНФОРМАЦИЯ О НЕЙРОНЕ
 	// ============================================
 
-	/**
-	 * GET /api/admin/neuron/{id}
-	 * 
-	 * Возвращает полную информацию о нейроне:
-	 * - Основные поля (id, pid, type, data)
-	 * - Связанные тексты (из таблицы text)
-	 * - Дочерние нейроны (id, type, slug)
-	 * 
-	 * @param int $id — id нейрона
-	 * @return JsonResponse
-	 */
 	public function get(int $id): JsonResponse
 	{
-		// Ищем нейрон
 		$neuron = $this->neuronRepo->findById($id);
 		if (!$neuron) {
 			return ApiResponse::error('Нейрон не найден', 404);
 		}
 
-		// Парсим JSON
 		if (isset($neuron['data']) && is_string($neuron['data'])) {
 			$neuron['data'] = json_decode($neuron['data'], true);
 		}
 
-		// Загружаем связанные тексты
 		$texts = [];
 		if ($neuron['text']) {
 			$textRecords = $this->textRepo->findAllByKey($neuron['text']);
 			foreach ($textRecords as $t) {
 				$texts[] = [
-					'id'   => $t['id'],     // id записи в таблице text
-					'key'  => $t['key'],     // ключ текста
-					'lang' => $t['lang'],    // язык (ru/en)
-					'name' => $t['name'],    // название (заголовок)
-					'text' => $t['text'],    // содержимое
+					'id'   => $t['id'],
+					'key'  => $t['key'],
+					'lang' => $t['lang'],
+					'name' => $t['name'],
+					'text' => $t['text'],
 				];
 			}
 		}
 		$neuron['texts'] = $texts;
 
-		// Загружаем дочерние нейроны (для отображения в таблице)
 		$children = $this->neuronRepo->findChildren($id);
 		$neuron['children'] = array_map(function ($c) {
 			$childData = is_string($c['data'] ?? null)
@@ -223,20 +185,6 @@ class AdminController
 	// СОЗДАНИЕ НЕЙРОНА
 	// ============================================
 
-	/**
-	 * POST /api/admin/neuron
-	 * 
-	 * Создаёт новый нейрон.
-	 * Принимает JSON с полями: type, pid, data.
-	 * 
-	 * Валидация:
-	 * - type — обязательное, из списка разрешённых
-	 * - slug (в data) — только латиница, цифры, дефис, подчёркивание
-	 * - data — валидный JSON
-	 * 
-	 * @param Request $request
-	 * @return JsonResponse
-	 */
 	public function create(Request $request): JsonResponse
 	{
 		$body = JsonHelper::parseJsonBody($request);
@@ -246,9 +194,6 @@ class AdminController
 		$pid = $body['pid'] ?? null;
 		$data = $body['data'] ?? [];
 
-		// [Лорелея]: Валидация. Всё в одном месте. Через $this->validator.
-		// Не через new Validator(). А через DI. Потому что он уже
-		// внедрён в конструктор. И — потому что это правильно.
 		$isValid = $this->validator->validate([
 			'type' => $type,
 			'pid'  => $pid,
@@ -263,9 +208,6 @@ class AdminController
 			return ApiResponse::error($this->validator->getFirstError() ?? 'Ошибка валидации', 400);
 		}
 
-		// [Мириам]: slug проверяем отдельно. Потому что он в data.
-		// И потому что Validator проверяет поля верхнего уровня.
-		// А data — вложенный. Но можно и через Validator. С regex.
 		if (!empty($data['slug'])) {
 			$slugValid = $this->validator->validate(
 				['slug' => $data['slug']],
@@ -276,9 +218,32 @@ class AdminController
 			}
 		}
 
+		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Валидируем controller.
+		// Если type === 'route' — controller должен быть.
+		// И — без «двойных бэкслешей». Без «пиздеца».
+		if ($type === 'route') {
+			$controller = trim($data['controller'] ?? '');
+			if ($controller === '') {
+				return ApiResponse::error('Поле controller обязательно для route', 400);
+			}
+
+			// [Мириам]: Проверяем, что controller — валидное имя класса.
+			// С одним бэкслешем. Без «двойных». Без «пиздеца».
+			if (str_contains($controller, '\\\\')) {
+				return ApiResponse::error('Controller не должен содержать двойные бэкслеши', 400);
+			}
+
+			// [Лорелея]: И — проверяем, что класс существует.
+			// Через class_exists. Без «потом». Без «завтра».
+			if (!class_exists($controller)) {
+				return ApiResponse::error('Класс controller не найден: ' . $controller, 400);
+			}
+
+			$data['controller'] = $controller;
+		}
+
 		$id = $this->neuronRepo->create($type, $data, $pid);
 
-		// [Лорелея]: Сбрасываем кэш только для route и config.
 		if (in_array($type, ['route', 'config'], true)) {
 			$this->cache->forget('trinity.routes');
 			$this->cache->forget('trinity.config');
@@ -291,16 +256,6 @@ class AdminController
 	// ОБНОВЛЕНИЕ НЕЙРОНА
 	// ============================================
 
-	/**
-	 * POST /api/admin/neuron/{id}
-	 * 
-	 * Обновляет существующий нейрон.
-	 * Можно изменить: type, pid, data.
-	 * 
-	 * @param int $id — id нейрона
-	 * @param Request $request
-	 * @return JsonResponse
-	 */
 	public function update(int $id, Request $request): JsonResponse
 	{
 		$body = JsonHelper::parseJsonBody($request);
@@ -308,11 +263,22 @@ class AdminController
 
 		$fields = [];
 
-		// [Лорелея]: Валидация. Через $this->validator. С pid. С type.
-		// И — с id. Потому что id — тоже входные данные. И — int.
 		if (!$this->validator->validate(['id' => $id], ['id' => ['required', 'int', 'min:1']])) {
 			return ApiResponse::error('Некорректный ID', 400);
 		}
+
+		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Получаем текущий нейрон.
+		// Чтобы знать type. И — валидировать controller. Если route.
+		$currentNeuron = $this->neuronRepo->findById($id);
+		if (!$currentNeuron) {
+			return ApiResponse::error('Нейрон не найден', 404);
+		}
+
+		$currentData = is_string($currentNeuron['data'] ?? null)
+			? json_decode($currentNeuron['data'], true)
+			: ($currentNeuron['data'] ?? []);
+
+		$type = $body['type'] ?? $currentNeuron['type'];
 
 		if (isset($body['type'])) {
 			if (!$this->validator->validate(['type' => $body['type']], [
@@ -324,7 +290,6 @@ class AdminController
 		}
 
 		if (isset($body['pid'])) {
-			// [Мириам]: pid — nullable. И int. И min:1.
 			if ($body['pid'] !== null && $body['pid'] !== '') {
 				if (!$this->validator->validate(['pid' => $body['pid']], [
 					'pid' => ['int', 'min:1'],
@@ -342,7 +307,6 @@ class AdminController
 				return ApiResponse::error($this->validator->getFirstError(), 400);
 			}
 
-			// [Лорелея]: slug — через Validator. Если есть.
 			if (!empty($body['data']['slug'])) {
 				if (!$this->validator->validate(['slug' => $body['data']['slug']], [
 					'slug' => ['regex:/^[a-z0-9_-]+$/iu', 'max:255'],
@@ -350,11 +314,41 @@ class AdminController
 					return ApiResponse::error($this->validator->getFirstError(), 400);
 				}
 			}
+
+			// [Мириам]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Валидируем controller.
+			// Если type === 'route'. Или — если controller есть в data.
+			// Без «двойных бэкслешей». Без «пиздеца».
+			if ($type === 'route' || !empty($body['data']['controller'])) {
+				$controller = trim($body['data']['controller'] ?? $currentData['controller'] ?? '');
+				if ($controller === '') {
+					return ApiResponse::error('Поле controller обязательно для route', 400);
+				}
+
+				if (str_contains($controller, '\\\\')) {
+					return ApiResponse::error('Controller не должен содержать двойные бэкслеши', 400);
+				}
+
+				if (!class_exists($controller)) {
+					return ApiResponse::error('Класс controller не найден: ' . $controller, 400);
+				}
+
+				$body['data']['controller'] = $controller;
+			}
+
 			$fields['data'] = $body['data'];
 		}
 
 		if (!empty($fields)) {
 			$this->neuronRepo->update($id, $fields);
+		}
+
+		// [Лорелея]: Сбрасываем кэш MimeController.
+		$this->mimeController->forgetCache($id);
+
+		// [Мириам]: И — кэш роутов и конфигов. Если это route или config.
+		if (isset($fields['type']) && in_array($fields['type'], ['route', 'config'], true)) {
+			$this->cache->forget('trinity.routes');
+			$this->cache->forget('trinity.config');
 		}
 
 		return ApiResponse::success(['id' => $id]);
@@ -364,33 +358,26 @@ class AdminController
 	// УДАЛЕНИЕ НЕЙРОНА
 	// ============================================
 
-	/**
-	 * DELETE /api/admin/neuron/{id}
-	 * 
-	 * Мягкое удаление нейрона (устанавливает deleted_at в data).
-	 * Физически запись не удаляется.
-	 * Связанные синапсы удаляются.
-	 * 
-	 * @param int $id — id нейрона
-	 * @param Request $request — для CSRF-проверки
-	 * @return JsonResponse
-	 */
 	public function delete(int $id, Request $request): JsonResponse
 	{
-		// CSRF-защита
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
 		if (!$this->guard->validateCsrfToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
-		// Проверяем существование нейрона
 		$neuron = $this->neuronRepo->findById($id);
 		if (!$neuron) {
 			return ApiResponse::error('Нейрон не найден', 404);
 		}
 
-		// Мягкое удаление (deleted_at + удаление синапсов)
 		$this->neuronRepo->delete($id);
+
+		$this->mimeController->forgetCache($id);
+
+		if (in_array($neuron['type'], ['route', 'config'], true)) {
+			$this->cache->forget('trinity.routes');
+			$this->cache->forget('trinity.config');
+		}
 
 		return ApiResponse::success(['id' => $id]);
 	}
@@ -399,14 +386,6 @@ class AdminController
 	// ТИПЫ НЕЙРОНОВ
 	// ============================================
 
-	/**
-	 * GET /api/admin/neuron-types
-	 * 
-	 * Возвращает список всех доступных типов нейронов.
-	 * Используется для выпадающего списка в формах.
-	 * 
-	 * @return JsonResponse
-	 */
 	public function getTypes(): JsonResponse
 	{
 		return ApiResponse::success([
@@ -419,22 +398,10 @@ class AdminController
 	// ИМПОРТ ИЗ EXCEL
 	// ============================================
 
-	/**
-	 * POST /api/admin/import
-	 * 
-	 * Импортирует Excel-файл в базу данных.
-	 * Поддерживает листы: TREE, ITEM, MON, CITY...
-	 * 
-	 * @param Request $request — содержит файл в поле 'file'
-	 * @return JsonResponse — статистика импорта (created, errors)
-	 */
 	public function import(Request $request): JsonResponse
 	{
 		$file = $request->files->get('file');
 
-		// [Лорелея]: Валидация файла. Через Validator. Где возможно.
-		// Но UploadedFile — это не массив. Это объект. Поэтому —
-		// проверяем вручную. Но — структурированно. И — с понятными ошибками.
 		if (!$file || !($file instanceof \Symfony\Component\HttpFoundation\File\UploadedFile)) {
 			return ApiResponse::error('Файл не загружен', 400);
 		}
@@ -443,7 +410,6 @@ class AdminController
 			return ApiResponse::error('Ошибка загрузки файла: ' . $file->getErrorMessage(), 400);
 		}
 
-		// [Мириам]: Расширение — через Validator. С regex.
 		$extension = strtolower($file->getClientOriginalExtension());
 		if (!$this->validator->validate(['ext' => $extension], [
 			'ext' => ['required', 'in:xlsx,xls'],
@@ -459,7 +425,6 @@ class AdminController
 			);
 			$result = $importer->import($file->getPathname());
 
-			// Логируем успешный импорт
 			$this->neuronRepo->logAdminAction('import_excel', [
 				'file'    => $file->getClientOriginalName(),
 				'created' => $result['created'],
@@ -469,8 +434,6 @@ class AdminController
 			return ApiResponse::success($result);
 
 		} catch (\Throwable $e) {
-			// [Лорелея]: Убираем error_log(). Используем только логгер.
-			// [Мириам]: Логгер уже пишет в лог с правильным форматом.
 			$this->logger->error('Excel import failed', [
 				'message' => $e->getMessage(),
 				'file'    => $e->getFile() . ':' . $e->getLine(),
@@ -487,27 +450,23 @@ class AdminController
 
 	/**
 	 * GET /api/admin/dashboard
-	 * Возвращает HTML с дашбордом для панели нейрона.
 	 */
 	public function dashboard(): JsonResponse
 	{
 		$conn = $this->neuronRepo->getConnection();
 
-		// Статистика
 		$totalNeurons = $conn->executeQuery("SELECT COUNT(*) FROM neuron WHERE is_deleted = 0")->fetchOne();
-		$totalSynapses = $conn->executeQuery("SELECT COUNT(*) FROM synapse")->fetchOne();
+		$totalSynapses = $conn->executeQuery("SELECT COUNT(*) FROM synapse WHERE is_deleted = 0")->fetchOne();
 		$totalTexts = $conn->executeQuery("SELECT COUNT(*) FROM text WHERE is_active = 1")->fetchOne();
 		$totalUsers = $conn->executeQuery("SELECT COUNT(*) FROM neuron WHERE type = 'user' AND is_deleted = 0")->fetchOne();
 		$totalFiles = $conn->executeQuery("SELECT COUNT(*) FROM neuron WHERE type = 'file' AND is_deleted = 0")->fetchOne();
 
-		// Типы нейронов
 		$byType = $conn->executeQuery(
 			"SELECT type, COUNT(*) as cnt FROM neuron WHERE is_deleted = 0 GROUP BY type ORDER BY cnt DESC"
 		)->fetchAllAssociative();
 
-		// Последние нейроны
 		$latest = $conn->executeQuery(
-			"SELECT n.id, n.type, n.date, 
+			"SELECT n.id, n.type, n.date,
 				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as name
 			FROM neuron n WHERE n.is_deleted = 0 ORDER BY n.id DESC LIMIT 8"
 		)->fetchAllAssociative();
@@ -515,9 +474,7 @@ class AdminController
 		$html = '<div class="p-3">';
 		$html .= '<h5 class="gold-text mb-3"><i class="bi bi-speedometer2"></i> Дашборд</h5>';
 
-		// Карточки
 		$html .= '<div class="row g-2 mb-3">';
-		// Карточки
 		$cards = [
 			['icon' => 'diagram-3', 'value' => $totalNeurons, 'label' => 'Нейронов'],
 			['icon' => 'link-45deg', 'value' => $totalSynapses, 'label' => 'Синапсов'],
@@ -535,32 +492,18 @@ class AdminController
 		}
 		$html .= '</div>';
 
-		// Типы нейронов
 		$html .= '<div class="row g-2 mb-3"><div class="col-12"><div class="card bg-dark border-gold"><div class="card-header py-2"><strong><i class="bi bi-pie-chart gold-text"></i> Типы нейронов</strong></div><div class="card-body py-2"><table class="table table-dark table-sm mb-0">';
 		foreach ($byType as $row) {
 			$html .= '<tr><td><code>' . $row['type'] . '</code></td><td class="text-end">' . $row['cnt'] . '</td></tr>';
 		}
 		$html .= '</table></div></div></div></div>';
 
-		// Последние нейроны
 		$html .= '<div class="row g-2"><div class="col-12"><div class="card bg-dark border-gold"><div class="card-header py-2"><strong><i class="bi bi-clock-history gold-text"></i> Последние нейроны</strong></div><div class="card-body py-2"><table class="table table-dark table-sm mb-0">';
 		foreach ($latest as $row) {
 			$html .= '<tr><td>#' . $row['id'] . '</td><td><code>' . $row['type'] . '</code></td><td>' . htmlspecialchars($row['name'] ?? '—') . '</td><td class="text-muted small">' . $row['date'] . '</td></tr>';
 		}
 		$html .= '</table></div></div></div></div>';
 
-		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Раньше путь был
-		// `dirname(__DIR__, 2) . '/var/log/admin.log'`. Но —
-		// logAdminAction пишет через логгер в `app.log`. А не
-		// в `admin.log`. И — секция «Действия админа» была
-		// пуста всегда.
-		//
-		// [Мириам]: Теперь — `logger.admin` пишет в `admin.log`.
-		// И — путь правильный. И — секция работает.
-		//
-		// [Лорелея]: И — кэш. Monolog RotatingFileHandler добавляет
-		// дату к имени. Поэтому ищем по маске: `admin-*.log` или
-		// `admin.log`.
 		$logDir = dirname(__DIR__, 2) . '/var/log';
 		$adminLog = [];
 		$logFile = $logDir . '/admin.log';
@@ -569,7 +512,6 @@ class AdminController
 			$lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 			$adminLog = array_slice(array_reverse($lines), 0, 15);
 		} else {
-			// [Мириам]: Если файла нет — ищем по маске с датой.
 			$files = glob($logDir . '/admin-*.log');
 			if (!empty($files)) {
 				rsort($files);
@@ -587,14 +529,11 @@ class AdminController
 			$html .= '</pre></div></div></div></div>';
 		}
 
-		// ============================================
-		// [Лорелея]: НОВАЯ СЕКЦИЯ — НОВЫЕ ПОЛЬЗОВАТЕЛИ
-		// ============================================
 		$pendingUsers = $conn->executeQuery(
-			"SELECT id, data, date FROM neuron 
-			WHERE type = 'user' 
-			AND is_deleted = 0 
-			AND JSON_EXTRACT(data, '$.status') = 'pending' 
+			"SELECT id, data, date FROM neuron
+			WHERE type = 'user'
+			AND is_deleted = 0
+			AND JSON_EXTRACT(data, '$.status') = 'pending'
 			ORDER BY date DESC"
 		)->fetchAllAssociative();
 
@@ -624,16 +563,6 @@ class AdminController
 
 	/**
 	 * Режим отладки из .env.
-	 *
-	 * [Лорелея]: Тот же метод, что и в Kernel. Но — локальный.
-	 * Потому что AdminController не наследуется от Kernel.
-	 * И не должен. Это — разные слои.
-	 *
-	 * [Мириам]: Можно было бы вынести в trait. Но — не стоит.
-	 * Это — три строки. И — два места. Дублирование — допустимо.
-	 * Если появится третье — вынесем.
-	 *
-	 * @return bool
 	 */
 	private function isDebug(): bool
 	{
@@ -642,8 +571,6 @@ class AdminController
 
 	/**
 	 * POST /api/admin/user/{id}/approve
-	 * [Лорелея]: Одобряет пользователя. Меняет статус на 'active'.
-	 * [Мириам]: Требует CSRF-токен. Потому что меняет данные.
 	 */
 	public function approveUser(int $id, Request $request): JsonResponse
 	{
@@ -661,13 +588,13 @@ class AdminController
 		$data['status'] = 'active';
 		$this->neuronRepo->update($id, ['data' => $data]);
 
+		$this->mimeController->forgetCache($id);
+
 		return ApiResponse::success(['id' => $id], 'Пользователь одобрен');
 	}
 
 	/**
 	 * DELETE /api/admin/user/{id}
-	 * [Лорелея]: Удаляет пользователя (мягкое удаление).
-	 * [Мириам]: Требует CSRF.
 	 */
 	public function deleteUser(int $id, Request $request): JsonResponse
 	{
@@ -680,14 +607,13 @@ class AdminController
 
 		$this->neuronRepo->delete($id, true);
 
+		$this->mimeController->forgetCache($id);
+
 		return ApiResponse::success(['id' => $id], 'Пользователь удалён');
 	}
 
 	/**
 	 * Проверяет CSRF-токен. Возвращает JsonResponse при ошибке, null при успехе.
-	 * 
-	 * [Лорелея]: Добавлен в AdminController для единообразия.
-	 * [Мириам]: Теперь approveUser и deleteUser могут его использовать.
 	 */
 	private function requireCsrf(Request $request): ?JsonResponse
 	{

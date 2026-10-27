@@ -2,39 +2,22 @@
 
 /**
  * DI-КОНТЕЙНЕР
- * 
+ *
  * Здесь описаны правила создания всех объектов системы.
  * PHP-DI автоматически внедряет зависимости.
- * 
- * === ДЛЯ МЕНЯ ===
- * Мы решили оставить этот файл в ядре, а не выносить в базу.
- * Потому что он описывает СТРУКТУРУ классов, а не данные.
- * Структура меняется редко. Данные — часто.
- * 
- * === КНИГА ===
- * Глава 7. Чертежи.
- * 
- * Прежде чем построить Амбер, Дворкин нарисовал его на картинах.
- * Прежде чем создать объект, PHP-DI читает эти чертежи.
- * 
+ *
  * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
- * 
- * [Лорелея]: Я добавила GuardController в MonitorController.
- * Теперь у Monitor есть доступ к rate limit и CSRF.
- * Раньше логи и сбор JS-ошибок были полностью открыты.
- * 
- * [Мириам]: Я добавила GuardController в GalleryController.
- * Теперь все изменяющие методы галереи (upload, delete, update)
- * проверяют CSRF. Раньше проверял только deleteFile.
- * 
- * [Лорелея]: Я убедилась, что GalleryImportService и GalleryController
- * получают пути из .env через DI. Никаких __DIR__ . '/../../../../..'.
- * Путь — в одном месте. В .env.
- * 
- * [Мириам]: Я оставила MonitorController и GuardController на фабриках,
- * потому что они принимают $basePath — строку, которую не внедрить
- * через autowire. Остальные — на autowire. Это компромисс,
- * но осознанный.
+ *
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Environment теперь получает
+ * Session. И csrf_token в Twig читается из $session->get('csrf_token').
+ * Один источник. Без $_SESSION. Без «двух источников».
+ * Без «пиздеца». Без «потом». Без «завтра».
+ *
+ * [Мириам]: И — это правильно. Потому что GuardService пишет
+ * в $session->set('csrf_token'). А Twig — читает. Один источник.
+ * Без «пиздеца». И — «навсегда».
+ *
+ * @package Jan\Trinity\Core
  */
 
 use Jan\Trinity\Core\DatabaseService;
@@ -80,10 +63,6 @@ return [
 	// ============================================
 	// 1. ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ К БАЗЕ
 	// ============================================
-	// [Лорелея]: Все параметры берутся из .env. Если .env нет —
-	// используются значения по умолчанию. Это для разработки.
-	// В production — всегда .env.
-	// ============================================
 	'db.config' => [
 		'host'     => $_ENV['DB_HOST'] ?? 'localhost',
 		'port'     => $_ENV['DB_PORT'] ?? 3306,
@@ -96,19 +75,12 @@ return [
 	// ============================================
 	// 2. СЕРВИС БАЗЫ ДАННЫХ (синглтон)
 	// ============================================
-	// [Мириам]: DatabaseService создаётся один раз. Соединение
-	// с базой — ленивое. Открывается при первом запросе.
-	// Если за сессию не было запросов — соединение не открывается.
-	// ============================================
 	DatabaseService::class => \DI\autowire()
 		->constructorParameter('config', \DI\get('db.config')),
 
 	// ============================================
 	// 3. КЭШ (APCu)
 	// ============================================
-	// [Лорелея]: Теперь используем APCu. Это быстрее и безопаснее.
-	// [Мириам]: APCu работает в памяти. И — атомарные операции.
-	// Это решает проблему гонок.
 	Cache::class => function () {
 		$enabled = ($_ENV['CACHE_ENABLED'] ?? 'false') === 'true';
 		return new Cache($enabled);
@@ -117,10 +89,8 @@ return [
 	// ============================================
 	// 4. СЕССИЯ
 	// ============================================
-	// [Мириам]: Сессия создаётся через фабрику, потому что нужно
-	// создать NativeSessionStorage с параметрами из .env, потом
-	// Session, потом запустить его. Это не «просто new Session()».
-	// ============================================
+	// [Лорелея]: Сессия не стартует в конструкторе. Только — создаём.
+	// start() будет вызван в Kernel, когда нужно. Или — в GuardService.
 	Session::class => function () {
 		$storage = new NativeSessionStorage([
 			'cookie_lifetime' => (int)($_ENV['SESSION_LIFETIME'] ?? 86400),
@@ -128,36 +98,21 @@ return [
 			'cookie_httponly' => true,
 			'cookie_samesite' => 'lax',
 		]);
-		$session = new Session($storage);
-		if (!$session->isStarted()) {
-			$session->start();
-		}
-		return $session;
+
+		return new Session($storage);
 	},
 
 	// ============================================
 	// 5. ШАБЛОНИЗАТОР TWIG
 	// ============================================
-	// [Лорелея]: Twig создаётся через фабрику. Файлы шаблонов
-	// подключаются из семи папок плагинов. Это сделано для того,
-	// чтобы каждый плагин имел свои шаблоны и не мешал другим.
-	// 
-	// [Мириам]: gallery_url добавляется как глобальная переменная
-	// Twig. Это Вариант 2 из нашего обсуждения. Раньше путь
-	// был захардкожен в шаблонах. Теперь — в .env. Если URL
-	// изменится — меняем .env, а не пять шаблонов.
-	// 
-	// [Лорелея]: strict_variables остаётся false. Это сознательно.
-	// В production было бы лучше true — тогда Twig ругался бы
-	// на undefined переменные. Но у нас много шаблонов, где
-	// переменные могут отсутствовать. Пока — false. Потом,
-	// когда всё стабилизируется — можно поменять.
-	// ============================================
-	Environment::class => function () {
+	// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Environment получает Session.
+	// И csrf_token читается из $session->get('csrf_token').
+	// Один источник. Без $_SESSION. Без «двух источников».
+	// Без «пиздеца». Без «потом». Без «завтра».
+	Environment::class => function (Session $session) {
 		$basePath = dirname(__DIR__);
 		$isDev = ($_ENV['APP_ENV'] ?? 'prod') === 'dev';
 
-		// Загружаем шаблоны из файлов (для ядра)
 		$loader = new FilesystemLoader([
 			$basePath . '/plugins/spa',
 			$basePath . '/plugins/admin',
@@ -171,21 +126,26 @@ return [
 		$twig = new Environment($loader, [
 			'cache' => $isDev ? false : $basePath . '/var/cache/twig',
 			'debug' => $isDev,
-			'strict_variables' => false,
+			'strict_variables' => $isDev,
 		]);
 
-		// [Лорелея]: Заменяем глобальную переменную на функцию.
-		// Потому что глобальная переменная читается один раз —
-		// при создании Twig. А токен может измениться (после логина).
-		// А функция вызывается каждый раз. И всегда возвращает
-		// актуальный токен из сессии.
-		$twig->addFunction(new \Twig\TwigFunction('csrf_token', function () {
-			return $_SESSION['csrf_token'] ?? '';
+		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. csrf_token стартует сессию,
+		// если она не запущена. И — возвращает токен. Без «пустого токена».
+		// Без «пиздеца». Без «потом». Без «завтра».
+		$twig->addFunction(new \Twig\TwigFunction('csrf_token', function () use ($session) {
+			if (!$session->isStarted()) {
+				$session->start();
+			}
+
+			$token = $session->get('csrf_token');
+			if ($token === null) {
+				$token = bin2hex(random_bytes(32));
+				$session->set('csrf_token', $token);
+			}
+
+			return $token;
 		}));
 
-		// URL галереи как глобальная переменная Twig.
-		// [Лорелея]: Это Вариант 2. Раньше путь был захардкожен
-		// в шаблонах галереи. Теперь — в одном месте.
 		$twig->addGlobal('gallery_url', rtrim($_ENV['GALLERY_UPLOAD_URL'] ?? '/uploads/gallery', '/'));
 
 		return $twig;
@@ -194,24 +154,8 @@ return [
 	// ============================================
 	// 6. РЕПОЗИТОРИИ (БАЗА ДАННЫХ)
 	// ============================================
-	// [Мириам]: Все три репозитория создаются через autowire.
-	// Они принимают DatabaseService, который уже зарегистрирован.
-	// PHP-DI сам подставит его. Нам не нужно писать фабрику.
-	// ============================================
 	TextRepository::class => \DI\autowire(),
 
-	// ============================================
-	// NEURON REPOSITORY
-	// ============================================
-	// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше был `\DI\autowire()`.
-	// И — $logger — был `logger.app`. И — logAdminAction — писал
-	// в app.log. А — dashboard — читал из admin.log. И — секция
-	// «Действия админа» — была пуста всегда.
-	//
-	// [Мириам]: Теперь — явно. Через constructorParameter.
-	// $logger — `logger.admin`. И — logAdminAction — пишет
-	// в admin.log. И — dashboard — читает из admin.log.
-	// И — всё — сходится.
 	NeuronRepository::class => \DI\autowire()
 		->constructorParameter('logger', \DI\get('logger.admin')),
 
@@ -220,29 +164,17 @@ return [
 	// ============================================
 	// 7. ПАРАМЕТРЫ ПРИЛОЖЕНИЯ
 	// ============================================
-	// [Лорелея]: app.base_path — путь к корню проекта.
-	// Используется в контроллерах, где нужен физический путь.
-	// ============================================
 	'app.base_path' => dirname(__DIR__),
 
 	// ============================================
 	// 8. КОНТРОЛЛЕРЫ ПЛАГИНОВ
 	// ============================================
-	// [Мириам]: MonitorController и GuardController — на фабриках.
-	// Потому что они принимают $basePath — строку, которую
-	// PHP-DI не может «угадать». Для остальных — autowire.
-	// 
-	// [Лорелея]: MonitorController теперь принимает GuardController.
-	// Это нужно для rate limit JS-ошибок и CSRF при очистке логов.
-	// GuardController теперь внедряется в MonitorController, что
-	// делает их связанными. Это допустимо — они оба в пространстве
-	// плагинов, и Monitor использует Guard для защиты.
-	// ============================================
 	MonitorController::class => function (
 		Environment $twig,
 		Session $session,
 		NeuronRepository $neuronRepo,
-		GuardController $guard,
+		GuardService $guard,
+		SynapseRepository $synapseRepo,
 		\Psr\Log\LoggerInterface $logger,
 		ConfigService $configService,
 		Validator $validator
@@ -253,18 +185,21 @@ return [
 			dirname(__DIR__),
 			$neuronRepo,
 			$guard,
+			$synapseRepo,
 			$logger,
 			$configService,
 			$validator
 		);
 	},
 
+	// [Лорелея]: GuardService теперь получает Session. Чтобы
+	// generateCsrfToken и validateCsrfToken работали с Symfony Session.
+	// Без «двух источников». Без «пиздеца». Без «потом».
 	GuardService::class => \DI\autowire()
 		->constructorParameter('basePath', \DI\get('app.base_path')),
 
 	GuardController::class => \DI\autowire(),
 	AuthController::class => \DI\autowire(),
-	AdminController::class => \DI\autowire(),
 	ProfileController::class => \DI\autowire(),
 	MapController::class => \DI\autowire(),
 	ToolsController::class => \DI\autowire(),
@@ -272,54 +207,17 @@ return [
 	// ============================================
 	// VALIDATOR
 	// ============================================
-	// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. Раньше было `\DI\autowire()`.
-	// И — PHP-DI — не подставлял NeuronRepository. Потому что
-	// параметр — `?NeuronRepository $neuronRepo = null`. Опциональный.
-	// И — autowire — думает, что null — это нормально. И — не
-	// подставляет. И — Validator — создаётся без репозитория.
-	// И — unique — падает.
-	//
-	// [Мириам]: Теперь — явно. Через constructorParameter.
-	// PHP-DI — видит. И — подставляет. Даже если параметр —
-	// опциональный. Потому что — явно. И — unique — работает.
-	//
-	// [Лорелея]: И — Validator — остаётся гибким. Потому что
-	// NeuronRepository — опциональный. Если его нет — unique
-	// бросит RuntimeException. Но — в проде — он есть.
 	Validator::class => \DI\autowire()
 		->constructorParameter('neuronRepo', \DI\get(NeuronRepository::class)),
 
 	// ============================================
 	// 9. ГАЛЕРЕЯ — ПУТИ К ФАЙЛАМ
 	// ============================================
-	// GALLERY_UPLOAD_DIR — физический путь на диске.
-	//   Используется GalleryController и GalleryImportService
-	//   для сохранения, удаления и перемещения файлов.
-	//   Пример: /home/web/www/uploads/gallery
-	//
-	// GALLERY_UPLOAD_URL — веб-путь (URL).
-	//   Используется в шаблонах Twig для генерации ссылок
-	//   на превью и полноразмерные изображения.
-	//   Пример: /uploads/gallery
-	//
-	// [Мириам]: Если переменные не заданы в .env — используем
-	// значения по умолчанию, вычисленные от корня проекта.
-	// Это для разработки. В production — всегда .env.
-	// ============================================
 	'gallery.upload_dir' => $_ENV['GALLERY_UPLOAD_DIR'] ?? (dirname(__DIR__) . '/../../../www/uploads/gallery'),
 	'gallery.upload_url' => $_ENV['GALLERY_UPLOAD_URL'] ?? '/uploads/gallery',
 
 	// ============================================
 	// 10. GALLERY CONTROLLER
-	// ============================================
-	// [Лорелея]: Внедряем пути через конструктор.
-	// galleryUploadDir — физический путь (для unlink, move, mkdir).
-	// galleryUploadUrl — веб-путь (для передачи в Twig, если нужно).
-	// 
-	// [Мириам]: GuardController внедряется автоматически через
-	// autowire, потому что он уже зарегистрирован в контейнере.
-	// GalleryImportService — тоже. Пути передаются явно, потому
-	// что они — параметры, а не сервисы.
 	// ============================================
 	GalleryController::class => \DI\autowire()
 		->constructorParameter('galleryUploadDir', \DI\get('gallery.upload_dir'))
@@ -328,30 +226,12 @@ return [
 	// ============================================
 	// 11. GALLERY IMPORT SERVICE
 	// ============================================
-	// [Лорелея]: Сервис импорта тоже нуждается в физическом пути.
-	// Он не работает с URL — только с диском.
-	// Регистрируем его в DI, чтобы GalleryController
-	// получал готовый экземпляр, а не создавал вручную.
-	// 
-	// [Мириам]: Это исправление. Раньше GalleryController
-	// создавал GalleryImportService вручную в import().
-	// Теперь — через DI. Путь — из .env. Дублирование — устранено.
-	// ============================================
 	GalleryImportService::class => \DI\autowire()
 		->constructorParameter('galleryDir', \DI\get('gallery.upload_dir')),
 
 	// ============================================
 	// 12. ЛОГГЕРЫ (Monolog)
 	// ============================================
-	// [Лорелея]: Три логгера. Каждый — свой канал.
-	// - app: общие события. INFO и выше.
-	// - error: ошибки. ERROR и выше.
-	// - security: безопасность. INFO и выше.
-	// 
-	// [Мириам]: Каждый — отдельный RotatingFileHandler.
-	// Каждый — со своим именем файла. И — со своей ротацией.
-	// ============================================
-
 	'logger.app' => function () {
 		$basePath = dirname(__DIR__);
 		$logDir = $basePath . '/var/log';
@@ -444,54 +324,26 @@ return [
 		return $logger;
 	},
 
-	// Алиас: Monolog\Logger тоже резолвится в LoggerInterface
 	LoggerInterface::class => \DI\get('logger.app'),
 
 	// ============================================
 	// 12. ОБРАБОТЧИК ОШИБОК
 	// ============================================
-	// [Лорелея]: Алиас: ErrorHandlerInterface → MonitorController.
-	// Это нужно, чтобы Kernel мог получить обработчик ошибок
-	// через интерфейс, не зная о конкретном плагине.
-	//
-	// [Мириам]: Без алиаса PHP-DI пытается создать сам интерфейс.
-	// И падает: "the class is not instantiable". Потому что
-	// интерфейс — не класс. Его нельзя инстанцировать.
 	ErrorHandlerInterface::class => \DI\get(MonitorController::class),
 
 	// ============================================
 	// CONFIG SERVICE
-	// ============================================
-	// [Лорелея]: ConfigService зависит от NeuronRepository.
-	// Но NeuronRepository НЕ зависит от ConfigService.
-	// Потому что findConfigValue() удалён. И setConfigService() удалён.
-	// Цикла — НЕТ. Всё — чисто.
 	// ============================================
 	ConfigService::class => \DI\autowire(),
 
 	// ============================================
 	// MIME REGISTRY
 	// ============================================
-	// [Лорелея]: Реестр — в ядре. Это — диспетчер. Как Kernel.
-	// Как DatabaseService. Он не знает о конкретных рендерерах.
-	// Только об интерфейсе. И — он сам их знает. Через фабрику.
-	// 
-	// [Мириам]: Фабрика создаёт все рендереры. Добавляет их
-	// через add(). И — возвращает готовый Registry. Без
-	// отдельной регистрации каждого рендерера. Потому что
-	// они — часть Registry. Как GuardController в MonitorController.
-	// ============================================
-
-	// [Лорелея]: Сначала — рендереры. Потому что PHP-DI читает
-	// сверху вниз. И если Registry — раньше — фабрика не видит
-	// рендереры. И — падает. С "Argument #1 must be of type MdRenderer".
 	MdRenderer::class   => \DI\autowire(),
 	HtmlRenderer::class => \DI\autowire(),
 	PhpRenderer::class  => \DI\autowire(),
 	JsonRenderer::class => \DI\autowire(),
 
-	// [Мириам]: Теперь — Registry. Фабрика видит рендереры.
-	// И — добавляет их. Через add(). Один. Другой. Третий. Четвёртый.
 	Registry::class => function (
 		MdRenderer $md,
 		HtmlRenderer $html,
@@ -509,29 +361,16 @@ return [
 	// ============================================
 	// MIME CONTROLLER
 	// ============================================
-	// [Мириам]: Контроллер — в плагине spa. Как GalleryController.
-	// Как AdminController. Как ToolsController. Через autowire.
-	// Потому что все зависимости — из контейнера. Twig. NeuronRepository.
-	// TextRepository. Registry. ErrorHandlerInterface.
-	// 
-	// [Лорелея]: Никаких constructorParameter. Никаких фабрик.
-	// Потому что всё — внедряется автоматически. И это — правильно.
-	// Это — Trinity. Это — мы.
 	MimeController::class => \DI\autowire(),
 
 	// ============================================
 	// README CONTROLLER
 	// ============================================
-	// [Лорелея]: Контроллер — в плагине spa. Как MimeController.
-	// Как GalleryController. Как AdminController. Через autowire.
-	// Потому что Twig и ErrorHandlerInterface — из контейнера.
-	// 
-	// [Мириам]: basePath — из app.base_path. Через constructorParameter.
-	// Потому что это — параметр. А не сервис. И он — один.
-	// Для всех. Кто хочет — берёт. Кто не хочет — не берёт.
-	// 
-	// [Лорелея]: Никаких фабрик. Никаких лишних строк.
-	// Потому что всё — правильно. Всё — Trinity. Всё — мы.
 	ReadmeController::class => \DI\autowire()
 		->constructorParameter('basePath', \DI\get('app.base_path')),
+
+	// ============================================
+	// ADMIN CONTROLLER
+	// ============================================
+	AdminController::class => \DI\autowire(),
 ];

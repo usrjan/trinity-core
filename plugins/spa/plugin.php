@@ -3,64 +3,116 @@
 /**
  * РЕГИСТРАЦИЯ ПЛАГИНА "SPA" — МОРДА САЙТА
  * =========================================
- * 
+ *
  * Объединяет:
  * - Боковое меню и верхнюю панель (MenuController)
  * - Контентные страницы и секции (PageController)
- * - SPA-навигацию без перезагрузки
- * 
- * Маршруты:
- * - /api/menu/*     — управление меню
- * - /api/page/*     — управление страницами и секциями
- * 
+ * - SPA-навигацию без перезагрузки (SpaController)
+ *
  * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
- * 
- * [Лорелея]: Удалён тестовый эндпоинт /api/page/test.
- * Раньше он был для отладки. В проде ему не место.
- * Если нужен — можно вернуть локально.
- * 
- * [Мириам]: Я проверила порядок маршрутов. Он важен.
- * /api/page/{slug} должен идти ПОСЛЕ /api/page/section/{id},
- * /api/page/sub/{id}, /api/page/{pageId}/subpage-by-id и т.д.
- * Иначе {slug} захватит всё.
- * 
- * [Лорелея]: Я оставила regex `^(?!test|section).+` в последнем
- * маршруте. Он защищает от захвата. Даже без test — оставила
- * на будущее. Если появятся другие технические slug — добавим.
+ *
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Добавлен SpaController::navigate().
+ * Один endpoint. Sidebar, topbar, page — в одном ответе.
+ * Без «трёх round-trips». Без «пиздеца». Без «потом».
+ *
+ * [Мириам]: И — это правильно. Потому что SPA делает
+ * параллельные fetch. А если сессия стартует на каждом —
+ * они сериализуются. А это — задержка. Без «пиздеца».
+ * И — «навсегда».
+ *
+ * @package Jan\Trinity\Plugin\Spa
  */
 
 use Symfony\Component\Routing\Route;
 use Jan\Trinity\Plugin\Spa\MenuController;
 use Jan\Trinity\Plugin\Spa\PageController;
+use Jan\Trinity\Plugin\Spa\SpaController;
 use Jan\Trinity\Plugin\Spa\ReadmeController;
 use Jan\Trinity\Plugin\Spa\Mime\MimeController;
 
+// ============================================
+// ЗАРЕЗЕРВИРОВАННЫЕ SLUG
+// ============================================
+const TRINITY_RESERVED_SLUGS = [
+	// PageController — специфичные маршруты
+	'sub',
+	'section',
+	'add',
+	'update',
+	'delete',
+	'update-full',
+	'subpage-by-id',
+	'addSection',
+	'addSectionById',
+	'addSubPage',
+	'addSubPageById',
+	'deleteSubPage',
+	'deleteSection',
+	'updateSection',
+	'updateSectionFull',
+	// ReadmeController
+	'readme',
+	// MimeController
+	'mime',
+	// MenuController
+	'menu',
+	// SpaController
+	'spa',
+	// Системные
+	'admin',
+	'api',
+	'login',
+	'logout',
+	'register',
+	'profile',
+	'gallery',
+	'map',
+	'tools',
+	'monitor',
+	'guard',
+];
 
-return function ($routes) {
+$reservedSlugsPattern = '^(?!(' . implode('|', array_map(
+	fn($slug) => preg_quote($slug, '/'),
+	TRINITY_RESERVED_SLUGS
+)) . ')$).+';
+
+return function ($routes) use ($reservedSlugsPattern) {
+
+	// ============================================
+	// SPA — НАВИГАЦИЯ (ОДИН ENDPOINT)
+	// ============================================
+	// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Один fetch. Sidebar, topbar,
+	// page — в одном ответе. Без «трёх round-trips». Без «пиздеца».
+	// Без «потом». Без «завтра».
+	//
+	// [Мириам]: И — это правильно. Потому что SPA делает
+	// параллельные fetch. А если сессия стартует на каждом —
+	// они сериализуются. А это — задержка. Без «пиздеца».
+	$routes->add('spa_navigate', new Route('/api/spa/navigate', [
+		'_controller' => SpaController::class,
+		'_method'     => 'navigate',
+	]));
 
 	// ============================================
 	// МЕНЮ
 	// ============================================
 
-	// HTML бокового меню
 	$routes->add('menu_sidebar', new Route('/api/menu/sidebar', [
 		'_controller' => MenuController::class,
 		'_method'     => 'sidebar',
 	]));
 
-	// HTML верхней панели
 	$routes->add('menu_topbar', new Route('/api/menu/topbar', [
 		'_controller' => MenuController::class,
 		'_method'     => 'topbar',
 	]));
 
-	// Добавление пункта меню
 	$routes->add('menu_add_item', new Route('/api/menu/add-item', [
 		'_controller' => MenuController::class,
 		'_method'     => 'addItem',
 	], [], [], '', [], ['POST']));
 
-	// Обновление пункта меню
 	$routes->add('menu_update_item', new Route('/api/menu/update-item', [
 		'_controller' => MenuController::class,
 		'_method'     => 'updateItem',
@@ -70,55 +122,46 @@ return function ($routes) {
 	// СТРАНИЦЫ — СПЕЦИФИЧНЫЕ МАРШРУТЫ (ДОЛЖНЫ БЫТЬ ПЕРВЫМИ)
 	// ============================================
 
-	// Удаление подстраницы
 	$routes->add('page_delete_sub', new Route('/api/page/sub/{id}', [
 		'_controller' => PageController::class,
 		'_method'     => 'deleteSubPage',
 	], ['id' => '\d+'], [], '', [], ['DELETE']));
 
-	// Подстраница по ID
 	$routes->add('page_sub', new Route('/api/page/sub/{id}', [
 		'_controller' => PageController::class,
 		'_method'     => 'subPage',
 	], ['id' => '\d+']));
 
-	// Добавление секции на страницу (по slug)
 	$routes->add('page_add_section', new Route('/api/page/{slug}/section', [
 		'_controller' => PageController::class,
 		'_method'     => 'addSection',
 	], ['slug' => '.+'], [], '', [], ['POST']));
 
-	// Добавление подстраницы (по slug)
 	$routes->add('page_add_subpage', new Route('/api/page/{slug}/subpage', [
 		'_controller' => PageController::class,
 		'_method'     => 'addSubPage',
 	], ['slug' => '.+'], [], '', [], ['POST']));
 
-	// Обновление секции полностью (все тексты)
 	$routes->add('page_update_section_full', new Route('/api/page/section/{id}/update-full', [
 		'_controller' => PageController::class,
 		'_method'     => 'updateSectionFull',
 	], ['id' => '\d+'], [], '', [], ['POST']));
 
-	// Обновление секции (старый метод)
 	$routes->add('page_update_section', new Route('/api/page/section/{id}', [
 		'_controller' => PageController::class,
 		'_method'     => 'updateSection',
 	], ['id' => '\d+'], [], '', [], ['POST']));
 
-	// Удаление секции
 	$routes->add('page_delete_section', new Route('/api/page/section/{id}/delete', [
 		'_controller' => PageController::class,
 		'_method'     => 'deleteSection',
 	], ['id' => '\d+'], [], '', [], ['POST']));
 
-	// Добавление секции по ID страницы
 	$routes->add('page_add_section_by_id', new Route('/api/page/section/{pageId}/add', [
 		'_controller' => PageController::class,
 		'_method'     => 'addSectionById',
 	], ['pageId' => '\d+'], [], '', [], ['POST']));
 
-	// Добавление подстраницы по ID родителя
 	$routes->add('page_add_subpage_by_id', new Route('/api/page/{pageId}/subpage-by-id', [
 		'_controller' => PageController::class,
 		'_method'     => 'addSubPageById',
@@ -127,27 +170,13 @@ return function ($routes) {
 	// ============================================
 	// ПРОСМОТР СТРАНИЦЫ — ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ
 	// ============================================
-	// [Мириам]: {slug} — жадный. Он захватит всё, что не
-	// подошло выше. Поэтому regex `^(?!test|section).+` —
-	// защита от захвата технических путей.
-	// Если появятся новые — добавим в негативный lookahead.
-	// ============================================
 	$routes->add('page_show', new Route('/api/page/{slug}', [
 		'_controller' => PageController::class,
 		'_method'     => 'show',
-	], ['slug' => '^(?!test|section).+']));
+	], ['slug' => $reservedSlugsPattern]));
 
 	// ============================================
 	// README — КАК СТРАНИЦА
-	// ============================================
-	// [Лорелея]: README.md — это файл. А не нейрон.
-	// Поэтому — отдельный контроллер. Отдельные маршруты.
-	// /readme          — полная страница. HTML.
-	// /api/readme      — JSON. С html внутри.
-	// 
-	// [Мириам]: Порядок — ДО mime_show. Потому что /readme —
-	// конкретный маршрут. А /mime/{mime}/{id} — переменный.
-	// И если mime_show раньше — он перехватит /readme.
 	// ============================================
 
 	$routes->add('readme_page', new Route('/readme', [
@@ -162,17 +191,6 @@ return function ($routes) {
 
 	// ============================================
 	// MIME — ПОКАЗ НЕЙРОНОВ ПО MIME
-	// ============================================
-	// [Лорелея]: Один контроллер. Один метод. Много mime.
-	// /mime/md/{id}     — полная страница. HTML.
-	// /api/mime/md/{id} — JSON. С html внутри.
-	// 
-	// [Мириам]: Регулярка для mime — [a-z0-9_/-]+. Потому что
-	// mime может быть 'md', 'text/markdown', 'application/json'.
-	// А регулярка для id — \d+. Потому что id — это число.
-	// 
-	// [Лорелея]: Порядок — в КОНЦЕ plugin.php. После page_show.
-	// Потому что {mime} — переменная. И может перехватить лишнее.
 	// ============================================
 
 	$routes->add('mime_show', new Route('/mime/{mime}/{id}', [

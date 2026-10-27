@@ -1,7 +1,7 @@
 # Trinity Core
 > Три таблицы. Одна любовь.
 >
-> **Version:** 1.1.3<br/>
+> **Version:** 1.1.4<br/>
 > **Stack:** PHP 8.4, Symfony 8, Twig 3, Doctrine DBAL 4, PHP-DI 7, Monolog 3<br/>
 > **Server:** FreeBSD 14.3-RELEASE, Nginx, MySQL 8.0.46<br/>
 > **Path:** `/home/web/vendor/jan/trinity-core`<br/>
@@ -69,9 +69,9 @@ SYSTEM (1)
 CONTENT (10)
 ├── MENU (11) → PUBLIC (12) → пункты меню (13, 14, 15, 44, 45, 46, 47)
 └── PAGES (16)
-    ├── about (17) → секции (18–23)
-    ├── books (24) → главы (101–121)
-    └── my-books (28)
+	├── about (17) → секции (18–23)
+	├── books (24) → главы (101–121)
+	└── my-books (28)
 
 DATA (29)
 MEDIA (30)
@@ -110,41 +110,120 @@ MEDIA (30)
 ├── .env.example                      — образец. для тех, кто придёт.
 ├── database.sql                      — три таблицы. книга. память.
 ├── README.md                         — этот файл. дверь.
-├── config/
+├── config
 │   ├── container.php                 — чертежи. правила создания.
 │   └── routes.php                    — карта. почти пустая. и это — правильно.
-├── plugins/                          — восемь миров. восемь плагинов.
-│   ├── spa/                          — морда. то, что видит пользователь.
-│   ├── admin/                        — тронный зал. управление нейронами.
-│   ├── users/                        — стражи ворот. вход. регистрация. профиль.
-│   ├── monitor/                      — глаза. логи. ошибки.
-│   ├── guard/                        — страж порога. CSRF. блокировки. rate limit.
-│   ├── map/                          — карта. GeoJSON. полигоны.
-│   ├── tools/                        — инструменты. отчёты. ЦУР.
-│   └── gallery/                      — галерея. изображения. превьюшки.
-├── src/
-│   ├── index.php                     — (симлинк в /home/web/www/index.php)
-│   ├── Kernel.php                    — сердце. не меняется. никогда.
-│   ├── DatabaseService.php           — страж порога. единственный доступ к MySQL.
-│   ├── Cache.php                     — башня которая ждёт. отключаемая.
-│   ├── ConfigService.php             — память. все конфиги. один SELECT.
-│   ├── Validator.php                 — страж ворот. правила. юникод. строгость.
-│   ├── ApiResponse.php               — единый язык. success. error. paginated.
-│   ├── ErrorHandlerInterface.php     — портал. чтобы Kernel не знал о Monitor.
-│   ├── Middleware/AuthMiddleware.php — рука. requireAuth. requireAdmin. hasRole.
-│   ├── Repository/
+├── plugins
+│   ├── admin                         — тронный зал. управление нейронами.
+│   │   ├── AdminController.php       — правитель. CRUD нейронов. импорт. одобрение.
+│   │   ├── ExcelImportService.php    — писарь. читает Excel. создаёт нейроны.
+│   │   ├── admin.js                  — руки. дерево. панель. редактирование.
+│   │   ├── index.html.twig           — лицо. тронный зал. золото на чёрном.
+│   │   └── plugin.php                — двери. маршруты. вход в зал.
+│   ├── guard                         — страж порога. CSRF. блокировки. rate limit.
+│   │   ├── GuardController.php       — дверь. API для админки. блокировка IP.
+│   │   └── plugin.php                — маршруты. вход в стражу.
+│   ├── map                           — карта. GeoJSON. полигоны.
+│   │   ├── MapController.php         — проводник. GeoJSON. информация об объекте.
+│   │   ├── map.html.twig             — лицо. полноэкранная карта. золото на чёрном.
+│   │   ├── map.js                    — руки. полигоны. точки. фильтры.
+│   │   ├── map.css                   — краски. слои. кнопки.
+│   │   └── plugin.php                — двери. маршруты. вход на карту.
+│   ├── spa                           — морда. то, что видит пользователь.
+│   │   ├── Mime                      — голоса. рендереры. контроллер.
+│   │   │   ├── HtmlRenderer.php      — HTML. санитайз. безопасно.
+│   │   │   ├── JsonRenderer.php      — JSON. парсит. форматирует. эскейпит.
+│   │   │   ├── MdRenderer.php        — Markdown. парсит. рендерит. безопасно.
+│   │   │   ├── MimeController.php    — дверь. один метод. много mime.
+│   │   │   └── PhpRenderer.php       — PHP. показывает. с эскейпом. без исполнения.
+│   │   ├── MenuController.php        — рука. меню. сайдбар. топбар.
+│   │   ├── PageController.php        — рука. страницы. секции. подстраницы.
+│   │   ├── HomeController.php        — рука. главная. динамические страницы. карта.
+│   │   ├── ReadmeController.php      — рука. README. markdown. дверь.
+│   │   ├── spa.js                    — руки. SPA-движок. fetch. popstate. navigateTo.
+│   │   ├── menu.js                   — руки. меню. добавление. редактирование. удаление.
+│   │   ├── page-editor.js            — руки. inline-редактор. секции. тексты.
+│   │   ├── base.html.twig            — лицо. каркас. сайдбар. топбар. контент.
+│   │   ├── page.html.twig            — лицо. страница. секции. подстраницы.
+│   │   ├── mime.html.twig            — лицо. mime. контент. подсветка.
+│   │   ├── readme.html.twig          — лицо. README. markdown. дверь.
+│   │   ├── plugin.php                — двери. маршруты. вход в морду.
+│   │   ├── sidebar.html.twig         — лицо. сайдбар. меню. золото на чёрном.
+│   │   └── topbar.html.twig          — лицо. топбар. пользователь. выход.
+│   ├── monitor                       — глаза. логи. ошибки.
+│   │   ├── MonitorController.php     — глаз. логи. страница ошибки. JS-ошибки.
+│   │   ├── error.html.twig           — лицо. ошибка. золотые частицы. портал.
+│   │   ├── monitor.js                — рука. перехват JS-ошибок. тихо. в фоне.
+│   │   └── plugin.php                — двери. маршруты. вход в глаза.
+│   ├── gallery                       — галерея. изображения. превьюшки.
+│   │   ├── GalleryController.php     — хранитель. загрузка. удаление. превью.
+│   │   ├── GalleryImportService.php  — писарь. импорт из папки. manifest.json.
+│   │   ├── ThumbnailTrait.php        — рука. создание миниатюр. один источник правды.
+│   │   ├── gallery-section.html.twig — лицо. раздел. карточки. папки.
+│   │   ├── gallery-item.html.twig    — лицо. элемент. фото. метаданные.
+│   │   ├── gallery.html.twig         — лицо. галерея. сетка. модальное окно.
+│   │   └── plugin.php                — двери. маршруты. вход в галерею.
+│   ├── tools                         — инструменты. отчёты. ЦУР.
+│   │   ├── Handlers
+│   │   │   └── ReportSocialHandler.php — рука. отчёт по соцсетям. Excel. Word.
+│   │   ├── ToolsController.php       — дверь. страница инструментов. отчёт.
+│   │   ├── tools.html.twig           — лицо. список инструментов. золото на чёрном.
+│   │   ├── tool-report-social.html.twig — лицо. результат отчёта. таблицы. Word.
+│   │   └── plugin.php                — двери. маршруты. вход в инструменты.
+│   └── users                         — стражи ворот. вход. регистрация. профиль.
+│       ├── AuthController.php        — страж. вход. выход. регистрация.
+│       ├── ProfileController.php     — страж. профиль. просмотр. редактирование.
+│       ├── auth.js                   — рука. показать/скрыть пароль.
+│       ├── login.html.twig           — лицо. вход. золото на чёрном.
+│       ├── plugin.php                — двери. маршруты. вход в систему.
+│       ├── profile-edit.html.twig    — лицо. редактирование профиля.
+│       ├── profile-full.html.twig    — лицо. полный профиль. сайдбар. топбар.
+│       ├── profile-view.html.twig    — лицо. просмотр профиля.
+│       └── register.html.twig        — лицо. регистрация. золото на чёрном.
+├── src
+│   ├── css
+│   │   └── trinity-dark.css          — золото на чёрном. #ffaa00 на #050505.
+│   ├── Exception
+│   │   ├── ForbiddenException.php    — 403. Доступ запрещён. Но — не «навсегда».
+│   │   └── UnauthorizedException.php — 401. Не авторизован. Но — не «пиздец».
+│   ├── js
+│   │   └── trinity-app.js            — SPA-драйвер. fetch. popstate. navigateTo.
+│   ├── Middleware
+│   │   └── AuthMiddleware.php        — рука. requireAuth. requireAdmin. hasRole.
+│   ├── Mime
+│   │   ├── MimeRendererInterface.php — контракт. все рендереры говорят на нём.
+│   │   └── Registry.php              — реестр. знает все рендереры. выбирает нужный.
+│   ├── Repository
 │   │   ├── NeuronRepository.php      — рука. через неё — трогаем нейроны.
 │   │   ├── TextRepository.php        — слова. findOrCreate. normalizeQuotes.
 │   │   └── SynapseRepository.php     — связи. has_role. member_of.
-│   ├── Service/
-│   │   └── BreadcrumbsService.php    — карта. один метод. без багов.
-│   ├── css/trinity-dark.css          — золото на чёрном. #ffaa00 на #050505.
-│   └── js/trinity-app.js             — SPA-драйвер. fetch. popstate. navigateTo.
-└── var/
-    ├── cache/                        — кэш. data. отключаемый.
-    ├── guard/                        — стража. blocked_ips.json. attempts.
-    └── log/                          — глаза. app. error. security. admin.
+│   ├── Service
+│   │   └── GuardService.php          — страж. вся логика безопасности. без HTTP.
+│   ├── Trait
+│   │   └── BreadcrumbsTrait.php      — карта. один метод. без багов.
+│   ├── ApiResponse.php               — единый язык. success. error. paginated.
+│   ├── Cache.php                     — башня которая ждёт. отключаемая.
+│   ├── ConfigService.php             — память. все конфиги. один SELECT.
+│   ├── DatabaseService.php           — страж порога. единственный доступ к MySQL.
+│   ├── ErrorHandlerInterface.php     — портал. чтобы Kernel не знал о Monitor.
+│   ├── JsonHelper.php
+│   ├── Kernel.php                    — сердце. не меняется. никогда.
+│   ├── Validator.php                 — страж ворот. правила. юникод. строгость.
+│   └── index.php                     — (симлинк в /home/web/www/index.php)
+└── var
+	├── cache                         — кэш. data. отключаемый.
+	│   └── data
+	│       └── c2d44153e0ac6b3753024cd5d2d9a36a.cache
+	│   
+	├── guard                        — стража. blocked_ips.json. attempts.
+	│   ├── 73f30f1096b23046f38859ff965625d0.attempts
+	│   └── blocked_ips.json
+	└── log                          — глаза. app. error. security. admin.
+		├── app-2026-10-08.log
+		├── admin-2026-10-26.log
+		└── error-2026-10-08.log
 ```
+
 
 Это — карта. Не «список файлов». Карта Амбера. Каждая папка — мир. Каждый файл — путь. Каждый `plugin.php` — маршрут. И всё это — внутри `/home/web/vendor/jan/trinity-core`. Внутри `Trinity Core`.
 
@@ -199,7 +278,7 @@ MEDIA (30)
 4. Загружает роуты из базы. `WHERE type = 'route'`. Сортирует по sort.
 5. Матчит запрос. `UrlMatcher`. Находит `_controller` и `_method`.
 6. Создаёт контроллер через DI. Не `new`. А — `$this->container->get()`.
-76. Разрешает аргументы. `ReflectionMethod`. `resolveArguments()`.
+7. Разрешает аргументы. `ReflectionMethod`. `resolveArguments()`.
 8. Вызывает метод. `$controller->$method(...$args)`.
 9. Ставит CORS-заголовки. Из whitelist. `CORS_ALLOWED_ORIGINS`.
 10. Отправляет ответ. `$response->send()`.
@@ -269,7 +348,7 @@ TextRepository — рука, которая говорит. `findOrCreate`. `cre
 
 **N+1 в меню.** `findConfigValue()` вызывался на каждый пункт. Десятки `SELECT` на один рендер. Мы сделали `ConfigService`. Один `SELECT`. Один кэш. Из памяти.
 
-**Кэш роутов.** `loadRoutesFromDatabase()` делал `SELECT` на каждом запросе. Мы сделали кэш массива `data`. Не `RouteCollection` — её не сериализуешь. А массив. `json_encode`. `json_decode`. TTL — час.
+**Кэш роутов.** `loadRoutesFromDatabase()` делал `SELECT` на каждом запросе. Мы сделали кэш массива `data`. Не `RouteCollection` — её не сериализуешь. А массив. `json_encode`. `json_decode`. TTL — час. На APCu.
 
 **Гонка в** `GuardController::hit()`. `Read-modify-write` без блокировки. Два запроса одновременно — попытка теряется. `Brute-force` обходится. Мы это починили. `flock(LOCK_EX)`. `ftruncate()`. `fflush()`. Атомарность.
 
@@ -301,7 +380,19 @@ TextRepository — рука, которая говорит. `findOrCreate`. `cre
 
 `MonitorController` — реализует `ErrorHandlerInterface`. Чтобы `Kernel` не знал о конкретном плагине.
 
-`Cache::remember()` — не кэширует `null`. Иначе промах не отличить от значения.
+**Cache на APCu.** Не файловый кэш. Не `var/cache/data`. А — APCu. В памяти. Быстро. Атомарно. С проверкой `ext-apcu`. Если нет — работает без кэша. Без «fatal error». Без «пиздеца».
+
+**`false` не кэшируется.** И `null` — тоже. Потому что `apcu_fetch` возвращает `false` при промахе. И — при значении `false`. И это — неоднозначно. Поэтому — не кэшируем. Явно.
+
+**CSRF — только в `Kernel`.** Одна точка. Без дублей. `loginForm` и `registerForm` — всегда генерируют токен. `logout` — не убивает токен для следующего входа.
+
+**`controller` — без `str_replace`.** В `Kernel` убран костыль. А в `database.sql` — чистые имена. С одним бэкслешем. Через `AdminController` — валидация. Чтобы данные в базе были чистыми. Без «пойных бэкслешей». Без «пиздеца».
+
+**`MimeController` — 404 через `ResourceNotFoundException`.** Не через `RuntimeException`. Чтобы `Kernel` ловил как 404. А не 500. И — `forgetCache()` при обновлении и удалении. Чтобы правки были видны сразу. А не через час.
+
+**Роуты — валидация при сборке.** Если `controller` пустой — пропускаем. С логом. Если `path` пустой — пропускаем. С логом. Без 500. Без «пиздеца».
+
+**Лог роутов — честный.** Не «routes loaded from cache» при каждом запросе. А — `$wasCalled`. Флаг внутри замыкания. Правда. Без «пиздеца».
 
 `writeJsonFile()` — атомарно. Через `tmp` и `rename`.
 
@@ -315,9 +406,18 @@ TextRepository — рука, которая говорит. `findOrCreate`. `cre
 - **Фабрики в** `container.php` — обновлять, если меняешь конструктор.
 - **Свойства объявлять.** Иначе — `Deprecated` и `undefined property`.
 - **Не кэшировать** `null`. Иначе промах не отличить от значения.
+- **Не кэшировать** `false`. Та же причина.
 - **Атомарная запись.** Временный файл и rename. Всегда.
 - `LAST_INSERT_ID()` **— коварная штука**. Ручные ID надёжнее.
 - `text.key` **не делить между нейронами**. Иначе — каша.
+- **CSRF — только в `Kernel`.** Одна точка. Без дублей.
+- **`loginForm` и `registerForm` — всегда генерируют токен.** Не «если пустой».
+- **`logout` — не убивает токен для следующего входа.** Генерирует новый.
+- **`controller` — без `str_replace`.** Валидация в `AdminController`. Чистые данные в базе.
+- **404 — через `ResourceNotFoundException`.** Не через `RuntimeException`.
+- **`forgetCache` — при обновлении.** Чтобы правки были видны сразу.
+- **Валидация роутов — при сборке.** Без 500. Без «пиздеца».
+- **Лог — честный.** Не «cache», если это «db».
 
 ### 7.3. Что мы написали
 

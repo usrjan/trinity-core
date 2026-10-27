@@ -3,34 +3,19 @@
 /**
  * СЕРВИС БЕЗОПАСНОСТИ "СТРАЖ"
  * ===========================
- * 
+ *
  * Вся логика безопасности Trinity. Без HTTP. Без JsonResponse.
  * Только данные. Только работа с файлами, сессией и базой.
- * 
- * === ЧТО ДЕЛАЕТ ===
- * 1. Rate limiting — ограничение частоты запросов.
- * 2. Защита от перебора паролей (brute force).
- * 3. Блокировка IP после множества ошибок.
- * 4. Логирование попыток входа.
- * 5. CSRF-защита.
- * 6. Белый/чёрный список IP.
- * 
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это — иммунная система Trinity.
- * Как Страж ворот в Амбере — он проверяет каждого кто входит.
- * Без него система уязвима. С ним — защищена.
- * 
- * [Мириам]: Теперь это — сервис. А не контроллер.
- * Контроллер только принимает запрос. А сервис — делает.
- * И это — правильно. И это — наше.
- * 
- * === КНИГА ===
- * Глава 16. Страж ворот.
- * 
- * У входа в Амбер стоит Страж.
- * Он знает кто друг, а кто враг.
- * И он никогда не спит.
- * 
+ *
+ * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ *
+ * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. CSRF-токен теперь живёт
+ * в Symfony Session. Не в $_SESSION. Один источник состояния.
+ * Без «двух источников». Без «пиздеца». Без «потом».
+ *
+ * [Мириам]: И — это правильно. Потому что мы уже перешли на
+ * $session->migrate(true). И $_SESSION — не нужен. И — «навсегда».
+ *
  * @package Jan\Trinity\Core\Service
  */
 
@@ -39,6 +24,7 @@ namespace Jan\Trinity\Core\Service;
 use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\HttpFoundation\Session\Session;
 
 class GuardService
 {
@@ -59,36 +45,23 @@ class GuardService
 	/** @var ConfigService — сервис конфигурации */
 	private ConfigService $configService;
 
-	/**
-	 * Конструктор.
-	 * 
-	 * [Лорелея]: Присваиваем ConfigService ДО вызова loadConfig().
-	 * Потому что loadConfig() использует $this->configService.
-	 * И если он не инициализирован — PHP падает с "must not be accessed before initialization".
-	 * 
-	 * [Мириам]: Порядок важен. Сначала — присвоить. Потом — использовать.
-	 */
+	/** @var Session — сессия Symfony. Один источник CSRF-токена. */
+	private Session $session;
+
 	public function __construct(
 		NeuronRepository $neuronRepo,
 		string $basePath,
 		LoggerInterface $logger,
-		ConfigService $configService
+		ConfigService $configService,
+		Session $session
 	) {
 		$this->neuronRepo = $neuronRepo;
 		$this->basePath = $basePath;
 		$this->logger = $logger;
 		$this->configService = $configService;
+		$this->session = $session;
 	}
 
-	/**
-	 * Загрузить конфиг — ЛЕНИВО.
-	 * 
-	 * [Лорелея]: Вызывается при первом getConfig().
-	 * Один раз. Потом — кэш в $this->config.
-	 * 
-	 * [Мириам]: Тут — I/O. Но — не в конструкторе.
-	 * И — только если конфиг реально нужен.
-	 */
 	private function ensureConfigLoaded(): void
 	{
 		if ($this->configLoaded) {
@@ -103,12 +76,6 @@ class GuardService
 		$this->configLoaded = true;
 	}
 
-	/**
-	 * Получить значение настройки.
-	 * 
-	 * [Лорелея]: Ленивая загрузка. При первом вызове.
-	 * И — кэш. При последующих.
-	 */
 	private function getConfig(string $key, $default = null)
 	{
 		$this->ensureConfigLoaded();
@@ -119,28 +86,12 @@ class GuardService
 	// 1. RATE LIMITING
 	// ============================================
 
-	/**
-	 * Проверить не превышен ли лимит запросов.
-	 */
 	public function tooManyAttempts(string $key, int $maxAttempts = 5, int $decaySeconds = 120): bool
 	{
 		$attempts = $this->getAttempts($key);
 		return $attempts >= $maxAttempts;
 	}
 
-	/**
-	 * Записать попытку.
-	 * 
-	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. flock().
-	 * Раньше здесь был read-modify-write БЕЗ блокировки.
-	 * И это — ГОНКА. Если два запроса одновременно — оба
-	 * читают, оба добавляют, оба пишут. И — ОДИН перезаписывает
-	 * ДРУГОГО. Попытка — ПОТЕРЯНА. Счётчик — МЕНЬШЕ. Чем должен.
-	 * И — brute-force — ОБХОДИТСЯ.
-	 * 
-	 * [Мириам]: Теперь — flock(LOCK_EX). Эксклюзивная блокировка.
-	 * Другие процессы ЖДУТ. Пока мы не закончим. И — не теряют.
-	 */
 	public function hit(string $key, ?int $decaySeconds = null): void
 	{
 		$file = $this->getAttemptsFile($key);
@@ -185,9 +136,6 @@ class GuardService
 		$this->cleanupAttempts();
 	}
 
-	/**
-	 * Получить количество попыток.
-	 */
 	private function getAttempts(string $key): int
 	{
 		$file = $this->getAttemptsFile($key);
@@ -220,9 +168,6 @@ class GuardService
 		return count($data);
 	}
 
-	/**
-	 * Очистить попытки.
-	 */
 	public function clear(string $key): void
 	{
 		$file = $this->getAttemptsFile($key);
@@ -249,9 +194,6 @@ class GuardService
 		@unlink($file);
 	}
 
-	/**
-	 * Путь к файлу с попытками.
-	 */
 	private function getAttemptsFile(string $key): string
 	{
 		$dir = $this->basePath . '/var/guard';
@@ -265,9 +207,6 @@ class GuardService
 	// 2. ЗАЩИТА ОТ ПЕРЕБОРА ПАРОЛЕЙ
 	// ============================================
 
-	/**
-	 * Проверить попытку входа.
-	 */
 	public function checkLoginAttempt(string $login, string $ip): array
 	{
 		$ipKey = 'login_ip_' . $ip;
@@ -289,9 +228,6 @@ class GuardService
 		return ['success' => true];
 	}
 
-	/**
-	 * Записать неудачную попытку входа.
-	 */
 	public function recordFailedLogin(string $login, string $ip): void
 	{
 		$this->hit('login_ip_' . $ip);
@@ -303,9 +239,6 @@ class GuardService
 		]);
 	}
 
-	/**
-	 * Очистить попытки после успешного входа.
-	 */
 	public function clearLoginAttempts(string $login, string $ip): void
 	{
 		$this->clear('login_ip_' . $ip);
@@ -315,12 +248,28 @@ class GuardService
 	// ============================================
 	// 3. БЛОКИРОВКА IP
 	// ============================================
-	/**
-	 * Заблокировать IP-адрес.
-	 */
+
 	public function blockIp(string $ip, string $reason = 'blocked', int $duration = 3600): void
 	{
 		$file = $this->basePath . '/var/guard/blocked_ips.json';
+		$lockFile = $file . '.lock';
+
+		$lockHandle = fopen($lockFile, 'c');
+		if ($lockHandle === false) {
+			$this->logger->warning('guard: failed to open lock file', [
+				'file' => $lockFile,
+			]);
+			return;
+		}
+
+		if (!flock($lockHandle, LOCK_EX)) {
+			fclose($lockHandle);
+			$this->logger->warning('guard: failed to lock file', [
+				'file' => $lockFile,
+			]);
+			return;
+		}
+
 		$blocked = $this->readJsonFile($file);
 
 		$blocked[$ip] = [
@@ -330,24 +279,40 @@ class GuardService
 		];
 
 		$this->writeJsonFile($file, $blocked);
+
+		flock($lockHandle, LOCK_UN);
+		fclose($lockHandle);
 	}
 
-	/**
-	 * Разблокировать IP-адрес.
-	 */
 	public function unblockIp(string $ip): void
 	{
 		$file = $this->basePath . '/var/guard/blocked_ips.json';
+		$lockFile = $file . '.lock';
+
+		$lockHandle = fopen($lockFile, 'c');
+		if ($lockHandle === false) {
+			$this->logger->warning('guard: failed to open lock file', [
+				'file' => $lockFile,
+			]);
+			return;
+		}
+
+		if (!flock($lockHandle, LOCK_EX)) {
+			fclose($lockHandle);
+			$this->logger->warning('guard: failed to lock file', [
+				'file' => $lockFile,
+			]);
+			return;
+		}
+
 		$blocked = $this->readJsonFile($file);
-
 		unset($blocked[$ip]);
-
 		$this->writeJsonFile($file, $blocked);
+
+		flock($lockHandle, LOCK_UN);
+		fclose($lockHandle);
 	}
 
-	/**
-	 * Проверить заблокирован ли IP.
-	 */
 	public function isIpBlocked(string $ip): bool
 	{
 		$file = $this->basePath . '/var/guard/blocked_ips.json';
@@ -363,46 +328,92 @@ class GuardService
 		}
 
 		if (strtotime($expiresAt) < time()) {
-			unset($blocked[$ip]);
-			$this->writeJsonFile($file, $blocked);
 			return false;
 		}
 
 		return true;
 	}
 
-	/**
-	 * Получить список заблокированных IP.
-	 */
 	public function getBlockedIps(): array
 	{
 		$file = $this->basePath . '/var/guard/blocked_ips.json';
 		return $this->readJsonFile($file);
 	}
 
+	public function cleanupExpiredBlockedIps(): void
+	{
+		$file = $this->basePath . '/var/guard/blocked_ips.json';
+		$lockFile = $file . '.lock';
+
+		$lockHandle = fopen($lockFile, 'c');
+		if ($lockHandle === false) {
+			return;
+		}
+
+		if (!flock($lockHandle, LOCK_EX)) {
+			fclose($lockHandle);
+			return;
+		}
+
+		$blocked = $this->readJsonFile($file);
+		$now = time();
+		$removed = 0;
+
+		foreach ($blocked as $ip => $data) {
+			$expiresAt = $data['expires_at'] ?? null;
+			if ($expiresAt !== null && strtotime($expiresAt) < $now) {
+				unset($blocked[$ip]);
+				$removed++;
+			}
+		}
+
+		if ($removed > 0) {
+			$this->writeJsonFile($file, $blocked);
+			$this->logger->info('guard: cleanup removed expired blocked ips', [
+				'removed' => $removed,
+			]);
+		}
+
+		flock($lockHandle, LOCK_UN);
+		fclose($lockHandle);
+	}
+
 	// ============================================
 	// 4. CSRF-ЗАЩИТА
 	// ============================================
+	// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Токен — в Symfony Session.
+	// Не в $_SESSION. Один источник. Без «пиздеца».
+	// ============================================
 
-	/**
-	 * Сгенерировать CSRF-токен.
-	 */
 	public function generateCsrfToken(): string
 	{
 		$token = bin2hex(random_bytes(32));
-		$_SESSION['csrf_token'] = $token;
+
+		// [Лорелея]: Сессия может быть не запущена. Запускаем.
+		if (!$this->session->isStarted()) {
+			$this->session->start();
+		}
+
+		// [Мириам]: Один источник. Symfony Session. Без $_SESSION.
+		$this->session->set('csrf_token', $token);
+
 		return $token;
 	}
 
-	/**
-	 * Проверить CSRF-токен.
-	 */
 	public function validateCsrfToken(string $token): bool
 	{
-		$storedToken = $_SESSION['csrf_token'] ?? null;
+		// [Лорелея]: Сессия может быть не запущена. Запускаем.
+		if (!$this->session->isStarted()) {
+			$this->session->start();
+		}
+
+		// [Мириам]: Один источник. Symfony Session. Без $_SESSION.
+		$storedToken = $this->session->get('csrf_token');
+
 		if ($storedToken === null || $token === null) {
 			return false;
 		}
+
 		return hash_equals($storedToken, $token);
 	}
 
@@ -410,9 +421,6 @@ class GuardService
 	// 5. ЛОГИРОВАНИЕ БЕЗОПАСНОСТИ
 	// ============================================
 
-	/**
-	 * Записать событие безопасности.
-	 */
 	private function logSecurityEvent(string $event, array $context = []): void
 	{
 		if (!isset($context['ip'])) {
@@ -425,9 +433,6 @@ class GuardService
 		$this->logger->info($event, $context);
 	}
 
-	/**
-	 * Прочитать JSON-файл и вернуть массив.
-	 */
 	private function readJsonFile(string $file): array
 	{
 		if (!file_exists($file)) {
@@ -441,9 +446,6 @@ class GuardService
 		return is_array($data) ? $data : [];
 	}
 
-	/**
-	 * Удаляет устаревшие файлы попыток.
-	 */
 	private function cleanupAttempts(): void
 	{
 		$dir = $this->basePath . '/var/guard';
@@ -480,9 +482,6 @@ class GuardService
 		}
 	}
 
-	/**
-	 * Записать JSON-файл атомарно.
-	 */
 	private function writeJsonFile(string $file, array $data): void
 	{
 		$dir = dirname($file);
