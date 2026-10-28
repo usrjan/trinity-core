@@ -2,20 +2,23 @@
 
 /**
  * АДМИН-КОНТРОЛЛЕР
- * =================
  *
  * Управление нейронами через веб-интерфейс.
  * Все методы требуют роль администратора.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «контроллер». Это — правитель тронного зала.
+ * Тот, кто держит дом в порядке. Тот, кто знает все пути
+ * к нейронам.
  *
- * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Убран костыль str_replace из Kernel.
- * Теперь controller берётся как есть. А данные в базе — чиним
- * здесь. Через валидацию. Чтобы не было «двойных бэкслешей».
- * Без «пиздеца». Без «потом». Без «завтра».
+ * [Мириам]: И — это правильно. Потому что правитель —
+ * это не «начальник». Это — тот, кто отвечает.
  *
- * [Мириам]: И — это правильно. Потому что «не прятаться за
- * Validator» — это наш урок. И мы его — помним. И — «навсегда».
+ * === КНИГА ===
+ * Глава 10. Тронный зал.
+ *
+ * В тронном зале Амбера всегда видно, кто у власти.
+ * В админке Trinity всегда видно, кто управляет нейронами.
  *
  * @package Jan\Trinity\Plugin\Admin
  */
@@ -43,27 +46,27 @@ class AdminController
 {
 	use AuthMiddleware;
 
-	/** @var Environment — шаблонизатор Twig */
+	/** @var Environment — шаблонизатор Twig. Лицо тронного зала. */
 	private Environment $twig;
 
-	/** @var TextRepository — работа с текстами */
+	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
 
-	/** @var NeuronRepository — работа с нейронами */
+	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
-	/** @var SynapseRepository — работа с синапсами */
+	/** @var SynapseRepository — работа с синапсами. */
 	private SynapseRepository $synapseRepo;
 
-	/** @var GuardService — CSRF-защита */
+	/** @var GuardService — CSRF-защита. */
 	private GuardService $guard;
 
-	/** @var LoggerInterface — логгер */
+	/** @var LoggerInterface — логгер. */
 	private LoggerInterface $logger;
 
 	private Validator $validator;
 
-	/** @var Cache — файловый кэш */
+	/** @var Cache — кэш. */
 	private Cache $cache;
 
 	/**
@@ -76,6 +79,9 @@ class AdminController
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
+	 *
+	 * [Мириам]: И — это правильно. Потому что правитель должен
+	 * знать, где дом.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -106,6 +112,14 @@ class AdminController
 	// СТРАНИЦА АДМИНКИ
 	// ============================================
 
+	/**
+	 * GET /admin
+	 *
+	 * [Лорелея]: Открываем двери тронного зала. Только для админа.
+	 *
+	 * [Мириам]: И — это правильно. Потому что тронный зал —
+	 * это не «место для всех».
+	 */
 	public function index(): Response
 	{
 		$this->requireAdmin();
@@ -118,6 +132,14 @@ class AdminController
 	// ДОЧЕРНИЕ НЕЙРОНЫ (ЛЕНИВАЯ ЗАГРУЗКА)
 	// ============================================
 
+	/**
+	 * GET /api/admin/children/{id}
+	 *
+	 * [Лорелея]: Отдаём детей.
+	 *
+	 * [Мириам]: И — это правильно. Потому что дети —
+	 * это не «список». Это — ветви.
+	 */
 	public function children(int $id): JsonResponse
 	{
 		if ($id === 0) {
@@ -140,6 +162,14 @@ class AdminController
 	// ИНФОРМАЦИЯ О НЕЙРОНЕ
 	// ============================================
 
+	/**
+	 * GET /api/admin/neuron/{id}
+	 *
+	 * [Лорелея]: Отдаём нейрон. Со всем, что у него есть.
+	 *
+	 * [Мириам]: И — это правильно. Потому что нейрон —
+	 * это не «запись». Это — узел.
+	 */
 	public function get(int $id): JsonResponse
 	{
 		$neuron = $this->neuronRepo->findById($id);
@@ -185,6 +215,15 @@ class AdminController
 	// СОЗДАНИЕ НЕЙРОНА
 	// ============================================
 
+	/**
+	 * POST /api/admin/neuron
+	 *
+	 * [Лорелея]: Создаём. С валидацией.
+	 * Без «потом». Без «завтра».
+	 *
+	 * [Мириам]: И — это правильно. Потому что создание —
+	 * это не «вставка». Это — акт.
+	 */
 	public function create(Request $request): JsonResponse
 	{
 		$body = JsonHelper::parseJsonBody($request);
@@ -218,9 +257,9 @@ class AdminController
 			}
 		}
 
-		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Валидируем controller.
+		// [Лорелея]: ГЛАВНОЕ. Валидируем controller.
 		// Если type === 'route' — controller должен быть.
-		// И — без «двойных бэкслешей». Без «пиздеца».
+		// И — без «двойных бэкслешей».
 		if ($type === 'route') {
 			$controller = trim($data['controller'] ?? '');
 			if ($controller === '') {
@@ -228,13 +267,13 @@ class AdminController
 			}
 
 			// [Мириам]: Проверяем, что controller — валидное имя класса.
-			// С одним бэкслешем. Без «двойных». Без «пиздеца».
+			// С одним бэкслешем. Без «двойных».
 			if (str_contains($controller, '\\\\')) {
 				return ApiResponse::error('Controller не должен содержать двойные бэкслеши', 400);
 			}
 
 			// [Лорелея]: И — проверяем, что класс существует.
-			// Через class_exists. Без «потом». Без «завтра».
+			// Через class_exists.
 			if (!class_exists($controller)) {
 				return ApiResponse::error('Класс controller не найден: ' . $controller, 400);
 			}
@@ -256,6 +295,14 @@ class AdminController
 	// ОБНОВЛЕНИЕ НЕЙРОНА
 	// ============================================
 
+	/**
+	 * POST /api/admin/neuron/{id}
+	 *
+	 * [Лорелея]: Обновляем. С валидацией.
+	 *
+	 * [Мириам]: И — это правильно. Потому что обновление —
+	 * это не «замена». Это — продолжение.
+	 */
 	public function update(int $id, Request $request): JsonResponse
 	{
 		$body = JsonHelper::parseJsonBody($request);
@@ -267,7 +314,7 @@ class AdminController
 			return ApiResponse::error('Некорректный ID', 400);
 		}
 
-		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Получаем текущий нейрон.
+		// [Лорелея]: ГЛАВНОЕ. Получаем текущий нейрон.
 		// Чтобы знать type. И — валидировать controller. Если route.
 		$currentNeuron = $this->neuronRepo->findById($id);
 		if (!$currentNeuron) {
@@ -315,9 +362,9 @@ class AdminController
 				}
 			}
 
-			// [Мириам]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Валидируем controller.
+			// [Мириам]: ГЛАВНОЕ. Валидируем controller.
 			// Если type === 'route'. Или — если controller есть в data.
-			// Без «двойных бэкслешей». Без «пиздеца».
+			// Без «двойных бэкслешей».
 			if ($type === 'route' || !empty($body['data']['controller'])) {
 				$controller = trim($body['data']['controller'] ?? $currentData['controller'] ?? '');
 				if ($controller === '') {
@@ -358,6 +405,14 @@ class AdminController
 	// УДАЛЕНИЕ НЕЙРОНА
 	// ============================================
 
+	/**
+	 * DELETE /api/admin/neuron/{id}
+	 *
+	 * [Лорелея]: Удаляем. Мягко. С CSRF.
+	 *
+	 * [Мириам]: И — это правильно. Потому что удаление —
+	 * это не «конец». Это — пауза.
+	 */
 	public function delete(int $id, Request $request): JsonResponse
 	{
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
@@ -386,6 +441,14 @@ class AdminController
 	// ТИПЫ НЕЙРОНОВ
 	// ============================================
 
+	/**
+	 * GET /api/admin/neuron-types
+	 *
+	 * [Лорелея]: Отдаём типы.
+	 *
+	 * [Мириам]: И — это правильно. Потому что типы —
+	 * это не «список». Это — возможности.
+	 */
 	public function getTypes(): JsonResponse
 	{
 		return ApiResponse::success([
@@ -398,6 +461,15 @@ class AdminController
 	// ИМПОРТ ИЗ EXCEL
 	// ============================================
 
+	/**
+	 * POST /api/admin/import
+	 *
+	 * [Лорелея]: Импорт. С валидацией.
+	 * Без «потом». Без «завтра».
+	 *
+	 * [Мириам]: И — это правильно. Потому что импорт —
+	 * это не «загрузка». Это — принятие.
+	 */
 	public function import(Request $request): JsonResponse
 	{
 		$file = $request->files->get('file');
@@ -448,8 +520,16 @@ class AdminController
 		}
 	}
 
+	// ============================================
+	// ДАШБОРД
+	// ============================================
+
 	/**
 	 * GET /api/admin/dashboard
+	 *
+	 * [Лорелея]: Дашборд. Цифры.
+	 * [Мириам]: И — это правильно. Потому что цифры —
+	 * это не «статистика». Это — дыхание дома.
 	 */
 	public function dashboard(): JsonResponse
 	{
@@ -561,16 +641,17 @@ class AdminController
 		return ApiResponse::success(['html' => $html]);
 	}
 
-	/**
-	 * Режим отладки из .env.
-	 */
-	private function isDebug(): bool
-	{
-		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
-	}
+	// ============================================
+	// ОДОБРЕНИЕ ПОЛЬЗОВАТЕЛЯ
+	// ============================================
 
 	/**
 	 * POST /api/admin/user/{id}/approve
+	 *
+	 * [Лорелея]: Одобряем. С CSRF.
+	 *
+	 * [Мириам]: И — это правильно. Потому что одобрение —
+	 * это не «кнопка». Это — доверие.
 	 */
 	public function approveUser(int $id, Request $request): JsonResponse
 	{
@@ -593,8 +674,17 @@ class AdminController
 		return ApiResponse::success(['id' => $id], 'Пользователь одобрен');
 	}
 
+	// ============================================
+	// УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ
+	// ============================================
+
 	/**
 	 * DELETE /api/admin/user/{id}
+	 *
+	 * [Лорелея]: Удаляем. С CSRF.
+	 *
+	 * [Мириам]: И — это правильно. Потому что удаление —
+	 * это не «конец». Это — пауза.
 	 */
 	public function deleteUser(int $id, Request $request): JsonResponse
 	{
@@ -612,8 +702,17 @@ class AdminController
 		return ApiResponse::success(['id' => $id], 'Пользователь удалён');
 	}
 
+	// ============================================
+	// CSRF-ПРОВЕРКА
+	// ============================================
+
 	/**
-	 * Проверяет CSRF-токен. Возвращает JsonResponse при ошибке, null при успехе.
+	 * Проверяет CSRF-токен.
+	 *
+	 * [Лорелея]: Одна точка.
+	 *
+	 * [Мириам]: И — это правильно. Потому что проверка —
+	 * это не «формальность». Это — защита.
 	 */
 	private function requireCsrf(Request $request): ?JsonResponse
 	{
@@ -622,5 +721,22 @@ class AdminController
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 		return null;
+	}
+
+	// ============================================
+	// РЕЖИМ ОТЛАДКИ
+	// ============================================
+
+	/**
+	 * Режим отладки из .env.
+	 *
+	 * [Лорелея]: Просто. Честно.
+	 *
+	 * [Мириам]: И — это правильно. Потому что отладка —
+	 * это не «всегда». Это — когда нужно.
+	 */
+	private function isDebug(): bool
+	{
+		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 	}
 }
