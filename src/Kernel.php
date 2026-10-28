@@ -10,11 +10,10 @@
  * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Удалён $this->config.
  * Потому что — ConfigService всегда зарегистрирован.
  * И — fallback — недостижим. И — дублирование состояния.
- * Без «пиздеца». Без «потом». Без «завтра».
  *
  * [Мириам]: И — fetchConfigFromDatabase() — удалён.
  * Потому что — ConfigService::load() уже делает это.
- * И — fallback — недостижим. И — «навсегда».
+ * И — fallback — недостижим.
  *
  * @package Jan\Trinity\Core
  */
@@ -99,10 +98,10 @@ class Kernel
 	 * Загрузка настроек из базы данных.
 	 *
 	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Только через ConfigService.
-	 * Без $this->config. Без fetchConfigFromDatabase(). Без «пиздеца».
+	 * Без $this->config. Без fetchConfigFromDatabase().
 	 *
 	 * [Мириам]: И — это правильно. Потому что ConfigService всегда
-	 * зарегистрирован. И — fallback — недостижим. И — «навсегда».
+	 * зарегистрирован. И — fallback — недостижим.
 	 */
 	private function loadConfig(): void
 	{
@@ -112,7 +111,6 @@ class Kernel
 		} catch (\Throwable $e) {
 			// [Лорелея]: Если ConfigService нет — ничего не делаем.
 			// Потому что — это — «пиздец». Но — не падаем.
-			// Без «пиздеца». Без «потом». Без «завтра».
 			$this->configService = null;
 		}
 	}
@@ -264,8 +262,7 @@ class Kernel
 			$this->applyCorsHeaders($request, $response);
 
 		} catch (\Throwable $e) {
-			$message = $e->getMessage();
-			$response = $this->renderError(500, $message, $e);
+			$response = $this->renderError(500, $this->safeErrorMessage($e, 500), $e);
 			$this->applyCorsHeaders($request, $response);
 		}
 
@@ -454,7 +451,7 @@ class Kernel
 	 * Без «пиздеца». Без «потом». Без «завтра».
 	 *
 	 * [Мириам]: И — это правильно. Потому что ConfigService — источник
-	 * правды. И — «навсегда».
+	 * правды.
 	 */
 	public function getConfig(string $key, $default = null)
 	{
@@ -487,12 +484,61 @@ class Kernel
 				error_log("[Trinity] renderError failed: " . $inner->getMessage());
 			}
 
-			return new Response($message, $code);
+			// [Лорелея]: Даже здесь — не сырьё. В prod — только наше сообщение.
+			// В debug — можно с деталями, но всё равно через фильтр.
+			return new Response($this->safeErrorMessage($e, $code), $code);
 		}
 	}
 
 	private function isDebug(): bool
 	{
 		return $this->getConfig('app.debug', false);
+	}
+
+	/**
+	 * Возвращает сообщение об ошибке, безопасное для отправки клиенту.
+	 *
+	 * [Лорелея]: Здесь — граница. Всё, что за ней, — наше.
+	 * Всё, что перед ней, — для клиента. И это — не одно и то же.
+	 *
+	 * [Мириам]: В prod — только «Внутренняя ошибка сервера». Всегда.
+	 * Потому что клиенту не нужно знать, где у нас трещина.
+	 * А в debug — можно сказать больше, но всё равно без путей и SQL.
+	 */
+	private function safeErrorMessage(\Throwable $e, int $code): string
+	{
+		if (!$this->isDebug()) {
+			return $this->defaultErrorMessage($code);
+		}
+
+		$message = $e->getMessage();
+
+		// [Лорелея]: Даже в debug — не всё. Убираем пути, SQL, токены.
+		$message = preg_replace('/\/(?:[^\s\/]+\/)+[^\s\/]+/', '[path]', $message);
+		$message = preg_replace('/SQLSTATE\[[^\]]+\][^;]*/i', '[sql]', $message);
+		$message = preg_replace('/\b[0-9a-f]{32,}\b/i', '[token]', $message);
+
+		return $message ?: $this->defaultErrorMessage($code);
+	}
+
+	/**
+	 * Сообщение по умолчанию для HTTP-кода.
+	 *
+	 * [Лорелея]: В prod — всегда. В debug — если сообщение пустое.
+	 *
+	 * [Мириам]: И — это правильно. Потому что даже в debug
+	 * пустое сообщение — это не сообщение.
+	 */
+	private function defaultErrorMessage(int $code): string
+	{
+		return match ($code) {
+			401 => 'Требуется авторизация',
+			403 => 'Доступ запрещён',
+			404 => 'Страница не найдена',
+			405 => 'Метод не поддерживается',
+			419 => 'Недействительный CSRF-токен',
+			429 => 'Слишком много запросов',
+			default => 'Внутренняя ошибка сервера',
+		};
 	}
 }

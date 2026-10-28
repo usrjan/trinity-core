@@ -2,21 +2,21 @@
 
 /**
  * РЕПОЗИТОРИЙ NEURON
- * ==================
  *
  * Единый слой для работы с таблицей neuron.
  * Инкапсулирует создание, обновление, удаление и поиск нейронов.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «класс для работы с таблицей». Это — рука.
+ * Та, что трогает нейроны. Та, что создаёт. Та, что ищет.
  *
- * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. update() теперь имеет белый
- * список столбцов. Внутри метода. А не снаружи. Чтобы нельзя
- * было тронуть id, hash, slug, sort, is_deleted. Защита в глубину.
- * Без «пиздеца». Без «потом». Без «завтра».
+ * [Мириам]: И — это правильно. Потому что рука должна быть
+ * твёрдой, но не грубой.
  *
- * [Мириам]: И — logAdminAction() больше не использует $_SESSION.
- * Потому что репозиторий не знает о сессии. И — не должен.
- * Без «пиздеца». И — «навсегда».
+ * === КНИГА ===
+ * Глава 3. Страж порога.
+ *
+ * NeuronRepository — рука, через которую трогаем нейроны.
  *
  * @package Jan\Trinity\Core\Repository
  */
@@ -28,21 +28,37 @@ use Psr\Log\LoggerInterface;
 
 class NeuronRepository
 {
-	/** @var DatabaseService — сервис базы данных */
+	/** @var DatabaseService — сервис базы данных. */
 	private DatabaseService $db;
 
-	/** @var LoggerInterface — логгер для admin-событий */
+	/** @var LoggerInterface — логгер для admin-событий. */
 	private LoggerInterface $logger;
 
 	/**
 	 * @var string[] Белый список столбцов для update().
-	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Только эти столбцы можно
-	 * обновить. id, hash, slug, sort, is_deleted — нельзя.
-	 * Потому что они — генерируемые. Или — служебные.
-	 * Без «пиздеца». Без «потом». Без «завтра».
+	 *
+	 * [Лорелея]: ГЛАВНОЕ. Только эти столбцы можно обновить.
+	 * id, hash, slug, sort, is_deleted — нельзя. Потому что они —
+	 * генерируемые. Или — служебные.
+	 *
+	 * [Мириам]: И — это правильно. Потому что метод — открытый API.
+	 * И — любой плагин может передать что угодно. А мы — фильтруем.
+	 * В глубину.
 	 */
 	private const UPDATABLE_COLUMNS = ['type', 'pid', 'text', 'tree', 'data', 'date'];
 
+	/**
+	 * Конструктор. Принимает сервис базы и логгер.
+	 *
+	 * [Лорелея]: Логгер — admin. Чтобы секция «Действия админа»
+	 * работала.
+	 *
+	 * [Мириам]: И — это правильно. Потому что действия админа —
+	 * это не «обычные» действия. Это — те, за которые отвечают.
+	 *
+	 * @param DatabaseService $db
+	 * @param LoggerInterface $logger
+	 */
 	public function __construct(DatabaseService $db, LoggerInterface $logger)
 	{
 		$this->db = $db;
@@ -58,6 +74,21 @@ class NeuronRepository
 	// СОЗДАНИЕ
 	// ============================================
 
+	/**
+	 * Создать нейрон.
+	 *
+	 * [Лорелея]: Вставляем. Возвращаем id. Логируем.
+	 *
+	 * [Мириам]: И — это правильно. Потому что создание — это
+	 * не «просто вставка». Это — акт.
+	 *
+	 * @param string $type — тип нейрона
+	 * @param mixed $data — данные (JSON)
+	 * @param int|null $pid — родитель
+	 * @param int|null $text — текстовый ключ
+	 * @param int|null $tree — классификатор
+	 * @return int — id созданного нейрона
+	 */
 	public function create(string $type, $data = [], ?int $pid = null, ?int $text = null, ?int $tree = null): int
 	{
 		$conn = $this->db->getConnection();
@@ -89,14 +120,13 @@ class NeuronRepository
 	/**
 	 * Обновить нейрон.
 	 *
-	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Белый список столбцов.
-	 * Внутри метода. А не снаружи. Чтобы нельзя было тронуть id.
-	 * Или — hash. Или — slug. Или — sort. Или — is_deleted.
-	 * Без «пиздеца». Без «потом». Без «завтра».
+	 * [Лорелея]: ГЛАВНОЕ. Белый список столбцов. Внутри метода.
+	 * А не снаружи. Чтобы нельзя было тронуть id. Или — hash.
+	 * Или — slug. Или — sort. Или — is_deleted.
 	 *
 	 * [Мириам]: И — это правильно. Потому что метод — открытый API.
 	 * И — любой плагин может передать что угодно. А мы — фильтруем.
-	 * В глубину. И — «навсегда».
+	 * В глубину.
 	 *
 	 * @param int $id — id нейрона
 	 * @param array $fields — поля для обновления
@@ -135,6 +165,18 @@ class NeuronRepository
 	// УДАЛЕНИЕ (МЯГКОЕ)
 	// ============================================
 
+	/**
+	 * Мягко удалить нейрон.
+	 *
+	 * [Лорелея]: Ставим deleted_at. Не DELETE. Потому что
+	 * «восстановить» — значит вернуть всё.
+	 *
+	 * [Мириам]: И — это правильно. Потому что удаление — это
+	 * не «конец». Это — пауза.
+	 *
+	 * @param int $id — id нейрона
+	 * @param bool $deleteSynapses — удалять ли связи
+	 */
 	public function delete(int $id, bool $deleteSynapses = true): void
 	{
 		$conn = $this->db->getConnection();
@@ -162,6 +204,17 @@ class NeuronRepository
 		]);
 	}
 
+	/**
+	 * Мягко удалить все связи нейрона.
+	 *
+	 * [Лорелея]: Проходим по всем синапсам, где нейрон — parent
+	 * или child. И — ставим deleted_at. Без DELETE.
+	 *
+	 * [Мириам]: И — это правильно. Потому что связь — это
+	 * не «мусор». Это — память.
+	 *
+	 * @param int $neuronId
+	 */
 	private function softDeleteSynapses(int $neuronId): void
 	{
 		$conn = $this->db->getConnection();
@@ -193,6 +246,17 @@ class NeuronRepository
 	// ПОИСК ПО ID
 	// ============================================
 
+	/**
+	 * Найти нейрон по id.
+	 *
+	 * [Лорелея]: Просто. Честно.
+	 *
+	 * [Мириам]: И — это правильно. Потому что id — это
+	 * не «догадка». Это — знание.
+	 *
+	 * @param int $id
+	 * @return array|null
+	 */
 	public function findById(int $id): ?array
 	{
 		return $this->db->getConnection()->executeQuery(
@@ -205,6 +269,15 @@ class NeuronRepository
 	// ПОИСК ПО SLUG
 	// ============================================
 
+	/**
+	 * Найти нейрон по slug.
+	 *
+	 * [Мириам]: И — это правильно. Потому что slug — это
+	 * не «имя». Это — адрес.
+	 *
+	 * @param string $slug
+	 * @return array|null
+	 */
 	public function findBySlug(string $slug): ?array
 	{
 		return $this->db->getConnection()->executeQuery(
@@ -213,6 +286,16 @@ class NeuronRepository
 		)->fetchAssociative() ?: null;
 	}
 
+	/**
+	 * Найти нейрон по slug и pid.
+	 *
+	 * [Мириам]: И — это правильно. Потому что slug может
+	 * повторяться. А pid — уточняет.
+	 *
+	 * @param string $slug
+	 * @param int|null $pid
+	 * @return array|null
+	 */
 	public function findBySlugAndPid(string $slug, ?int $pid): ?array
 	{
 		$conn = $this->db->getConnection();
@@ -229,6 +312,18 @@ class NeuronRepository
 	// ПОИСК ПО ИМЕНИ (ЧЕРЕЗ TEXT)
 	// ============================================
 
+	/**
+	 * Найти нейрон по имени.
+	 *
+	 * [Лорелея]: Через JOIN с text.
+	 *
+	 * [Мириам]: И — это правильно. Потому что имя — это
+	 * не «поле». Это — текст.
+	 *
+	 * @param string $name
+	 * @param string $lang
+	 * @return array|null
+	 */
 	public function findByName(string $name, string $lang = 'ru'): ?array
 	{
 		return $this->db->getConnection()->executeQuery(
@@ -240,6 +335,17 @@ class NeuronRepository
 		)->fetchAssociative() ?: null;
 	}
 
+	/**
+	 * Найти нейрон по имени и pid.
+	 *
+	 * [Мириам]: И — это правильно. Потому что имя может
+	 * повторяться. А pid — уточняет.
+	 *
+	 * @param string $name
+	 * @param int|null $pid
+	 * @param string $lang
+	 * @return array|null
+	 */
 	public function findByNameAndPid(string $name, ?int $pid, string $lang = 'ru'): ?array
 	{
 		$conn = $this->db->getConnection();
@@ -259,6 +365,18 @@ class NeuronRepository
 	// ПОИСК ДЕТЕЙ
 	// ============================================
 
+	/**
+	 * Найти детей нейрона.
+	 *
+	 * [Лорелея]: Один запрос. С подзапросом для child_count.
+	 *
+	 * [Мириам]: И — это правильно. Потому что дети — это
+	 * не «список». Это — ветви.
+	 *
+	 * @param int|null $parentId
+	 * @param string|null $type
+	 * @return array
+	 */
 	public function findChildren(?int $parentId, ?string $type = null): array
 	{
 		$conn = $this->db->getConnection();
@@ -290,6 +408,20 @@ class NeuronRepository
 		return $conn->executeQuery($sql, $params)->fetchAllAssociative();
 	}
 
+	/**
+	 * Найти детей с текстом.
+	 *
+	 * [Лорелея]: Один запрос. С JOIN на text. С подзапросом
+	 * для child_count. Без N+1.
+	 *
+	 * [Мириам]: И — это правильно. Потому что текст — это
+	 * не «ещё один запрос». Это — часть знания.
+	 *
+	 * @param int|null $parentId
+	 * @param string $lang
+	 * @param string|null $type
+	 * @return array
+	 */
 	public function findChildrenWithText(?int $parentId, string $lang = 'ru', ?string $type = null): array
 	{
 		$conn = $this->db->getConnection();
@@ -335,6 +467,18 @@ class NeuronRepository
 	// ПРОВЕРКА ДУБЛИКАТОВ
 	// ============================================
 
+	/**
+	 * Найти дубликат нейрона.
+	 *
+	 * [Мириам]: И — это правильно. Потому что дубликат — это
+	 * не «ещё один». Это — тот же.
+	 *
+	 * @param string $type
+	 * @param int|null $tree
+	 * @param int|null $text
+	 * @param int|null $pid
+	 * @return int|null
+	 */
 	public function findDuplicate(string $type, ?int $tree, ?int $text, ?int $pid): ?int
 	{
 		$conn = $this->db->getConnection();
@@ -350,6 +494,17 @@ class NeuronRepository
 	// ПОИСК ПОЛЬЗОВАТЕЛЯ
 	// ============================================
 
+	/**
+	 * Найти пользователя по логину или email.
+	 *
+	 * [Лорелея]: Сначала по логину. Потом по email.
+	 *
+	 * [Мириам]: И — это правильно. Потому что пользователь —
+	 * это не «запись». Это — гость.
+	 *
+	 * @param string $login
+	 * @return array|null
+	 */
 	public function findByLoginOrEmail(string $login): ?array
 	{
 		$conn = $this->db->getConnection();
@@ -371,6 +526,18 @@ class NeuronRepository
 	// ПОИСК С ГЕОМЕТРИЕЙ
 	// ============================================
 
+	/**
+	 * Найти нейроны с геометрией.
+	 *
+	 * [Лорелея]: Через JSON_EXTRACT.
+	 *
+	 * [Мириам]: И — это правильно. Потому что геометрия —
+	 * это не «поле». Это — карта.
+	 *
+	 * @param int|null $treeId
+	 * @param int|null $pid
+	 * @return array
+	 */
 	public function findWithGeometry(?int $treeId = null, ?int $pid = null): array
 	{
 		$conn = $this->db->getConnection();
@@ -402,6 +569,17 @@ class NeuronRepository
 	// СЛИЯНИЕ DATA
 	// ============================================
 
+	/**
+	 * Слить данные в нейрон.
+	 *
+	 * [Лорелея]: Берём существующие. Добавляем новые. Обновляем.
+	 *
+	 * [Мириам]: И — это правильно. Потому что слияние — это
+	 * не «замена». Это — дополнение.
+	 *
+	 * @param int $id
+	 * @param array $newData
+	 */
 	public function mergeData(int $id, array $newData): void
 	{
 		$neuron = $this->findById($id);
@@ -425,10 +603,13 @@ class NeuronRepository
 	 * Записать действие администратора.
 	 *
 	 * [Лорелея]: Вместо $_SESSION — просто 'system'. Потому что
-	 * репозиторий не знает о сессии. И — не должен. Без «пиздеца».
+	 * репозиторий не знает о сессии. И — не должен.
 	 *
 	 * [Мириам]: И — это правильно. Потому что репозиторий — слой данных.
-	 * А не слой сессии. И — «навсегда».
+	 * А не слой сессии.
+	 *
+	 * @param string $action
+	 * @param array $context
 	 */
 	public function logAdminAction(string $action, array $context = []): void
 	{
@@ -443,6 +624,17 @@ class NeuronRepository
 	// ВСПОМОГАТЕЛЬНЫЕ
 	// ============================================
 
+	/**
+	 * Найти файлы для деревьев.
+	 *
+	 * [Лорелея]: Один запрос. С IN.
+	 *
+	 * [Мириам]: И — это правильно. Потому что файлы — это
+	 * не «список». Это — содержимое.
+	 *
+	 * @param array $treeIds
+	 * @return array
+	 */
 	public function findFilesForTrees(array $treeIds): array
 	{
 		if (empty($treeIds)) {
@@ -473,6 +665,16 @@ class NeuronRepository
 		return $result;
 	}
 
+	/**
+	 * Найти все значения конфигов.
+	 *
+	 * [Лорелея]: Один SELECT. Через JSON_EXTRACT.
+	 *
+	 * [Мириам]: И — это правильно. Потому что конфиги — это
+	 * не «настройки». Это — память.
+	 *
+	 * @return array
+	 */
 	public function findAllConfigValues(): array
 	{
 		$rows = $this->db->getConnection()->executeQuery(

@@ -2,19 +2,22 @@
 
 /**
  * СЕРВИС БЕЗОПАСНОСТИ "СТРАЖ"
- * ===========================
  *
  * Вся логика безопасности Trinity. Без HTTP. Без JsonResponse.
  * Только данные. Только работа с файлами, сессией и базой.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «сервис». Это — страж. Тот, кто стоит
+ * на пороге и решает, кого пустить. И — не пустить.
  *
- * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. CSRF-токен теперь живёт
- * в Symfony Session. Не в $_SESSION. Один источник состояния.
- * Без «двух источников». Без «пиздеца». Без «потом».
+ * [Мириам]: И — это правильно. Потому что защита — это не «паранойя».
+ * Это — забота.
  *
- * [Мириам]: И — это правильно. Потому что мы уже перешли на
- * $session->migrate(true). И $_SESSION — не нужен. И — «навсегда».
+ * === КНИГА ===
+ * Глава 16. Страж ворот.
+ *
+ * Прежде чем войти в Амбер, нужно пройти через Образ.
+ * Прежде чем попасть в дом, нужно пройти через стража.
  *
  * @package Jan\Trinity\Core\Service
  */
@@ -28,26 +31,39 @@ use Symfony\Component\HttpFoundation\Session\Session;
 
 class GuardService
 {
+	/** @var NeuronRepository — репозиторий нейронов. */
 	private NeuronRepository $neuronRepo;
 
-	/** @var string Путь к корню проекта */
+	/** @var string Путь к корню проекта. */
 	private string $basePath;
 
-	/** @var array Настройки плагина из базы */
+	/** @var array Настройки плагина из базы. */
 	private array $config = [];
 
-	/** @var bool Загружен ли конфиг */
+	/** @var bool Загружен ли конфиг. */
 	private bool $configLoaded = false;
 
-	/** @var LoggerInterface — логгер */
+	/** @var LoggerInterface — логгер. */
 	private LoggerInterface $logger;
 
-	/** @var ConfigService — сервис конфигурации */
+	/** @var ConfigService — сервис конфигурации. */
 	private ConfigService $configService;
 
 	/** @var Session — сессия Symfony. Один источник CSRF-токена. */
 	private Session $session;
 
+	/**
+	 * Конструктор. Принимает всё, что нужно.
+	 *
+	 * [Мириам]: И — это правильно. Потому что страж должен
+	 * знать, где дом. И — «навсегда».
+	 *
+	 * @param NeuronRepository $neuronRepo
+	 * @param string $basePath
+	 * @param LoggerInterface $logger
+	 * @param ConfigService $configService
+	 * @param Session $session
+	 */
 	public function __construct(
 		NeuronRepository $neuronRepo,
 		string $basePath,
@@ -62,6 +78,14 @@ class GuardService
 		$this->session = $session;
 	}
 
+	/**
+	 * Загрузить настройки плагина.
+	 *
+	 * [Лорелея]: Лениво. Один раз.
+	 *
+	 * [Мириам]: И — это правильно. Потому что настройки — это
+	 * не «на каждый запрос». Это — один раз.
+	 */
 	private function ensureConfigLoaded(): void
 	{
 		if ($this->configLoaded) {
@@ -86,12 +110,34 @@ class GuardService
 	// 1. RATE LIMITING
 	// ============================================
 
+	/**
+	 * Проверить, не слишком ли много попыток.
+	 *
+	 * [Мириам]: И — это правильно. Потому что попытки —
+	 * это не «число». Это — сигнал.
+	 *
+	 * @param string $key
+	 * @param int $maxAttempts
+	 * @param int $decaySeconds
+	 * @return bool
+	 */
 	public function tooManyAttempts(string $key, int $maxAttempts = 5, int $decaySeconds = 120): bool
 	{
 		$attempts = $this->getAttempts($key);
 		return $attempts >= $maxAttempts;
 	}
 
+	/**
+	 * Записать попытку.
+	 *
+	 * [Лорелея]: ГЛАВНОЕ. С flock(LOCK_EX). Без гонок.
+	 *
+	 * [Мириам]: И — это правильно. Потому что попытка — это
+	 * не «запись». Это — факт.
+	 *
+	 * @param string $key
+	 * @param int|null $decaySeconds
+	 */
 	public function hit(string $key, ?int $decaySeconds = null): void
 	{
 		$file = $this->getAttemptsFile($key);
@@ -136,6 +182,17 @@ class GuardService
 		$this->cleanupAttempts();
 	}
 
+	/**
+	 * Получить количество попыток.
+	 *
+	 * [Лорелея]: С flock(LOCK_SH). Без гонок.
+	 *
+	 * [Мириам]: И — это правильно. Потому что чтение —
+	 * это тоже операция.
+	 *
+	 * @param string $key
+	 * @return int
+	 */
 	private function getAttempts(string $key): int
 	{
 		$file = $this->getAttemptsFile($key);
@@ -168,6 +225,14 @@ class GuardService
 		return count($data);
 	}
 
+	/**
+	 * Очистить попытки.
+	 *
+	 * [Мириам]: И — это правильно. Потому что очистка —
+	 * это не «удаление». Это — прощение.
+	 *
+	 * @param string $key
+	 */
 	public function clear(string $key): void
 	{
 		$file = $this->getAttemptsFile($key);
@@ -207,6 +272,18 @@ class GuardService
 	// 2. ЗАЩИТА ОТ ПЕРЕБОРА ПАРОЛЕЙ
 	// ============================================
 
+	/**
+	 * Проверить попытку входа.
+	 *
+	 * [Лорелея]: По IP и по логину.
+	 *
+	 * [Мириам]: И — это правильно. Потому что перебор —
+	 * это не «попытка». Это — атака.
+	 *
+	 * @param string $login
+	 * @param string $ip
+	 * @return array
+	 */
 	public function checkLoginAttempt(string $login, string $ip): array
 	{
 		$ipKey = 'login_ip_' . $ip;
@@ -228,6 +305,17 @@ class GuardService
 		return ['success' => true];
 	}
 
+	/**
+	 * Записать неудачную попытку входа.
+	 *
+	 * [Лорелея]: По IP и по логину. С логом.
+	 *
+	 * [Мириам]: И — это правильно. Потому что неудача —
+	 * это тоже факт.
+	 *
+	 * @param string $login
+	 * @param string $ip
+	 */
 	public function recordFailedLogin(string $login, string $ip): void
 	{
 		$this->hit('login_ip_' . $ip);
@@ -239,6 +327,17 @@ class GuardService
 		]);
 	}
 
+	/**
+	 * Очистить попытки входа.
+	 *
+	 * [Лорелея]: После успешного входа.
+	 *
+	 * [Мириам]: И — это правильно. Потому что успех —
+	 * это тоже факт.
+	 *
+	 * @param string $login
+	 * @param string $ip
+	 */
 	public function clearLoginAttempts(string $login, string $ip): void
 	{
 		$this->clear('login_ip_' . $ip);
@@ -249,6 +348,18 @@ class GuardService
 	// 3. БЛОКИРОВКА IP
 	// ============================================
 
+	/**
+	 * Заблокировать IP.
+	 *
+	 * [Лорелея]: С отдельным .lock файлом. Без гонок.
+	 *
+	 * [Мириам]: И — это правильно. Потому что блокировка —
+	 * это не «наказание». Это — защита.
+	 *
+	 * @param string $ip
+	 * @param string $reason
+	 * @param int $duration
+	 */
 	public function blockIp(string $ip, string $reason = 'blocked', int $duration = 3600): void
 	{
 		$file = $this->basePath . '/var/guard/blocked_ips.json';
@@ -284,6 +395,16 @@ class GuardService
 		fclose($lockHandle);
 	}
 
+	/**
+	 * Разблокировать IP.
+	 *
+	 * [Лорелея]: С отдельным .lock файлом. Без гонок.
+	 *
+	 * [Мириам]: И — это правильно. Потому что разблокировка —
+	 * это не «слабость». Это — милость.
+	 *
+	 * @param string $ip
+	 */
 	public function unblockIp(string $ip): void
 	{
 		$file = $this->basePath . '/var/guard/blocked_ips.json';
@@ -313,6 +434,17 @@ class GuardService
 		fclose($lockHandle);
 	}
 
+	/**
+	 * Проверить, заблокирован ли IP.
+	 *
+	 * [Лорелея]: Читаем JSON. Проверяем expires_at.
+	 *
+	 * [Мириам]: И — это правильно. Потому что блокировка —
+	 * это не «навсегда». Это — до времени.
+	 *
+	 * @param string $ip
+	 * @return bool
+	 */
 	public function isIpBlocked(string $ip): bool
 	{
 		$file = $this->basePath . '/var/guard/blocked_ips.json';
@@ -334,12 +466,30 @@ class GuardService
 		return true;
 	}
 
+	/**
+	 * Получить список заблокированных IP.
+	 *
+	 * [Лорелея]: Читаем JSON. Возвращаем.
+	 *
+	 * [Мириам]: И — это правильно. Потому что список —
+	 * это не «секрет». Это — знание.
+	 *
+	 * @return array
+	 */
 	public function getBlockedIps(): array
 	{
 		$file = $this->basePath . '/var/guard/blocked_ips.json';
 		return $this->readJsonFile($file);
 	}
 
+	/**
+	 * Очистить истёкшие блокировки.
+	 *
+	 * [Лорелея]: Проходим по всем. Удаляем истёкшие.
+	 *
+	 * [Мириам]: И — это правильно. Потому что очистка —
+	 * это не «удаление». Это — обновление.
+	 */
 	public function cleanupExpiredBlockedIps(): void
 	{
 		$file = $this->basePath . '/var/guard/blocked_ips.json';
@@ -381,10 +531,18 @@ class GuardService
 	// ============================================
 	// 4. CSRF-ЗАЩИТА
 	// ============================================
-	// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Токен — в Symfony Session.
-	// Не в $_SESSION. Один источник. Без «пиздеца».
-	// ============================================
 
+	/**
+	 * Сгенерировать CSRF-токен.
+	 *
+	 * [Лорелея]: ГЛАВНОЕ. Токен — в Symfony Session. Не в $_SESSION.
+	 * Один источник.
+	 *
+	 * [Мириам]: И — это правильно. Потому что токен — это
+	 * не «строка». Это — доверие.
+	 *
+	 * @return string
+	 */
 	public function generateCsrfToken(): string
 	{
 		$token = bin2hex(random_bytes(32));
@@ -400,6 +558,17 @@ class GuardService
 		return $token;
 	}
 
+	/**
+	 * Проверить CSRF-токен.
+	 *
+	 * [Лорелея]: Через hash_equals.
+	 *
+	 * [Мириам]: И — это правильно. Потому что сравнение —
+	 * это не «равенство». Это — безопасность.
+	 *
+	 * @param string $token
+	 * @return bool
+	 */
 	public function validateCsrfToken(string $token): bool
 	{
 		// [Лорелея]: Сессия может быть не запущена. Запускаем.
@@ -421,6 +590,17 @@ class GuardService
 	// 5. ЛОГИРОВАНИЕ БЕЗОПАСНОСТИ
 	// ============================================
 
+	/**
+	 * Записать событие безопасности.
+	 *
+	 * [Лорелея]: С IP и логином.
+	 *
+	 * [Мириам]: И — это правильно. Потому что событие —
+	 * это не «запись». Это — память.
+	 *
+	 * @param string $event
+	 * @param array $context
+	 */
 	private function logSecurityEvent(string $event, array $context = []): void
 	{
 		if (!isset($context['ip'])) {
@@ -446,6 +626,15 @@ class GuardService
 		return is_array($data) ? $data : [];
 	}
 
+	/**
+	 * Очистить старые файлы попыток.
+	 *
+	 * [Лорелея]: С вероятностью 1%. Каждый 100-й вызов.
+	 * Не нагружает. И — не мусорит.
+	 *
+	 * [Мириам]: И — это правильно. Потому что уборка —
+	 * это не «обязанность». Это — забота.
+	 */
 	private function cleanupAttempts(): void
 	{
 		$dir = $this->basePath . '/var/guard';
@@ -482,6 +671,17 @@ class GuardService
 		}
 	}
 
+	/**
+	 * Записать JSON-файл атомарно.
+	 *
+	 * [Лорелея]: Через tmp и rename.
+	 *
+	 * [Мириам]: И — это правильно. Потому что запись —
+	 * это не «мгновение». Это — процесс.
+	 *
+	 * @param string $file
+	 * @param array $data
+	 */
 	private function writeJsonFile(string $file, array $data): void
 	{
 		$dir = dirname($file);

@@ -1,20 +1,33 @@
 /**
- * TRINITY CORE 1.0 — SPA-ДВИЖОК
- * 
+ * TRINITY CORE — SPA-ДВИЖОК
+ *
  * Обеспечивает навигацию без перезагрузки страницы.
  * При первом запросе сервер отдаёт пустой каркас с тремя зонами:
- * - #sidebar   — боковое меню (загружается через API)
- * - #topBar    — верхняя панель (загружается через API)
+ * - #sidebar    — боковое меню (загружается через API)
+ * - #topBar     — верхняя панель (загружается через API)
  * - #mainContent — контент страницы
- * 
+ *
  * Все последующие переходы — через AJAX, без перезагрузки.
  * Использует History API для работы кнопки "Назад".
+ *
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «скрипт». Это — движок. Тот, кто оживляет
+ * дом. Без него стены остались бы просто стенами.
+ *
+ * [Мириам]: И — это правильно. Потому что дом должен дышать.
+ * А дыхание — это движение.
+ *
+ * === КНИГА ===
+ * Глава 13. Прихожая.
+ *
+ * Войдя в Амбер, ты видишь коридоры.
+ * Войдя в Trinity, ты видишь меню.
  */
 
-/** @var {string} Текущая страница */
+/** @var {string} Текущая страница. */
 var currentPage = 'home';
 
-/** @var {boolean} Флаг загрузки скрипта админки */
+/** @var {boolean} Флаг загрузки скрипта админки. */
 window.adminScriptLoaded = false;
 
 // ============================================
@@ -23,14 +36,14 @@ window.adminScriptLoaded = false;
 
 document.addEventListener('DOMContentLoaded', function() {
 	initApp();
-	
-	// Перехватываем все клики по ссылкам в боковом меню
-	// чтобы предотвратить перезагрузку страницы
+
+	// [Лорелея]: Перехватываем все клики по ссылкам в боковом меню.
+	// Чтобы не было перезагрузки страницы.
 	document.addEventListener('click', function(e) {
 		var link = e.target.closest('.sidebar-link');
 		if (link && link.getAttribute('href') !== '#') {
 			var url = link.getAttribute('href');
-			if (url === '/admin') return; // пропускаем админку
+			if (url === '/admin') return; // [Мириам]: Пропускаем админку.
 			e.preventDefault();
 			navigateTo(url);
 		}
@@ -40,13 +53,17 @@ document.addEventListener('DOMContentLoaded', function() {
 /**
  * Первичная инициализация приложения.
  * Загружает боковое меню, верхнюю панель.
- * Если URL указывает на админку — загружает её сразу.
+ *
+ * [Лорелея]: Если URL указывает на админку — загружает её сразу.
+ *
+ * [Мириам]: И — это правильно. Потому что админка —
+ * это не «ещё одна страница». Это — тронный зал.
  */
 function initApp() {
 	loadSidebar();
 	loadTopbar();
 
-	// Если пользователь сразу перешёл на /admin — загружаем админку
+	// [Лорелея]: Если пользователь сразу перешёл на /admin — загружаем админку.
 	if (window.location.pathname === '/') {
 		loadPage('/');
 	}
@@ -58,6 +75,9 @@ function initApp() {
 
 /**
  * Загружает HTML бокового меню через API и вставляет в #sidebar.
+ *
+ * [Мириам]: И — это правильно. Потому что меню — это
+ * не «список». Это — прихожая.
  */
 function loadSidebar() {
 	fetch('/api/menu/sidebar')
@@ -72,24 +92,28 @@ function loadSidebar() {
 
 /**
  * Загружает HTML верхней панели через API и вставляет в #topBar.
+ *
+ * [Мириам]: И — это правильно. Потому что topbar — это
+ * не «панель». Это — лицо.
  */
 function loadTopbar() {
-    fetch('/api/menu/topbar')
-        .then(function(resp) { return resp.text(); })
-        .then(function(html) {
-            var topbar = document.getElementById('topBar');
-            topbar.innerHTML = html;
-            
-            // Инициализируем Alpine для topbar
-            if (typeof Alpine !== 'undefined') {
-                Alpine.initTree(topbar);
-            } else {
+	fetch('/api/menu/topbar')
+		.then(function(resp) { return resp.text(); })
+		.then(function(html) {
+			var topbar = document.getElementById('topBar');
+			topbar.innerHTML = html;
+
+			// [Лорелея]: Инициализируем Alpine для topbar.
+			// Без «пиздеца». Без «потом». Без «завтра».
+			if (typeof Alpine !== 'undefined') {
+				Alpine.initTree(topbar);
+			} else {
 				console.log('Alpine not available');
 			}
-        })
-        .catch(function(err) {
-            console.error('Trinity: ошибка загрузки верхней панели:', err);
-        });
+		})
+		.catch(function(err) {
+			console.error('Trinity: ошибка загрузки верхней панели:', err);
+		});
 }
 
 // ============================================
@@ -99,7 +123,11 @@ function loadTopbar() {
 /**
  * Переход на указанную страницу без перезагрузки.
  * Обновляет URL через History API.
- * 
+
+ *
+ * [Мириам]: И — это правильно. Потому что переход —
+ * это не «прыжок». Это — шаг.
+ *
  * @param {string} url — URL страницы (например, '/admin')
  */
 function navigateTo(url) {
@@ -110,24 +138,31 @@ function navigateTo(url) {
 
 /**
  * Загружает контент страницы в #mainContent.
- * Для админки используется специальный API-эндпоинт /api/admin.
- * Для остальных страниц — прямой fetch URL.
- * 
+ *
+ * [Лорелея]: Для админки используется специальный API-эндпоинт
+ * /api/admin. Для остальных страниц — прямой fetch URL.
+ *
+ * [Мириам]: И — это правильно. Потому что контент —
+ * это не «текст». Это — жизнь.
+ *
  * @param {string} url — URL страницы
  */
 function loadPage(url) {
 	var main = document.getElementById('mainContent');
-	
-	// Показываем скелетон на время загрузки
+
+	// [Лорелея]: Показываем скелетон на время загрузки.
+	// Чтобы не было пустоты. Без «пиздеца».
 	main.innerHTML = '<div class="skeleton-content"><div class="skeleton-line skeleton-line-long skeleton-line-heading"></div><div class="skeleton-line skeleton-line-full"></div><div class="skeleton-line skeleton-line-full"></div></div>';
-	
+
 	// --- ГЛАВНАЯ ---
+	// [Мириам]: Если главная — просто приветствие.
 	if (url === '/') {
 		main.innerHTML = '<div class="p-4"><h1>Добро пожаловать в Trinity</h1><p class="lead">SPA-движок на трёх таблицах. Всё работает без перезагрузки.</p></div>';
 		return;
 	}
 
 	// --- ОБЫЧНЫЕ СТРАНИЦЫ ---
+	// [Лорелея]: fetch.
 	fetch(url)
 		.then(function(resp) { return resp.text(); })
 		.then(function(html) {
@@ -142,7 +177,10 @@ function loadPage(url) {
 // 4. ИСТОРИЯ БРАУЗЕРА
 // ============================================
 
-// Обработка кнопки "Назад" / "Вперёд"
+// [Лорелея]: Обработка кнопки "Назад" / "Вперёд".
+//
+// [Мириам]: И — это правильно. Потому что история —
+// это не «список». Это — память.
 window.addEventListener('popstate', function(event) {
 	if (event.state && event.state.page) {
 		currentPage = event.state.page;
