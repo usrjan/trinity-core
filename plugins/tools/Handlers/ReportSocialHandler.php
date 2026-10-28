@@ -1,19 +1,46 @@
 <?php
+
+/**
+ * ОБРАБОТЧИК ОТЧЁТА ПО СОЦСЕТЯМ
+ *
+ * Читает Excel-файлы, считает темы, реакции, соцсети
+ * и организации, а потом собирает всё в один отчёт.
+ *
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «обработчик». Это — рука, которая делает
+ * саму работу, и от того, как она устроена, зависит, будет ли
+ * отчёт точным или превратится в набор цифр.
+ *
+ * [Мириам]: И это правильно, потому что данные без смысла —
+ * это шум, а смысл без данных — это догадка.
+ *
+ * === КНИГА ===
+ * Глава 10. Тронный зал.
+ *
+ * В тронном зале Амбера всегда видно, кто у власти.
+ * В мастерской Trinity всегда видно, кто умеет работать.
+ *
+ * @package Jan\Trinity\Plugin\Tools\Handlers
+ */
+
 namespace Jan\Trinity\Plugin\Tools\Handlers;
 
-ini_set('memory_limit','1024M');
+ini_set('memory_limit', '1024M');
 set_time_limit(0);
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
-//use PhpOffice\PhpWord\PhpWord;
-//use PhpOffice\PhpWord\IOFactory;
 
 class ReportSocialHandler
 {
 	/**
-	 * [Лорелея]: Функция dump для отладки в PHP-коде.
-	 * [Мириам]: Она возвращает HTML-строку, которую можно
-	 * сохранить в $data и вывести в Twig.
+	 * Дамп для отладки.
+	 *
+	 * [Лорелея]: Возвращает HTML-строку, которую можно сохранить
+	 * в data и вывести в Twig, потому что отладка должна быть
+	 * видимой, а не «где-то в логах».
+	 *
+	 * [Мириам]: И это правильно, потому что иногда нужно
+	 * увидеть, что происходит, а не догадываться.
 	 */
 	private function dump($in): string
 	{
@@ -34,7 +61,14 @@ class ReportSocialHandler
 
 	/**
 	 * Обработка отчёта по соцсетям.
-	 * 
+	 *
+	 * [Лорелея]: Здесь мы проходим по всем файлам и типам,
+	 * и каждый тип — это отдельный путь, потому что отчёт
+	 * должен уметь разное.
+	 *
+	 * [Мириам]: И это правильно, потому что один отчёт
+	 * не может быть всем сразу.
+	 *
 	 * @param array $files — ['im' => '/tmp/...', 'pos' => '/tmp/...', 'imp' => '/tmp/...']
 	 * @param array $params — ['type_out' => 'alltheme', 'area' => 'Симферополь', 'to_word' => false]
 	 * @return array
@@ -49,13 +83,13 @@ class ReportSocialHandler
 		$dateFrom = null;
 		$dateTo = null;
 
-		//CHK
+		// CHK
 		if ($typeOut === 'chk') {
 			if (isset($files['im'])) {
 				$imData = $this->parseExcel($files['im'], 'Детализация');
 				$imResult = $this->getCHK($imData, $typeOut, $area);
 				$data['types'] = $imResult['types'];
-				
+
 				$data['municipalities'] = $imResult['municipalities'];
 				$data['ministries'] = $imResult['ministries'];
 				$data['organizations'] = $imResult['organizations'];
@@ -70,7 +104,7 @@ class ReportSocialHandler
 		}
 
 		// IM
-		if (isset($files['im'])&& $typeOut != 'chk') {
+		if (isset($files['im']) && $typeOut != 'chk') {
 			$imData = $this->parseExcel($files['im'], 'Детализация');
 			$imResult = $this->getIM($imData, $typeOut, $area);
 			$data['im'] = $imResult['data'];
@@ -119,7 +153,13 @@ class ReportSocialHandler
 	}
 
 	/**
-	 * Читает Excel-файл в ассоциативный массив с ключом по имени листа
+	 * Читает Excel-файл в ассоциативный массив с ключом по имени листа.
+	 *
+	 * [Лорелея]: Просто, честно, без лишнего, потому что чтение
+	 * файла — это не «магия», а работа.
+	 *
+	 * [Мириам]: И это правильно, потому что данные должны
+	 * приходить в дом в понятном виде.
 	 */
 	private function parseExcel(string $filePath, string $sheetName): array
 	{
@@ -139,6 +179,15 @@ class ReportSocialHandler
 		return [$sheetName => $data];
 	}
 
+	/**
+	 * Возвращает человеческое имя организации по сокращённому.
+	 *
+	 * [Лорелея]: Это большая карта, но она нужна, потому что
+	 * в Excel имена сокращают, а в отчёте они должны быть полными.
+	 *
+	 * [Мириам]: И это правильно, потому что за сокращением
+	 * стоит живая организация, и её имя должно звучать целиком.
+	 */
 	private function getName(array $data): ?string
 	{
 		$names = [
@@ -273,8 +322,8 @@ class ReportSocialHandler
 			'Региональный фонд капитального ремонта'=>'НО «Региональный фонд капитального ремонта многоквартирных домов Республики Крым»',
 		];
 
-		if(!empty($data['Отдел']))$chkname = $data['Отдел'];
-		elseif(!empty($data['Исполнитель']))$chkname = $data['Исполнитель'];
+		if (!empty($data['Отдел'])) $chkname = $data['Отдел'];
+		elseif (!empty($data['Исполнитель'])) $chkname = $data['Исполнитель'];
 		else $chkname = 'noname';
 
 		$name = $names[$chkname] ?? $chkname;
@@ -282,6 +331,15 @@ class ReportSocialHandler
 		return $name;
 	}
 
+	/**
+	 * Возвращает тип организации по её полному имени.
+	 *
+	 * [Лорелея]: Три списка, и каждый — это отдельная категория,
+	 * потому что в отчёте они должны быть разделены.
+	 *
+	 * [Мириам]: И это правильно, потому что у каждой организации
+	 * своё место в доме.
+	 */
 	private function getInstitution(string $name): ?string
 	{
 		$municipalities = [
@@ -375,24 +433,34 @@ class ReportSocialHandler
 		return $institution;
 	}
 
+	/**
+	 * Считает проценты и сортирует.
+	 *
+	 * [Лорелея]: Проходим по всем уровням, потому что данные
+	 * могут быть вложенными, и каждый уровень должен быть
+	 * посчитан.
+	 *
+	 * [Мириам]: И это правильно, потому что смысл складывается
+	 * из деталей, а не из общего числа.
+	 */
 	private function getPercents(array &$arr, int $total): void
 	{
 		foreach ($arr as $k => $v) {
 			foreach ($v as $key => $val) {
 				$arr[$k][$key]['percent'] = $total > 0 ? round(($val['sum'] / $total) * 100) : 0;
 				foreach ($val as $ck => $cv) {
-					$child=false;
-					if ($ck=='child') $child='child';
-					if ($ck=='outcome') $child='outcome';
-					if ($ck=='type') $child='type';
-					if ($ck=='reason') $child='reason';
+					$child = false;
+					if ($ck == 'child') $child = 'child';
+					if ($ck == 'outcome') $child = 'outcome';
+					if ($ck == 'type') $child = 'type';
+					if ($ck == 'reason') $child = 'reason';
 					if ($child) {
 						foreach ($val[$child] as $sk => $sv) {
-							$subchild=false;
+							$subchild = false;
 							$arr[$k][$key][$child][$sk]['percent'] = $val['sum'] > 0
 								? round(($sv['sum'] / $val['sum']) * 100)
 								: 0;
-							if (isset($sv['outcome'])) $subchild='outcome';
+							if (isset($sv['outcome'])) $subchild = 'outcome';
 							if ($subchild) {
 								foreach ($sv[$subchild] as $subk => $subv) {
 									$arr[$k][$key][$child][$sk][$subchild][$subk]['percent'] = $sv['sum'] > 0
@@ -411,7 +479,13 @@ class ReportSocialHandler
 	}
 
 	/**
-	 * Обработка IM — инциденты из соцсетей
+	 * Обработка CHK — проверка.
+	 *
+	 * [Лорелея]: Здесь мы собираем типы, причины, организации,
+	 * и это правильно, потому что проверка должна быть полной.
+	 *
+	 * [Мириам]: И это правильно, потому что без деталей
+	 * проверка — это просто галочка.
 	 */
 	private function getCHK(array $data, string $typeOut, ?string $area): array
 	{
@@ -432,17 +506,6 @@ class ReportSocialHandler
 				$out['reason'][$value['Причина закрытия']]['sum'] = 0;
 			$out['reason'][$value['Причина закрытия']]['sum']++;
 
-			
-			/*
-			if (!isset($out['theme'][$value['Группа тем']]['sum']))
-				$out['theme'][$value['Группа тем']]['sum'] = 0;
-			$out['theme'][$value['Группа тем']]['sum']++;
-
-			if (!isset($out['theme'][$value['Группа тем']]['child'][$value['Тема']]['sum']))
-				$out['theme'][$value['Группа тем']]['child'][$value['Тема']]['sum'] = 0;
-			$out['theme'][$value['Группа тем']]['child'][$value['Тема']]['sum']++;
-			*/
-
 			$name = $this->getName($value);
 			$key = $this->getInstitution($name);
 
@@ -462,62 +525,26 @@ class ReportSocialHandler
 				$out[$key][$name]['reason'][$value['Причина закрытия']]['sum'] = 0;
 			$out[$key][$name]['reason'][$value['Причина закрытия']]['sum']++;
 
-			/*
-			if (!isset($out[$key][$displayName]['Группа тем'][$value['Группа тем']]['sum']))
-				$out[$key][$displayName]['Группа тем'][$value['Группа тем']]['sum'] = 0;
-			$out[$key][$displayName]['Группа тем'][$value['Группа тем']]['sum']++;
-
-			if (!isset($out[$key][$displayName]['Группа тем'][$value['Группа тем']]['child'][$value['Тема']]['sum']))
-				$out[$key][$displayName]['Группа тем'][$value['Группа тем']]['child'][$value['Тема']]['sum'] = 0;
-			$out[$key][$displayName]['Группа тем'][$value['Группа тем']]['child'][$value['Тема']]['sum']++;
-			*/
-
 			$cnt++;
 		}
-		
-		
 
-		// Проценты и сортировка
 		$this->getPercents($out, $cnt);
 
 		$out['sum'] = $cnt;
 
-		/*
-		foreach ($out['theme'] as $group => $group_v) {
-			$out['theme'][$group]['Процент'] = round(($group_v['sum'] / $cnt) * 100);
-			foreach ($group_v['Тема'] as $theme => $theme_v) {
-				$out['theme'][$group]['child'][$theme]['Процент'] = round(($theme_v['sum'] / $group_v['sum']) * 100);
-			}
-			uasort($out['theme'][$group]['child'], fn($c, $d) => $d['sum'] - $c['sum']);
-		}
-		uasort($out['theme'], fn($a, $b) => $b['sum'] - $a['sum']);
-		*/
-
-		/*
-		foreach (['municipalities', 'ministries', 'organizations'] as $key) {
-			if (isset($out[$key])) {
-				foreach ($out[$key] as $name => $v) {
-					$out[$key][$name]['percent'] = round(($v['sum'] / $cnt) * 100);
-
-					foreach ($v['Группа тем'] as $group => $group_v) {
-						$out[$key][$name]['Группа тем'][$group]['Процент'] = round(($group_v['sum'] / $v['sum']) * 100);
-						foreach ($group_v['child'] as $theme => $theme_v) {
-							$out[$key][$name]['Группа тем'][$group]['child'][$theme]['Процент'] = round(($theme_v['sum'] / $group_v['sum']) * 100);
-						}
-						uasort($out[$key][$name]['Группа тем'][$group]['child'], fn($e, $f) => $f['sum'] - $e['sum']);
-					}
-					uasort($out[$key][$name]['Группа тем'], fn($c, $d) => $d['sum'] - $c['sum']);
-
-				}
-				uasort($out[$key], fn($a, $b) => $b['sum'] - $a['sum']);
-			}
-		}
-		*/
-
 		return $out;
-		//return ['data' => $out];
 	}
 
+	/**
+	 * Обработка IM — инциденты из соцсетей.
+	 *
+	 * [Лорелея]: Здесь мы собираем темы, реакции, соцсети,
+	 * и это правильно, потому что инциденты — это не «цифры»,
+	 * это истории.
+	 *
+	 * [Мириам]: И это правильно, потому что за каждой цифрой
+	 * стоит человек.
+	 */
 	private function getIM(array $data, string $typeOut, ?string $area): array
 	{
 		$out = ['full' => [], 'social' => [], 'reason' => [], 'blog' => [], 'count' => 0];
@@ -536,10 +563,8 @@ class ReportSocialHandler
 		];
 
 		foreach ($data['Детализация'] as $value) {
-			// Фильтр по локации
 			if ($area && isset($value['Муниципалитет']) && $value['Муниципалитет'] !== $area) continue;
 
-			// Даты
 			if (isset($value['Дата создания'])) {
 				$d = $this->parseDate($value['Дата создания']);
 				if ($d) {
@@ -548,7 +573,6 @@ class ReportSocialHandler
 				}
 			}
 
-			// Группа тем → тема
 			$group = $value['Группа тем'] ?? 'Прочее';
 			$theme = $value['Тема'] ?? 'Без темы';
 
@@ -564,14 +588,12 @@ class ReportSocialHandler
 				$out['social'][$group]['child'][$theme]['sum']++;
 			}
 
-			// Причина закрытия
 			$reason = $value['Причина закрытия'] ?? '';
 			if (in_array($reason, ['Автор доволен', 'Автор нейтрален', 'Автор недоволен'])) {
 				if (!isset($out['reason'][$reason]['sum'])) $out['reason'][$reason]['sum'] = 0;
 				$out['reason'][$reason]['sum']++;
 			}
 
-			// Блог
 			$blogUrl = $value['Урл блога'] ?? '';
 			if ($blogUrl) {
 				$blog = parse_url($blogUrl);
@@ -583,23 +605,20 @@ class ReportSocialHandler
 
 			$cnt++;
 		}
-		// Проценты для блогов
+
 		foreach ($out['blog'] as $k => $v) {
 			$out['blog'][$k]['percent'] = $cnt > 0 ? round(($v['sum'] / $cnt) * 100) : 0;
 		}
 
 		$out['count'] = $cnt;
 
-		// Проценты для full
 		$this->calcPercents($out['full'], $cnt);
-		// Проценты для social
 		$this->calcPercents($out['social'], $cnt);
-		// Проценты для reason
+
 		foreach ($out['reason'] as $k => $v) {
 			$out['reason'][$k]['percent'] = $cnt > 0 ? round(($v['sum'] / $cnt) * 100) : 0;
 		}
 
-		// Сортировка
 		$this->sortBySum($out['full']);
 		$this->sortBySum($out['social']);
 		uasort($out['reason'], fn($a, $b) => $b['sum'] - $a['sum']);
@@ -609,7 +628,13 @@ class ReportSocialHandler
 	}
 
 	/**
-	 * Обработка POS — позитивные обращения
+	 * Обработка POS — позитивные обращения.
+	 *
+	 * [Лорелея]: Здесь мы собираем категории и подкатегории,
+	 * и это правильно, потому что позитив — это тоже история.
+	 *
+	 * [Мириам]: И это правильно, потому что хорошее нужно
+	 * замечать так же, как и плохое.
 	 */
 	private function getPOS(array $data, string $typeOut, ?string $area, bool $doMapping = true): array
 	{
@@ -649,7 +674,13 @@ class ReportSocialHandler
 	}
 
 	/**
-	 * Маппинг категорий POS на социальные группы
+	 * Маппинг категорий POS на социальные группы.
+	 *
+	 * [Лорелея]: Это большая карта, но она нужна, потому что
+	 * категории в Excel и группы в отчёте — это разные вещи.
+	 *
+	 * [Мириам]: И это правильно, потому что один и тот же смысл
+	 * может называться по-разному.
 	 */
 	private function mapPOSCategory(string $category): ?string
 	{
@@ -704,12 +735,17 @@ class ReportSocialHandler
 	}
 
 	/**
-	 * Обработка IMP — реакция организаций
+	 * Обработка IMP — реакция организаций.
+	 *
+	 * [Лорелея]: Здесь мы собираем муниципалитеты, министерства
+	 * и организации, и это правильно, потому что реакция —
+	 * это тоже история.
+	 *
+	 * [Мириам]: И это правильно, потому что за каждой реакцией
+	 * стоит человек, который ждёт ответа.
 	 */
 	private function getIMP(array $data, ?string $area): array
 	{
-		// Оставляем существующую логику, но добавляем фильтр по area если нужно
-		// Существующий код getIMP...
 		$out = [];
 		if (empty($data['Инциденты'])) return $out;
 
@@ -846,7 +882,6 @@ class ReportSocialHandler
 			$name = $value['Отдел'] ?? $value['Исполнитель'] ?? '';
 			if (!$name) continue;
 
-			// Фильтр по локации — только для муниципалитетов
 			if ($area && in_array($name, $municipalities)) {
 				$shortName = $names[$name] ?? $name;
 				if ($shortName !== $area) continue;
@@ -879,7 +914,6 @@ class ReportSocialHandler
 			}
 		}
 
-		// Проценты и сортировка
 		foreach (['municipalities', 'ministries', 'organizations'] as $key) {
 			if (isset($out[$key])) {
 				foreach ($out[$key] as $name => $v) {
@@ -895,7 +929,13 @@ class ReportSocialHandler
 	}
 
 	/**
-	 * Объединение IM и POS
+	 * Объединение IM и POS.
+	 *
+	 * [Лорелея]: Здесь мы складываем два источника в один,
+	 * и это правильно, потому что сводка должна быть цельной.
+	 *
+	 * [Мириам]: И это правильно, потому что два ручья,
+	 * сливаясь, дают реку.
 	 */
 	private function getCombine(array $data): array
 	{
@@ -909,10 +949,10 @@ class ReportSocialHandler
 				$sumIm = $value['sum'] ?? 0;
 				$sumPos = $data['pos']['social'][$key]['sum'] ?? 0;
 				$out['social'][$key] = [
-					'sum_im' => $sumIm,
-					'sum_pos' => $sumPos,
+					'sum_im'    => $sumIm,
+					'sum_pos'   => $sumPos,
 					'sum_total' => $sumIm + $sumPos,
-					'percent' => $out['count']['total'] > 0
+					'percent'   => $out['count']['total'] > 0
 						? round(($sumIm + $sumPos) / $out['count']['total'] * 100)
 						: 0,
 				];
@@ -922,6 +962,15 @@ class ReportSocialHandler
 		return $out;
 	}
 
+	/**
+	 * Считает проценты для плоского массива с child.
+	 *
+	 * [Лорелея]: Просто, честно, без лишнего, потому что
+	 * проценты — это не «магия», а арифметика.
+	 *
+	 * [Мириам]: И это правильно, потому что смысл должен
+	 * быть виден в цифрах.
+	 */
 	private function calcPercents(array &$arr, int $total): void
 	{
 		foreach ($arr as $k => $v) {
@@ -937,26 +986,49 @@ class ReportSocialHandler
 		}
 	}
 
+	/**
+	 * Сортирует по сумме.
+	 *
+	 * [Лорелея]: Просто, честно, потому что порядок — это
+	 * не «прихоть», а способ увидеть главное.
+	 *
+	 * [Мириам]: И это правильно, потому что важно должно
+	 * быть наверху.
+	 */
 	private function sortBySum(array &$arr): void
 	{
 		uasort($arr, fn($a, $b) => $b['sum'] - $a['sum']);
 	}
 
 	/**
-	 * Конвертация времени "ч:м:с" в секунды
+	 * Конвертация времени "ч:м:с" в секунды.
+	 *
+	 * [Лорелея]: Просто, честно, потому что время — это
+	 * не «строка», а длительность.
+	 *
+	 * [Мириам]: И это правильно, потому что даже у времени
+	 * есть мера.
 	 */
 	private function time2sec(?string $time): int
 	{
 		if ($time === null || $time === '') {
-			return 999999; // Очень большое значение — точно не уложится в норматив
+			return 999999;
 		}
 		$parts = explode(':', $time);
 		return ((int)($parts[0] ?? 0) * 3600) + ((int)($parts[1] ?? 0) * 60) + (int)($parts[2] ?? 0);
 	}
 
+	/**
+	 * Парсит дату из строки.
+	 *
+	 * [Лорелея]: Пробуем разные форматы, потому что Excel
+	 * не всегда отдаёт дату в одном виде.
+	 *
+	 * [Мириам]: И это правильно, потому что дата — это
+	 * не «строка», а точка во времени.
+	 */
 	private function parseDate(string $dateStr): ?string
 	{
-		// Пробуем разные форматы
 		$formats = ['Y-m-d H:i:s', 'd.m.Y H:i:s', 'd.m.Y', 'Y-m-d'];
 		foreach ($formats as $format) {
 			$d = \DateTime::createFromFormat($format, $dateStr);
@@ -965,15 +1037,23 @@ class ReportSocialHandler
 		return null;
 	}
 
+	/**
+	 * Генерирует Word-файл.
+	 *
+	 * [Лорелея]: Здесь мы собираем отчёт в Word, и это правильно,
+	 * потому что иногда документ нужен на бумаге.
+	 *
+	 * [Мириам]: И это правильно, потому что бумага помнит
+	 * дольше, чем экран.
+	 */
 	private function generateWord(array $data, string $typeOut, ?string $area): string
 	{
 		$phpWord = new \PhpOffice\PhpWord\PhpWord();
-		
-		// Стили
+
 		$fontStyleName1 = 'RmcUserDefinedStyle1';
 		$fontStyleName = 'RmcUserDefinedStyle';
 		$rmcFontStyleName = 'RmcDefinedStyle';
-		
+
 		$phpWord->addFontStyle($rmcFontStyleName, [
 			'name' => 'PT Sans',
 			'size' => 8,
@@ -996,7 +1076,7 @@ class ReportSocialHandler
 			'border' => 0,
 			'cellMargin' => 0,
 		]);
-		
+
 		$phpWord->addTableStyle('orgTable', [
 			'borderColor' => '000000',
 			'borderSize' => 1,
@@ -1006,7 +1086,7 @@ class ReportSocialHandler
 		$cellColSpan = ['gridSpan' => 3, 'borderColor' => '000000', 'borderSize' => 1];
 		$cellStyle = ['bgColor' => '999999'];
 		$noSpace = ['spaceAfter' => 0, 'indent' => 0.1];
-		
+
 		$sectionStyle = [
 			'marginTop' => 550,
 			'marginRight' => 850,
@@ -1014,23 +1094,21 @@ class ReportSocialHandler
 			'marginLeft' => 1400,
 			'headerHeight' => 500,
 		];
-		
+
 		$section = $phpWord->addSection($sectionStyle);
-		
-		// Хедер с логотипом и информацией
+
 		$header = $section->addHeader();
 		$header->firstPage();
 		$htable = $header->addTable('myTable');
 		$htable->addRow();
-		
-		// Логотип
+
 		$logoPath = dirname(__DIR__, 3) . '/public/assets/img/logo.png';
 		if (file_exists($logoPath)) {
 			$htable->addCell(4000)->addImage($logoPath, ['width' => 121, 'height' => 51]);
 		} else {
 			$htable->addCell(4000)->addText('ЦУР', $rmcFontStyleName);
 		}
-		
+
 		$textrun = $htable->addCell()->addTextRun();
 		$textrun->addText('Обособленное подразделение АНО по развитию цифровых проектов ', $rmcFontStyleName);
 		$textrun->addTextBreak();
@@ -1052,20 +1130,17 @@ class ReportSocialHandler
 		$file_name = $typeIn . '_' . $dateFrom . '-' . $dateTo;
 		$countOut = $data['im']['count'] ?? $data['pos']['count'] ?? 0;
 
-		// ========================================
-		// ОРГАНИЗАЦИИ
-		// ========================================
 		if ($typeOut === 'org') {
 			$file_name .= '_organizacii';
-			
+
 			$table = $section->addTable([
 				'borderColor' => '000000',
 				'borderSize' => 1,
 				'cellMargin' => 100,
 			]);
-			
+
 			$orgData = $data['org'] ?? [];
-			
+
 			$phpWord->addLinkStyle('lStyle_prs', [
 				'name' => 'Times New Roman',
 				'size' => 14,
@@ -1076,26 +1151,26 @@ class ReportSocialHandler
 				'size' => 14,
 				'color' => '0000FF',
 			]);
-			
+
 			$cellStyle = ['borderColor' => '000000', 'borderSize' => 1];
 			$cellColSpan = ['gridSpan' => 3, 'borderColor' => '000000', 'borderSize' => 1];
-			
+
 			foreach ($orgData as $key => $val) {
 				$prs = $val['prs'] ?? 0;
-				
+
 				$table->addRow();
 				$table->addCell(6000, $cellStyle)->addText($key, $fontStyleName);
 				$table->addCell(2000, $cellStyle)->addText('Всего: ' . $val['sum'], $fontStyleName);
 				$table->addCell(2000, $cellStyle)->addText('Просрочено: ' . $prs, $fontStyleName);
-				
+
 				foreach ($val['stage'] as $skey => $sval) {
 					$sprs = $sval['prs'] ?? 0;
-					
+
 					$table->addRow();
 					$table->addCell(6000, $cellStyle)->addText('     ' . $skey, $fontStyleName);
 					$table->addCell(2000, $cellStyle)->addText('Всего: ' . $sval['sum'], $fontStyleName);
 					$table->addCell(2000, $cellStyle)->addText('Просрочено: ' . $sprs, $fontStyleName);
-					
+
 					if (!empty($sval['prs_ids'])) {
 						$table->addRow();
 						$cell = $table->addCell(10000, $cellColSpan);
@@ -1109,7 +1184,7 @@ class ReportSocialHandler
 							$textRun->addText(' ', $fontStyleName);
 						}
 					}
-					
+
 					if (!empty($sval['oks_ids'])) {
 						$table->addRow();
 						$cell = $table->addCell(10000, $cellColSpan);
@@ -1124,40 +1199,37 @@ class ReportSocialHandler
 						}
 					}
 				}
-				
+
 				$table->addRow();
 				$table->addCell(10000, ['gridSpan' => 3])->addText('', $fontStyleName);
 			}
 		}
 
-		// ========================================
-		// ТОП-5 ТЕМ
-		// ========================================
 		if ($typeOut === 'top5theme') {
 			$section->addText(
-				'<w:br/>В ' . $areaName . ' за период с ' . $dateFrom . ' по ' . $dateTo . 
+				'<w:br/>В ' . $areaName . ' за период с ' . $dateFrom . ' по ' . $dateTo .
 				' в ' . $typeIn . ' поступило ' . $countOut . ' обращений<w:br/>',
 				$fontStyleName
 			);
-			
+
 			$table = $section->addTable([
 				'width' => 100 * 50,
 				'unit' => 'pct',
 				'align' => 'center',
 			]);
-			
+
 			$tgcellStyle = ['borderColor' => '000000', 'borderSize' => 1, 'bgColor' => '000000'];
 			$cellStyle = ['borderColor' => '000000', 'borderSize' => 1];
-			
+
 			$i = 1;
 			$themes = $data['im']['full'] ?? $data['pos']['full'] ?? [];
-			
+
 			foreach ($themes as $key => $val) {
 				$table->addRow();
 				$table->addCell(null, $tgcellStyle)->addText($key, $fontStyleName1, $noSpace);
 				$table->addCell(1400, $tgcellStyle)->addText($val['sum'], $fontStyleName1, $noSpace);
 				$table->addCell(1400, $tgcellStyle)->addText($val['percent'] . '%', $fontStyleName1, $noSpace);
-				
+
 				if ($i <= 5 && isset($val['child'])) {
 					$ic = 1;
 					foreach ($val['child'] as $skey => $sval) {
@@ -1172,8 +1244,7 @@ class ReportSocialHandler
 				}
 				$i++;
 			}
-			
-			// Реакции
+
 			if (isset($data['im']['reason'])) {
 				$section->addText('<w:br/>Реакции:', $fontStyleName);
 				$rtable = $section->addTable([
@@ -1188,8 +1259,7 @@ class ReportSocialHandler
 					$rtable->addCell(1000, $cellStyle)->addText($rval['percent'] . '%', $fontStyleName, $noSpace);
 				}
 			}
-			
-			// Соцсети
+
 			if (isset($data['im']['blog'])) {
 				$section->addText('<w:br/>Соц. сети:', $fontStyleName);
 				$utable = $section->addTable([
@@ -1206,33 +1276,30 @@ class ReportSocialHandler
 			}
 		}
 
-		// ========================================
-		// ВСЕ ТЕМЫ
-		// ========================================
 		if ($typeOut === 'alltheme') {
 			$section->addText(
-				'<w:br/>В ' . $areaName . ' за период с ' . $dateFrom . ' по ' . $dateTo . 
+				'<w:br/>В ' . $areaName . ' за период с ' . $dateFrom . ' по ' . $dateTo .
 				' в ' . $typeIn . ' поступило ' . $countOut . ' обращений<w:br/>',
 				$fontStyleName
 			);
-			
+
 			$table = $section->addTable([
 				'width' => 100 * 50,
 				'unit' => 'pct',
 				'align' => 'center',
 			]);
-			
+
 			$tgcellStyle = ['borderColor' => 'black', 'borderSize' => 1, 'bgColor' => 'black'];
 			$cellStyle = ['borderColor' => 'black', 'borderSize' => 1];
-			
+
 			$themes = $data['im']['full'] ?? $data['pos']['full'] ?? [];
-			
+
 			foreach ($themes as $key => $val) {
 				$table->addRow();
 				$table->addCell(null, $tgcellStyle)->addText($key, $fontStyleName1, $noSpace);
 				$table->addCell(1400, $tgcellStyle)->addText($val['sum'], $fontStyleName1, $noSpace);
 				$table->addCell(1400, $tgcellStyle)->addText($val['percent'] . '%', $fontStyleName1, $noSpace);
-				
+
 				if (isset($val['child'])) {
 					foreach ($val['child'] as $skey => $sval) {
 						$table->addRow();
@@ -1242,8 +1309,7 @@ class ReportSocialHandler
 					}
 				}
 			}
-			
-			// Реакции
+
 			if (isset($data['im']['reason'])) {
 				$section->addText('<w:br/>Реакции:', $fontStyleName);
 				$rtable = $section->addTable([
@@ -1258,8 +1324,7 @@ class ReportSocialHandler
 					$rtable->addCell(1000, $cellStyle)->addText($rval['percent'] . '%', $fontStyleName, $noSpace);
 				}
 			}
-			
-			// Соцсети
+
 			if (isset($data['im']['blog'])) {
 				$section->addText('<w:br/>Соц. сети:', $fontStyleName);
 				$utable = $section->addTable([
@@ -1276,7 +1341,6 @@ class ReportSocialHandler
 			}
 		}
 
-		// Сохраняем файл
 		$uploadDir = __DIR__ . '/../../../public/uploads';
 		if (!is_dir($uploadDir)) {
 			mkdir($uploadDir, 0775, true);
@@ -1292,8 +1356,14 @@ class ReportSocialHandler
 	}
 
 	/**
-	 * Обработка организаций из POS-файла
-	 * Колонки: 0 - Номер, 8 - Организация, 12 - Стадия, 14 - Просрочено
+	 * Обработка организаций из POS-файла.
+	 *
+	 * [Лорелея]: Здесь мы собираем организации, стадии и просрочки,
+	 * и это правильно, потому что каждая организация — это
+	 * отдельная история.
+	 *
+	 * [Мириам]: И это правильно, потому что за каждой стадией
+	 * стоит человек, который ждёт.
 	 */
 	private function getOrgFromPOS(array $data): array
 	{

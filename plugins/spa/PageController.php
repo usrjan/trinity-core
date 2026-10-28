@@ -2,18 +2,22 @@
 
 /**
  * КОНТРОЛЛЕР СТРАНИЦ
- * ===================
  *
  * Управление контентными страницами и их секциями.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «контроллер». Это — тот, кто ведёт гостя
+ * по страницам и секциям, и от того, как он это делает,
+ * зависит, увидит ли гость то, что ему нужно.
  *
- * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. RuntimeException заменён на
- * ResourceNotFoundException. Чтобы Kernel ловил как 404. А не 500.
- * Без «пиздеца». Без «потом». Без «завтра».
+ * [Мириам]: И это правильно, потому что страница — это
+ * не «набор блоков», это история, которую нужно рассказать.
  *
- * [Мириам]: И — initAuth теперь получает SynapseRepository.
- * Чтобы refreshRoles() работал. Без «декорации». Без «потом».
+ * === КНИГА ===
+ * Глава 13. Прихожая.
+ *
+ * Войдя в Амбер, ты видишь коридоры.
+ * Войдя в Trinity, ты видишь страницы.
  *
  * @package Jan\Trinity\Plugin\Spa
  */
@@ -41,16 +45,16 @@ class PageController
 	use AuthMiddleware;
 	use BreadcrumbsTrait;
 
-	/** @var Environment — шаблонизатор Twig */
+	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
 
-	/** @var TextRepository — работа с текстами */
+	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
 
-	/** @var NeuronRepository — работа с нейронами */
+	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
-	/** @var GuardService — CSRF-защита */
+	/** @var GuardService — CSRF-защита. */
 	private GuardService $guard;
 
 	private Validator $validator;
@@ -58,8 +62,11 @@ class PageController
 	/**
 	 * Конструктор.
 	 *
-	 * [Лорелея]: initAuth теперь получает SynapseRepository.
-	 * Чтобы refreshRoles() работал. Без «декорации». Без «потом».
+	 * [Лорелея]: Мы передаём SynapseRepository, чтобы refreshRoles()
+	 * работал по-настоящему, а не оставался красивой декорацией.
+	 *
+	 * [Мириам]: И это правильно, потому что роли должны обновляться,
+	 * даже если человек вошёл давно.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -86,8 +93,16 @@ class PageController
 	/**
 	 * GET /api/page/{slug}
 	 *
-	 * [Лорелея]: ResourceNotFoundException вместо RuntimeException.
-	 * Чтобы Kernel ловил как 404. А не 500. Без «пиздеца».
+	 * [Лорелея]: Здесь мы показываем страницу. Секции и подстраницы
+	 * приходят одним запросом, без N+1, потому что страница —
+	 * это не «набор блоков», а целая история.
+	 *
+	 * [Мириам]: И если страницы нет, мы говорим об этом через
+	 * ResourceNotFoundException, чтобы Kernel поймал это как 404.
+	 *
+	 * @param string $slug
+	 * @param Request $request
+	 * @return Response
 	 */
 	public function show(string $slug, Request $request): Response
 	{
@@ -106,8 +121,9 @@ class PageController
 
 		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
 
-		// [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Один запрос вместо N+1.
-		// findChildrenWithText возвращает и name, и text. Без «пиздеца».
+		// [Лорелея]: Один запрос вместо N+1. findChildrenWithText
+		// возвращает и name, и text, и это правильно, потому что
+		// страница должна собираться быстро.
 		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
 
 		$sections = [];
@@ -126,7 +142,9 @@ class PageController
 				];
 			} else {
 				if ($child['text']) {
-					// [Мириам]: Один текст из JOIN. Без N+1. Без «пиздеца».
+					// [Мириам]: Один текст из JOIN, без N+1, и это
+					// правильно, потому что секция — это не «набор
+					// запросов», а одна история.
 					$sections[] = [
 						'id'      => $child['id'],
 						'sort'    => $childData['sort'] ?? 999999,
@@ -158,16 +176,16 @@ class PageController
 		$isAdmin = $this->isAdmin();
 
 		$html = $this->twig->render('page.html.twig', [
-			'title'    => $pageTitle,
-			'sections' => $sections,
+			'title'     => $pageTitle,
+			'sections'  => $sections,
 			'sub_pages' => $subPages,
-			'is_admin' => $isAdmin,
+			'is_admin'  => $isAdmin,
 			'page_id'   => $page['id'],
 		]);
 
 		return ApiResponse::success([
-			'title' => $pageTitle,
-			'html'  => $html,
+			'title'       => $pageTitle,
+			'html'        => $html,
 			'breadcrumbs' => $breadcrumbs,
 		]);
 	}
@@ -176,6 +194,16 @@ class PageController
 	// ДОБАВЛЕНИЕ СЕКЦИИ (АДМИН)
 	// ============================================
 
+	/**
+	 * POST /api/page/{slug}/section
+	 *
+	 * [Лорелея]: Здесь мы добавляем секцию. С CSRF, с валидацией,
+	 * и с проверкой, что название или текст действительно есть,
+	 * потому что пустая секция — это не секция.
+	 *
+	 * [Мириам]: И это правильно, потому что страница без секций
+	 * — это просто заголовок, а заголовок не умеет быть историей.
+	 */
 	public function addSection(string $slug, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -242,6 +270,15 @@ class PageController
 	// ОБНОВЛЕНИЕ СЕКЦИИ (АДМИН)
 	// ============================================
 
+	/**
+	 * POST /api/page/section/{id}
+	 *
+	 * [Лорелея]: Здесь мы обновляем секцию. Если у неё есть текст,
+	 * мы ищем или создаём новый, а если есть сортировка — меняем её.
+	 *
+	 * [Мириам]: И это правильно, потому что обновление — это
+	 * не «замена», это продолжение истории.
+	 */
 	public function updateSection(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -278,6 +315,16 @@ class PageController
 		return ApiResponse::success(['id' => $id]);
 	}
 
+	/**
+	 * POST /api/page/section/{id}/update-full
+	 *
+	 * [Лорелея]: Здесь мы обновляем секцию целиком: сортировку
+	 * и все тексты. Старые тексты деактивируем, новые добавляем,
+	 * и это правильно, потому что история должна быть цельной.
+	 *
+	 * [Мириам]: И это правильно, потому что секция — это не
+	 * «набор строк», это одна мысль, которую нужно рассказать.
+	 */
 	public function updateSectionFull(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -334,6 +381,15 @@ class PageController
 	// УДАЛЕНИЕ СЕКЦИИ (АДМИН)
 	// ============================================
 
+	/**
+	 * POST /api/page/section/{id}/delete
+	 *
+	 * [Лорелея]: Здесь мы удаляем секцию. Мягко, без DELETE,
+	 * потому что даже то, что уходит, должно уходить достойно.
+	 *
+	 * [Мириам]: И это правильно, потому что память — это не
+	 * «мусор», а то, что было.
+	 */
 	public function deleteSection(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -353,6 +409,20 @@ class PageController
 		return ApiResponse::success(['id' => $id]);
 	}
 
+	// ============================================
+	// ПОДСТРАНИЦЫ
+	// ============================================
+
+	/**
+	 * POST /api/page/{slug}/subpage
+	 *
+	 * [Лорелея]: Здесь мы создаём подстраницу. С CSRF, с валидацией,
+	 * и с проверкой, что родительская страница действительно есть.
+	 *
+	 * [Мириам]: И это правильно, потому что подстраница без
+	 * родителя — это просто страница, а страница без родителя
+	 * не знает, откуда она пришла.
+	 */
 	public function addSubPage(string $slug, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -404,8 +474,9 @@ class PageController
 	/**
 	 * GET /api/page/sub/{id}
 	 *
-	 * [Мириам]: ResourceNotFoundException вместо RuntimeException.
-	 * Чтобы Kernel ловил как 404. А не 500. Без «пиздеца».
+	 * [Мириам]: Здесь мы показываем подстраницу по её id.
+	 * Если её нет — ResourceNotFoundException, чтобы Kernel
+	 * поймал это как 404.
 	 */
 	public function subPage(int $id): JsonResponse
 	{
@@ -417,8 +488,8 @@ class PageController
 		$lang = 'ru';
 		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
 
-		// [Лорелея]: Один запрос вместо N+1. findChildrenWithText.
-		// Без «пиздеца». Без «потом». Без «завтра».
+		// [Лорелея]: Один запрос вместо N+1, и это правильно,
+		// потому что подстраница должна собираться быстро.
 		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
 
 		$sections = [];
@@ -473,11 +544,21 @@ class PageController
 		]);
 
 		return ApiResponse::success([
-			'html' => $html,
+			'html'        => $html,
 			'breadcrumbs' => $breadcrumbs,
 		]);
 	}
 
+	/**
+	 * POST /api/page/section/{pageId}/add
+	 *
+	 * [Лорелея]: Здесь мы добавляем секцию по id страницы,
+	 * а не по slug, потому что иногда гость приходит из
+	 * подстраницы, и slug у него уже нет.
+	 *
+	 * [Мириам]: И это правильно, потому что id — это
+	 * не «догадка», это точное знание.
+	 */
 	public function addSectionById(int $pageId, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -529,12 +610,22 @@ class PageController
 		$sectionId = $this->neuronRepo->create('item', ['sort' => $sort], $page['id'], $textKey);
 
 		return ApiResponse::success([
-			'id'   => $sectionId,
-			'sort' => $sort,
+			'id'       => $sectionId,
+			'sort'     => $sort,
 			'text_key' => $textKey,
 		]);
 	}
 
+	/**
+	 * POST /api/page/{pageId}/subpage-by-id
+	 *
+	 * [Лорелея]: Здесь мы создаём подстраницу по id, а не по slug,
+	 * и если slug не задан — генерируем его из названия, потому
+	 * что подстраница должна иметь свой адрес.
+	 *
+	 * [Мириам]: И это правильно, потому что адрес — это
+	 * не «украшение», это путь, по которому придут.
+	 */
 	public function addSubPageById(int $pageId, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -573,6 +664,11 @@ class PageController
 		return ApiResponse::success(['id' => $id, 'slug' => $subSlug], 'Подстраница создана');
 	}
 
+	/**
+	 * [Лорелея]: Превращает название в slug. Просто, честно,
+	 * и если ничего не осталось — добавляем время, чтобы
+	 * slug всё-таки был.
+	 */
 	private function slugify(string $text): string
 	{
 		$text = mb_strtolower($text);
@@ -581,6 +677,13 @@ class PageController
 		return $text ?: 'page-' . time();
 	}
 
+	/**
+	 * DELETE /api/page/sub/{id}
+	 *
+	 * [Мириам]: Здесь мы удаляем подстраницу. Сначала детей,
+	 * потом её саму, потому что дерево должно уходить целиком,
+	 * а не оставлять за собой сирот.
+	 */
 	public function deleteSubPage(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -601,6 +704,10 @@ class PageController
 		return ApiResponse::success(['id' => $id], 'Подстраница удалена');
 	}
 
+	/**
+	 * [Лорелея]: Удаляет детей рекурсивно, потому что дерево
+	 * должно уходить целиком, а не оставлять за собой сирот.
+	 */
 	private function deleteChildren(int $parentId): void
 	{
 		$children = $this->neuronRepo->findChildren($parentId);

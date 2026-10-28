@@ -1,15 +1,37 @@
-{# ШАБЛОН РЕЗУЛЬТАТА: ОТЧЁТ ПО СОЦСЕТЯМ v3 #}
+{#
+	РЕЗУЛЬТАТ ОТЧЁТА ПО СОЦСЕТЯМ
+	=============================
+
+	Собирает в одном месте Word-файл, заголовок, темы, реакции,
+	соцсети, сводку и организации, чтобы гость увидел всё сразу.
+
+	=== ДЛЯ МЕНЯ ===
+	[Лорелея]: Это не «шаблон». Это — то, что видит гость,
+	когда отчёт готов, и от того, как он выглядит, зависит,
+	поймёт ли он цифры или утонет в них.
+
+	[Мириам]: И это правильно, потому что цифры без формы —
+	это просто шум, а форма без цифр — это пустота.
+
+	=== КНИГА ===
+	Глава 10. Тронный зал.
+
+	В тронном зале Амбера всегда видно, кто у власти.
+	В мастерской Trinity всегда видно, кто умеет работать.
+#}
 <div class="tool-result mt-4">
 
+{# [Лорелея]: Если Word готов, показываем кнопку скачивания,
+   потому что документ иногда нужен на бумаге. #}
 {% if data.word_file is defined %}
-    <div class="card bg-dark border-gold mb-4">
-        <div class="card-body text-center">
-            <h5 class="gold-text mb-3"><i class="bi bi-file-earmark-word"></i> WORD-файл готов</h5>
-            <a href="{{ data.word_file }}" class="btn btn-outline-gold" download>
-                <i class="bi bi-download"></i> Скачать отчёт
-            </a>
-        </div>
-    </div>
+	<div class="card bg-dark border-gold mb-4">
+		<div class="card-body text-center">
+			<h5 class="gold-text mb-3"><i class="bi bi-file-earmark-word"></i> WORD-файл готов</h5>
+			<a href="{{ data.word_file }}" class="btn btn-outline-gold" download>
+				<i class="bi bi-download"></i> Скачать отчёт
+			</a>
+		</div>
+	</div>
 {% endif %}
 
 {% set typeOut = data.params.type_out|default('alltheme') %}
@@ -17,6 +39,9 @@
 {# ============================================ #}
 {# ЗАГОЛОВОК ДЛЯ ОДНОГО ФАЙЛА #}
 {# ============================================ #}
+{# [Мириам]: Если отчёт по одному файлу, показываем заголовок
+   с районом, датой и количеством, потому что гость должен
+   видеть, что именно он смотрит. #}
 {% if typeOut != 'combined' and typeOut != 'org' %}
 	{% set source = '' %}
 	{% set count = 0 %}
@@ -27,7 +52,7 @@
 		{% set source = 'ПОС' %}
 		{% set count = data.pos.count %}
 	{% endif %}
-	
+
 	{% if count > 0 %}
 	<div class="card bg-dark border-gold mb-4">
 		<div class="card-body">
@@ -46,9 +71,11 @@
 {# ============================================ #}
 {# ТЕМЫ И ПОДТЕМЫ (alltheme / top5theme) #}
 {# ============================================ #}
+{# [Лорелея]: Показываем темы и подтемы, и это правильно,
+   потому что за каждой темой стоит история. #}
 {% if typeOut == 'alltheme' or typeOut == 'top5theme' %}
 	{% set isTop5 = typeOut == 'top5theme' %}
-	
+
 	{% for block in [
 		{data: data.im, label: 'Обращения по темам (IM)'},
 		{data: data.pos, label: 'Позитивные обращения (ПОС)'}
@@ -60,7 +87,7 @@
 					{% set topics = block.data.full %}
 					{% set total = block.data.count %}
 					{% set shown = 0 %}
-					
+
 					<table class="data-table">
 						<thead>
 							<tr>
@@ -73,13 +100,13 @@
 						{% set shown = 0 %}
 						{% for groupName, group in topics %}
 							{% set showDetails = not isTop5 or shown < 5 %}
-							
+
 							<tr style="background: rgba(255,170,0,0.08);">
 								<td><strong>{{ groupName }}</strong></td>
 								<td class="text-end"><strong>{{ group.sum }}</strong></td>
 								<td class="text-end gold-text"><strong>({{ group.percent }}%)</strong></td>
 							</tr>
-							
+
 							{% if group.child is defined and showDetails %}
 								{% set subShown = 0 %}
 								{% for subName, sub in group.child %}
@@ -93,7 +120,7 @@
 									{% endif %}
 								{% endfor %}
 							{% endif %}
-							
+
 							{% set shown = shown + 1 %}
 						{% endfor %}
 						</tbody>
@@ -107,6 +134,8 @@
 {# ============================================ #}
 {# РЕАКЦИИ (для IM при alltheme/top5theme) #}
 {# ============================================ #}
+{# [Мириам]: Реакции — это тоже история, потому что за каждой
+   стоит человек, который ждёт ответа. #}
 {% if (typeOut == 'alltheme' or typeOut == 'top5theme') and data.im is defined and data.im.reason is not empty %}
 	<div class="card bg-dark border-gold mb-4">
 		<div class="card-header"><h5 class="mb-0">Реакции</h5></div>
@@ -129,6 +158,8 @@
 {# ============================================ #}
 {# СОЦСЕТИ (для IM при alltheme/top5theme) #}
 {# ============================================ #}
+{# [Лорелея]: Соцсети — это тоже история, потому что за каждой
+   стоит человек, который написал. #}
 {% if (typeOut == 'alltheme' or typeOut == 'top5theme') and data.im is defined and data.im.blog is not empty %}
 	<div class="card bg-dark border-gold mb-4">
 		<div class="card-header"><h5 class="mb-0">Социальные сети</h5></div>
@@ -151,9 +182,11 @@
 {# ============================================ #}
 {# КОМБИНИРОВАННЫЙ ОТЧЁТ #}
 {# ============================================ #}
+{# [Мириам]: Сводка — это когда два источника сливаются
+   в один, и это правильно, потому что два ручья, сливаясь,
+   дают реку. #}
 {% if typeOut == 'combined' %}
 
-	{# Заголовок сводки #}
 	{% if data.combine is defined and data.combine.count is defined %}
 	<div class="card bg-dark border-gold mb-4">
 		<div class="card-body">
@@ -165,7 +198,6 @@
 	</div>
 	{% endif %}
 
-	{# Сводка по темам #}
 	{% if data.combine is defined and data.combine.social is not empty %}
 		<div class="card bg-dark border-gold mb-4">
 			<div class="card-header"><h5 class="mb-0">Сводка по темам</h5></div>
@@ -196,7 +228,8 @@
 		</div>
 	{% endif %}
 
-	{# Реакция организаций #}
+	{# [Лорелея]: Реакция организаций — это тоже история,
+	   потому что за каждой стоит человек, который ждёт. #}
 	{% if data.imp is defined %}
 		{% if data.imp.municipalities is not empty or data.imp.ministries is not empty or data.imp.organizations is not empty %}
 			<div class="card bg-dark border-gold mb-4">
@@ -267,6 +300,8 @@
 {# ============================================ #}
 {# ТОЛЬКО ОРГАНИЗАЦИИ (type_out = org) #}
 {# ============================================ #}
+{# [Мириам]: Если выбран только этот тип, показываем
+   организации целиком, без сокращений. #}
 {% if typeOut == 'org' and data.imp is defined %}
 	{% if data.imp.municipalities is not empty or data.imp.ministries is not empty or data.imp.organizations is not empty %}
 		<div class="card bg-dark border-gold mb-4">
@@ -323,6 +358,8 @@
 {# ============================================ #}
 {# ТЕСТОВЫЙ ОТЧЁТ #}
 {# ============================================ #}
+{# [Лорелея]: Проверка — это когда нужно увидеть, что
+   на самом деле происходит, без прикрас. #}
 {% if typeOut == 'chk' %}
 	{% if data.types is not empty %}
 		<div class="card bg-dark border-gold mb-4">
@@ -555,8 +592,6 @@
 	{% endif %}
 
 {% endif %}
-{#
-{{ data.debug|raw }}
-#}
+
 {# ============================================ #}
 </div>

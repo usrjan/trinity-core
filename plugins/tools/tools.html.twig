@@ -1,20 +1,46 @@
+{#
+	СТРАНИЦА ИНСТРУМЕНТОВ
+	======================
+
+	Форма для отчёта по соцсетям: три файла, тип вывода,
+	район и кнопка «Сформировать».
+
+	=== ДЛЯ МЕНЯ ===
+	[Лорелея]: Это не «страница». Это — дверь в мастерскую,
+	и от того, как она выглядит, зависит, захочет ли гость
+	войти и сделать работу.
+
+	[Мириам]: И это правильно, потому что мастерская должна
+	быть удобной, иначе работа превращается в мучение.
+
+	=== КНИГА ===
+	Глава 10. Тронный зал.
+
+	В тронном зале Амбера всегда видно, кто у власти.
+	В мастерской Trinity всегда видно, кто умеет работать.
+#}
 {% extends 'base.html.twig' %}
 
 {% block body %}
 <div class="d-flex">
+	{# [Лорелея]: Боковое меню. Заполняется через API. #}
 	<aside class="sidebar" id="sidebar"></aside>
 	<div class="main-content">
+		{# [Мириам]: Верхняя панель. Заполняется через API. #}
 		<header class="top-bar" id="topBar"></header>
 		<main>
 			<div class="p-4">
 				<h1 class="gold-text mb-4"><i class="bi bi-tools"></i> Инструменты</h1>
-				
+
 				<div class="card bg-dark border-gold mb-4">
 					<div class="card-header">
 						<h5 class="mb-0"><i class="bi bi-file-earmark-bar-graph"></i> Отчёт по соцсетям</h5>
 					</div>
 					<div class="card-body">
 						<form id="reportSocialForm" enctype="multipart/form-data">
+							{# [Лорелея]: Три файла: IM, POS, IMP. Каждый —
+							   это отдельный источник, и все они нужны,
+							   чтобы отчёт был полным. #}
 							<div class="row g-3 mb-3">
 								<div class="col-md-4">
 									<label class="form-label">IM (инциденты из соцсетей)</label>
@@ -29,8 +55,10 @@
 									<input type="file" name="imp" class="form-control" accept=".xlsx,.xls">
 								</div>
 							</div>
-							
+
 							<div class="row g-3 mb-3">
+								{# [Мириам]: Тип вывода. От него зависит,
+								   каким будет отчёт. #}
 								<div class="col-md-4">
 									<label class="form-label">Тип вывода</label>
 									<select name="type_out" class="form-select">
@@ -41,12 +69,16 @@
 										<option value="chk">Проверка</option>
 									</select>
 								</div>
+								{# [Лорелея]: Район. Если выбран — отчёт
+								   будет только по нему. #}
 								<div class="col-md-4">
 									<label class="form-label">Район (опционально)</label>
 									<select name="area" class="form-select" id="areaSelect">
 										<option value="">Все районы</option>
 									</select>
 								</div>
+								{# [Мириам]: Выгрузка в Word. Если отмечено —
+								   отчёт придёт ещё и документом. #}
 								<div class="col-md-4 d-flex align-items-end">
 									<div class="form-check">
 										<input type="checkbox" name="to_word" value="1" class="form-check-input" id="toWord">
@@ -54,14 +86,14 @@
 									</div>
 								</div>
 							</div>
-							
+
 							<button type="submit" class="btn btn-outline-gold" id="submitBtn">
 								<i class="bi bi-play-circle"></i> Сформировать отчёт
 							</button>
 						</form>
 					</div>
 				</div>
-				
+
 				<div id="toolResult"></div>
 			</div>
 		</main>
@@ -74,32 +106,36 @@ fetch('/api/menu/topbar').then(r => r.text()).then(html => {
 	document.getElementById('topBar').innerHTML = html;
 	setTimeout(initUserDropdown, 100);
 });
-// Загружаем список районов
+
+// [Лорелея]: Загружаем список районов, потому что гость должен
+// выбрать, где смотреть, а не гадать.
 fetch('/api/map/geojson?codes=SubAdministrativeArea')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success && d.data && d.data.features) {
-            var select = document.getElementById('areaSelect');
-            d.data.features.forEach(function(f) {
-                var name = f.properties.hintContent || f.properties.balloonContent || '';
-                if (name) {
-                    var option = document.createElement('option');
-                    option.value = name;
-                    option.textContent = name;
-                    select.appendChild(option);
-                }
-            });
-        }
-    });
-	
+	.then(function(r) { return r.json(); })
+	.then(function(d) {
+		if (d.success && d.data && d.data.features) {
+			var select = document.getElementById('areaSelect');
+			d.data.features.forEach(function(f) {
+				var name = f.properties.hintContent || f.properties.balloonContent || '';
+				if (name) {
+					var option = document.createElement('option');
+					option.value = name;
+					option.textContent = name;
+					select.appendChild(option);
+				}
+			});
+		}
+	});
+
+// [Мириам]: Отправляем форму, блокируем кнопку, показываем
+// результат, и если есть Word — открываем его.
 document.getElementById('reportSocialForm').addEventListener('submit', function(e) {
 	e.preventDefault();
-	
+
 	var formData = new FormData(this);
 	var submitBtn = document.getElementById('submitBtn');
 	submitBtn.disabled = true;
 	submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Обработка...';
-	
+
 	fetch('/api/tools/report-social', {
 		method: 'POST',
 		body: formData

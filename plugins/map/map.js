@@ -1,12 +1,22 @@
 /**
- * TRINITY MAP — полный скрипт карты
- * 
- * Поддерживает:
- * - Полигоны районов (SubAdministrativeArea)
- * - Точки учреждений (фильтруются по mapVars.codes)
- * - Ховер-эффект на полигонах
- * - Левую панель с информацией об объекте и работах
- * - Правую панель с фильтром по районам
+ * TRINITY MAP — ЖИВОЙ МИР
+ *
+ * Полигоны районов, точки учреждений, ховер-эффект,
+ * левая панель с информацией, правая панель с фильтрами.
+ *
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «скрипт». Это — то, что превращает карту
+ * из рисунка в живой мир. Без этого она была бы просто
+ * схемой на экране, а схема не умеет дышать.
+ *
+ * [Мириам]: И это правильно, потому что мир оживает только
+ * тогда, когда в нём есть движение.
+ *
+ * === КНИГА ===
+ * Глава 8. Карта.
+ *
+ * Каждая Тень имеет свою карту. Каждый мир — свои пути.
+ * И тот, кто знает пути, всегда найдёт дорогу.
  */
 
 var myMap;
@@ -16,61 +26,67 @@ var districtsCache = null;
 
 ymaps.ready(function () {
 
-	// Скрываем заглушку загрузки
+	// [Лорелея]: Скрываем заглушку загрузки, когда карта готова.
+	// Без этого гость видел бы пустоту дольше, чем нужно.
 	var loadingEl = document.querySelector('.map-loading');
 	if (loadingEl) loadingEl.style.display = 'none';
 
-	// Создание карты
+	// [Мириам]: Создаём карту. Центр и зум приходят из mapVars,
+	// которые мы передали из контроллера.
 	myMap = new ymaps.Map('map', {
 		center: [mapVars.cen_lat, mapVars.cen_lon],
 		zoom: mapVars.zoom,
 		controls: ['zoomControl']
 	});
 
-	// Коллекции
+	// [Лорелея]: Две коллекции: для полигонов и для точек.
+	// Полигоны — это районы, точки — это учреждения.
 	polyColl = new ymaps.GeoObjectCollection();
 	pointColl = new ymaps.GeoObjectCollection({}, { hasBalloon: false });
 
-	//myMap.geoObjects.add(polyColl);
 	myMap.geoObjects.add(polyColl).add(pointColl);
 
-	// Загрузка полигонов (районы)
+	// [Мириам]: Загружаем полигоны районов. Они нужны всегда,
+	// потому что без них карта была бы просто фоном.
 	fetch('/api/map/geojson?codes=SubAdministrativeArea')
 		.then(function (r) { return r.json(); })
 		.then(function (d) {
 			if (d.success && d.data && d.data.features) {
-				districtsCache = d.data.features;  // кэш
+				districtsCache = d.data.features;
 				addFeatures(polyColl, d.data.features, true);
 			}
 		});
 
-		// Загрузка точек (учреждения) — только если есть codes
-		if (mapVars.codes) {
-			var pointUrl = '/api/map/geojson?codes=' + mapVars.codes;
+	// [Лорелея]: Загружаем точки учреждений, но только если
+	// есть codes. Без них мы не знаем, что именно показывать.
+	if (mapVars.codes) {
+		var pointUrl = '/api/map/geojson?codes=' + mapVars.codes;
 
-			fetch(pointUrl)
-				.then(function (r) { return r.json(); })
-				.then(function (d) {
-					if (d.success && d.data && d.data.features) {
-						addFeatures(pointColl, d.data.features, false);
+		fetch(pointUrl)
+			.then(function (r) { return r.json(); })
+			.then(function (d) {
+				if (d.success && d.data && d.data.features) {
+					addFeatures(pointColl, d.data.features, false);
 
-						if (pointColl.getLength() > 0) {
-							myMap.setBounds(pointColl.getBounds(), { checkZoomRange: true });
-						}
+					if (pointColl.getLength() > 0) {
+						myMap.setBounds(pointColl.getBounds(), { checkZoomRange: true });
 					}
-				});
-
-			// Клик по точке — левая панель
-			pointColl.events.add('click', function (e) {
-				var target = e.get('target');
-				var id = target.properties.get('iden');
-				if (id) {
-					leftPanelLoad(id);
 				}
 			});
-		}
 
-	// Ховер на полигонах
+		// [Мириам]: Клик по точке открывает левую панель с историей
+		// этого места. Без этого точка была бы просто точкой.
+		pointColl.events.add('click', function (e) {
+			var target = e.get('target');
+			var id = target.properties.get('iden');
+			if (id) {
+				leftPanelLoad(id);
+			}
+		});
+	}
+
+	// [Лорелея]: Ховер на полигонах. Когда гость наводит курсор,
+	// район подсвечивается, и это делает карту живой.
 	polyColl.events
 		.add('mouseenter', function (e) {
 			e.get('target').options.set('fillOpacity', 1);
@@ -80,19 +96,20 @@ ymaps.ready(function () {
 			e.get('target').options.set('fillOpacity', 0);
 		});
 
-
-	// Правая панель с фильтрами — только если есть точки
+	// [Мириам]: Правая панель с фильтрами — только если есть точки.
+	// Без точек фильтровать нечего.
 	if (mapVars.codes) {
 		rightPanelButton();
 		loadRightPanel();
 	}
 
-	// Кастомные кнопки слоёв в стиле Trinity
+	// [Лорелея]: Кастомные кнопки слоёв в стиле Trinity.
+	// Схема, спутник, гибрид — три взгляда на один мир.
 	(function () {
 		var layerButtons = [
 			{ type: 'yandex#map',       icon: 'bi-map',         label: 'Схема' },
-			{ type: 'yandex#satellite',  icon: 'bi-globe2',      label: 'Спутник' },
-			{ type: 'yandex#hybrid',     icon: 'bi-layers',      label: 'Гибрид' }
+			{ type: 'yandex#satellite', icon: 'bi-globe2',      label: 'Спутник' },
+			{ type: 'yandex#hybrid',    icon: 'bi-layers',      label: 'Гибрид' }
 		];
 
 		var html = '<div class="map-layer-buttons">';
@@ -137,14 +154,14 @@ ymaps.ready(function () {
 			}
 		});
 
-		// Начальная подсветка после отрисовки кнопок
 		setTimeout(updateLayerButtons, 300);
 	})();
 });
 
-// Добавление объектов в коллекцию
+// [Мириам]: Добавление объектов в коллекцию. Один метод для
+// полигонов, точек и линий, потому что мир состоит из разного,
+// но показывать его нужно одинаково внимательно.
 function addFeatures(collection, features, isPolygon) {
-	//console.log('addFeatures isPolygon:', isPolygon, 'features count:', features.length);
 	features.forEach(function (feature) {
 		var geom = feature.geometry;
 		var props = feature.properties || {};
@@ -186,7 +203,9 @@ function addFeatures(collection, features, isPolygon) {
 	});
 }
 
-// Левая панель — информация об объекте
+// [Лорелея]: Левая панель — информация об объекте. Загружаем
+// HTML из API и показываем в offcanvas. Без этого точка на карте
+// оставалась бы немой.
 function leftPanelLoad(id) {
 	fetch('/api/map/info/' + id)
 		.then(function (r) { return r.json(); })
@@ -206,7 +225,9 @@ function leftPanelLoad(id) {
 		});
 }
 
-// Кнопка правой панели
+// [Мириам]: Кнопка правой панели. Фильтры — это то, что
+// позволяет гостю увидеть не весь мир сразу, а только ту
+// его часть, которая ему сейчас нужна.
 function rightPanelButton() {
 	var ButtonLayout = ymaps.templateLayoutFactory.createClass(
 		'<div class="map-filter-button-wrapper">' +
@@ -228,10 +249,11 @@ function rightPanelButton() {
 	myMap.controls.add(button);
 }
 
-// Правая панель — фильтры
+// [Лорелея]: Правая панель — фильтры. Загружаем районы и
+// строим выпадающий список. Без этого гость не смог бы
+// выбрать, что именно он хочет увидеть.
 function loadRightPanel() {
 	if (!districtsCache) {
-		// Если кэша ещё нет — загружаем
 		fetch('/api/map/geojson?codes=SubAdministrativeArea')
 			.then(function (r) { return r.json(); })
 			.then(function (d) {
@@ -245,6 +267,8 @@ function loadRightPanel() {
 	renderRightPanel(districtsCache);
 }
 
+// [Мириам]: Отрисовка правой панели. Один список, один выбор,
+// и мир становится ближе.
 function renderRightPanel(features) {
 	var html = '<div class="p-3"><h6 class="gold-text mb-2">Районы</h6>';
 	html += '<select class="form-select form-select-sm" id="fsel" onchange="filterByDistrict()">';
@@ -261,7 +285,9 @@ function renderRightPanel(features) {
 	if (rightPanel) rightPanel.innerHTML = html;
 }
 
-// Фильтрация точек по району
+// [Лорелея]: Фильтрация точек по району. Когда гость выбирает
+// район, карта показывает только то, что к нему относится,
+// и мир становится обозримым.
 function filterByDistrict() {
 	var selectedId = document.getElementById('fsel').value;
 	var url = '/api/map/geojson';
@@ -282,7 +308,8 @@ function filterByDistrict() {
 		});
 }
 
-// Экранирование HTML
+// [Мириам]: Экранирование HTML. Простая защита, без которой
+// даже самое красивое имя могло бы стать опасным.
 function escapeHtml(text) {
 	if (!text) return '';
 	var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };

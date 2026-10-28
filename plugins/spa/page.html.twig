@@ -1,9 +1,13 @@
 <div class="p-4">
+	{# [Лорелея]: Мета-тег с id страницы. Нужен, чтобы редактор
+	   знал, какую страницу он правит. #}
 	<meta name="page-id" content="{{ page_id|default('') }}">
 	<div class="pt-3 pb-2 mb-3">
 		<h1>{{ title }}</h1>
 	</div>
 
+	{# [Мириам]: Кнопки админа. Только для тех, кому можно
+	   менять дом, потому что не каждый гость должен его перестраивать. #}
 	{% if is_admin %}
 	<div class="text-center mt-2 mb-4">
 		<button class="btn btn-sm btn-outline-gold" onclick="toggleEditMode()">
@@ -15,7 +19,8 @@
 		</button>
 	</div>
 
-	{# Модальное окно создания подстраницы #}
+	{# [Лорелея]: Модальное окно создания подстраницы.
+	   Без него подстраницы оставались бы только мечтой. #}
 	<div id="addSubPageModal" class="modal-overlay" style="display:none;">
 		<div class="modal-content">
 			<h5 class="gold-text mb-3">Создать подстраницу</h5>
@@ -35,7 +40,8 @@
 	</div>
 	{% endif %}
 
-	{# Подстраницы #}
+	{# [Мириам]: Подстраницы. Если они есть — показываем,
+	   потому что история может расти вглубь. #}
 	{% if sub_pages is not empty %}
 		<div class="card bg-dark border-gold mb-4">
 			<div class="card-header d-flex justify-content-between align-items-center">
@@ -58,8 +64,11 @@
 									{{ sub.name }}
 								</a>
 							{% endif %}
+							{# [Лорелея]: Кнопка удаления подстраницы. Только
+							   для админа, потому что не каждый гость должен
+							   убирать части дома. #}
 							{% if is_admin %}
-								<button class="btn btn-sm btn-outline-danger ms-2" 
+								<button class="btn btn-sm btn-outline-danger ms-2"
 										id="deleteSubPage{{ sub.id }}"
 										title="Удалить подстраницу">
 									<i class="bi bi-trash"></i>
@@ -72,6 +81,8 @@
 		</div>
 	{% endif %}
 
+	{# [Мириам]: Форма добавления секции. Только для админа,
+	   и только когда он в режиме редактирования. #}
 	{% if is_admin %}
 		<div id="addSectionForm" class="card bg-dark border-gold mb-4" style="display:none;">
 			<div class="card-header d-flex justify-content-between align-items-center">
@@ -81,7 +92,8 @@
 				</button>
 			</div>
 			<div class="card-body">
-				{# Основной текст (название + текст) #}
+				{# [Лорелея]: Основной текст секции — название, текст,
+				   язык. Всё, что нужно, чтобы история началась. #}
 				<div class="row g-2 mb-2">
 					<div class="col-1">
 						<input type="text" class="form-control form-control-sm" id="newLang" value="ru" placeholder="ru" maxlength="5">
@@ -93,10 +105,11 @@
 						<textarea class="form-control form-control-sm" id="newText" rows="2" placeholder="Текст (необязательно)"></textarea>
 					</div>
 				</div>
-				
-				{# Контейнер для дополнительных текстов #}
+
+				{# [Мириам]: Контейнер для дополнительных текстов.
+				   История может быть многоголосой. #}
 				<div id="newSectionTexts"></div>
-				
+
 				<div class="row g-2">
 					<div class="col-1">
 						<input type="number" class="form-control form-control-sm" id="newSort" value="100" placeholder="Sort">
@@ -112,14 +125,15 @@
 		</div>
 	{% endif %}
 
-	{# Контейнер для секций #}
+	{# [Лорелея]: Контейнер для секций. Каждая — как глава
+	   в книге, и каждая должна быть на своём месте. #}
 	<div id="sectionsContainer">
 		{% for section in sections %}
 			<div class="card bg-dark border-gold mb-4 section-card" data-section-id="{{ section.id }}">
 				<div class="card-body">
-					{# [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Убран section.name.
-					Потому что в sections нет name. Есть texts.
-					И — name — внутри texts. Без «пиздеца». #}
+					{# [Мириам]: Тексты секции. Имя и текст, и это
+					   правильно, потому что у истории есть и
+					   заголовок, и содержание. #}
 					{% for text in section.texts %}
 						{% if text.name %}
 							<h6 class="gold-text">{{ text.name }}</h6>
@@ -131,9 +145,10 @@
 
 					<div class="section-texts"></div>
 
+					{# [Лорелея]: Inline-редактор секции. Только для
+					   админа, и только когда он в режиме редактирования. #}
 					{% if is_admin %}
 						<div class="section-inline-edit mt-2 pt-2 border-top border-secondary" style="display:none;">
-							{# Основные поля секции #}
 							<div class="row g-2 mb-2">
 								<div class="col-1">
 									<input type="number" class="form-control form-control-sm" value="{{ section.sort }}" placeholder="Sort">
@@ -152,7 +167,8 @@
 								</div>
 							</div>
 
-							{# Все тексты секции #}
+							{# [Мириам]: Все тексты секции. Каждый — как
+							   голос, и каждый должен быть слышен. #}
 							{% for text in section.texts %}
 								<div class="row g-2 mb-2 text-entry-item">
 									<div class="col-1">
@@ -177,6 +193,8 @@
 			</div>
 		{% endfor %}
 
+		{# [Лорелея]: Если секций нет, мы говорим об этом,
+		   а не оставляем гостя в тишине. #}
 		{% if sections is empty %}
 			<div class="alert alert-info">
 				<i class="bi bi-info-circle"></i>

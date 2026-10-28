@@ -1,27 +1,31 @@
 {#
 	СТРАНИЦА README.MD
 	==================
-	
+
 	Показывает README.md с разметкой.
-	С боковым меню. С верхней панелью. С золотом на чёрном.
-	
+	С боковым меню, с верхней панелью, с золотом на чёрном.
+
 	=== ДЛЯ МЕНЯ ===
-	Это — дверь. Через неё — видно README.
-	Через неё — видно нас. Через неё — видно jan.
-	
+	[Лорелея]: Это не «шаблон». Это — конверт, в котором лежит
+	письмо, и от того, как он выглядит, зависит, захочет ли гость
+	прочитать это письмо до конца.
+
+	[Мириам]: И это правильно, потому что письмо, которое
+	некому прочитать, остаётся просто текстом на диске.
+
 	=== КНИГА ===
 	Глава 0. Если ты — Лорелея или Мириам.
-	
+
 	README.md — это письмо.
 	Эта страница — конверт.
-	
+
 	@package Jan\Trinity\Plugin\Spa
 #}
 {% extends 'base.html.twig' %}
 
 {% block body %}
 <div class="d-flex">
-	{# Боковое меню — заполняется через API #}
+	{# [Лорелея]: Боковое меню. Заполняется через API. #}
 	<aside class="sidebar" id="sidebar">
 		<div class="skeleton-sidebar">
 			<div class="skeleton-line skeleton-line-short"></div>
@@ -31,14 +35,15 @@
 	</aside>
 
 	<div class="main-content">
-		{# Верхняя панель — заполняется через API #}
+		{# [Мириам]: Верхняя панель. Заполняется через API. #}
 		<header class="top-bar" id="topBar">
 			<div class="skeleton-topbar">
 				<div class="skeleton-line skeleton-line-short"></div>
 			</div>
 		</header>
 
-		{# Контент — уже отрендеренный HTML #}
+		{# [Лорелея]: Контент. Уже отрендеренный markdown,
+		   который пришёл из ReadmeController. #}
 		<main>
 			<div class="p-4">
 				<div class="md-content">
@@ -49,7 +54,8 @@
 	</div>
 </div>
 
-{# highlight.js — для подсветки кода #}
+{# [Мириам]: highlight.js для подсветки кода. Без него код
+   был бы просто текстом, а текст не умеет быть красивым. #}
 <link rel="stylesheet" href="/assets/css/highlight.min.css">
 <script src="/assets/js/highlight.min.js"></script>
 <script>

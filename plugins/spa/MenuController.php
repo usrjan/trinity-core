@@ -2,18 +2,22 @@
 
 /**
  * КОНТРОЛЛЕР МЕНЮ
- * ================
  *
  * Управление боковым меню и верхней панелью.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «контроллер». Это — тот, кто строит карту
+ * дома, по которой гость находит дорогу. И если карта врёт,
+ * гость заблудится, даже если все двери на месте.
  *
- * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. initAuth теперь получает
- * SynapseRepository. Чтобы refreshRoles() работал. А не был
- * декорацией. Без «пиздеца». Без «потом». Без «завтра».
+ * [Мириам]: И это правильно, потому что меню — это не «список»,
+ * это обещание, что за каждым пунктом тебя ждут.
  *
- * [Мириам]: И — getMenu() уже использует findChildrenWithText.
- * Один запрос вместо N+1. Без «пиздеца». И — «навсегда».
+ * === КНИГА ===
+ * Глава 13. Прихожая.
+ *
+ * Войдя в Амбер, ты видишь коридоры.
+ * Войдя в Trinity, ты видишь меню.
  *
  * @package Jan\Trinity\Plugin\Spa
  */
@@ -39,19 +43,19 @@ class MenuController
 {
 	use AuthMiddleware;
 
-	/** @var Environment — шаблонизатор Twig */
+	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
 
-	/** @var TextRepository — работа с текстами */
+	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
 
-	/** @var NeuronRepository — работа с нейронами */
+	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
-	/** @var GuardService — CSRF-защита */
+	/** @var GuardService — CSRF-защита. */
 	private GuardService $guard;
 
-	/** @var ConfigService — сервис конфигурации */
+	/** @var ConfigService — сервис конфигурации. */
 	private ConfigService $configService;
 
 	private Validator $validator;
@@ -59,9 +63,11 @@ class MenuController
 	/**
 	 * Конструктор.
 	 *
-	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. initAuth теперь получает
-	 * SynapseRepository. Чтобы refreshRoles() работал. А не был
-	 * декорацией. Без «пиздеца». Без «потом». Без «завтра».
+	 * [Лорелея]: Мы передаём SynapseRepository, чтобы refreshRoles()
+	 * работал по-настоящему, а не оставался красивой декорацией.
+	 *
+	 * [Мириам]: И это правильно, потому что роли должны обновляться,
+	 * даже если человек вошёл давно.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -87,6 +93,17 @@ class MenuController
 	// БОКОВОЕ МЕНЮ (ПУБЛИЧНЫЙ МЕТОД)
 	// ============================================
 
+	/**
+	 * GET /api/menu/sidebar
+	 *
+	 * [Лорелея]: Здесь мы отдаём боковое меню. С активным пунктом,
+	 * с ролями гостя, и с текущим URL, чтобы подсветить то,
+	 * где он сейчас.
+	 *
+	 * [Мириам]: И это правильно, потому что меню — это
+	 * не «список ссылок», это карта, по которой гость
+	 * понимает, где он.
+	 */
 	public function sidebar(Request $request): Response
 	{
 		$lang = $request->query->get('lang', 'ru');
@@ -111,6 +128,16 @@ class MenuController
 	// ВЕРХНЯЯ ПАНЕЛЬ (ПУБЛИЧНЫЙ МЕТОД)
 	// ============================================
 
+	/**
+	 * GET /api/menu/topbar
+	 *
+	 * [Лорелея]: Здесь мы отдаём верхнюю панель. С гостем,
+	 * с ролями, с кнопкой выхода, и это правильно, потому что
+	 * шапка — это лицо дома, и гость должен видеть, что его ждут.
+	 *
+	 * [Мириам]: И это правильно, потому что шапка — это
+	 * не «панель», это встреча.
+	 */
 	public function topbar(Request $request): Response
 	{
 		$user = $this->session->get('user_login');
@@ -128,6 +155,16 @@ class MenuController
 	// ДОБАВЛЕНИЕ ПУНКТА МЕНЮ (АДМИН)
 	// ============================================
 
+	/**
+	 * POST /api/menu/add-item
+	 *
+	 * [Лорелея]: Здесь мы добавляем пункт меню. С CSRF,
+	 * с валидацией, и с проверкой, что slug и route
+	 * действительно такие, какими должны быть.
+	 *
+	 * [Мириам]: И это правильно, потому что пункт меню —
+	 * это не «строка», это обещание, что за ним что-то есть.
+	 */
 	public function addItem(Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -195,6 +232,16 @@ class MenuController
 	// ОБНОВЛЕНИЕ ПУНКТА МЕНЮ (АДМИН)
 	// ============================================
 
+	/**
+	 * POST /api/menu/update-item
+	 *
+	 * [Лорелея]: Здесь мы обновляем пункт меню. С CSRF,
+	 * с валидацией, и с проверкой, что пункт действительно
+	 * существует, прежде чем что-то менять.
+	 *
+	 * [Мириам]: И это правильно, потому что обновление —
+	 * это не «замена», это продолжение истории.
+	 */
 	public function updateItem(Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -254,8 +301,13 @@ class MenuController
 	// ============================================
 
 	/**
-	 * [Мириам]: getMenu() уже использует findChildrenWithText.
-	 * Один запрос вместо N+1. Без «пиздеца». И — «навсегда».
+	 * [Мириам]: getMenu() использует findChildrenWithText,
+	 * и это один запрос вместо N+1, потому что меню должно
+	 * собираться быстро, как карта, которую разворачивают
+	 * одним движением.
+	 *
+	 * [Лорелея]: И это правильно, потому что меню — это
+	 * не «список», это карта дома.
 	 */
 	private function getMenu(string $lang = 'ru'): array
 	{
@@ -269,7 +321,6 @@ class MenuController
 			return ['items' => []];
 		}
 
-		// [Лорелея]: Один запрос. findChildrenWithText. Без N+1.
 		$children = $this->neuronRepo->findChildrenWithText($public['id'], $lang);
 
 		$items = [];

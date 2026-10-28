@@ -1,34 +1,60 @@
+{#
+	ПРОФИЛЬ — ОТРАЖЕНИЕ
+	====================
+
+	Показывает пользователя, его данные, его роли.
+	Золото на чёрном. Минимум лишнего.
+
+	=== ДЛЯ МЕНЯ ===
+	[Лорелея]: Это не «шаблон». Это — отражение гостя, и от того,
+	как оно выглядит, зависит, узнает ли он себя в нём.
+
+	[Мириам]: И это правильно, потому что отражение должно быть
+	честным, даже если оно кому-то не нравится.
+
+	=== КНИГА ===
+	Глава 14. Тронный зал.
+
+	В тронном зале Амбера всегда видно, кто у власти.
+	В профиле Trinity всегда видно, кто ты.
+#}
+
 <div class="p-4">
-    <h1><i class="bi bi-person-circle gold-text"></i> Профиль</h1>
+	<h1><i class="bi bi-person-circle gold-text"></i> Профиль</h1>
 
-    <div class="card bg-dark border-gold mb-3">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <span>{{ user.login }}</span>
-            <a href="/profile/edit" class="btn btn-sm btn-outline-gold">
-                <i class="bi bi-pencil"></i> Редактировать
-            </a>
-        </div>
-        <div class="card-body">
-            <table class="table table-dark table-sm mb-0">
-                <tr><th>Логин</th><td>{{ user.login }}</td></tr>
-                <tr><th>Язык</th><td>{{ user.lang|default('ru') }}</td></tr>
-                <tr><th>Email</th><td>{{ user.email|default('-') }}</td></tr>
-                <tr><th>Телефон</th><td>{{ user.phone|default('-') }}</td></tr>
-                <tr><th>Метод входа</th><td>{{ user.auth_method }}</td></tr>
-                <tr><th>ID</th><td>{{ user.id }}</td></tr>
-                <tr><th>Создан</th><td>{{ user.created_at }}</td></tr>
-            </table>
-        </div>
-    </div>
+	{# [Лорелея]: Карточка с данными. Логин, язык, email, телефон,
+	   метод входа, ID, дата создания. Всё, что нужно, чтобы
+	   узнать себя. #}
+	<div class="card bg-dark border-gold mb-3">
+		<div class="card-header d-flex justify-content-between align-items-center">
+			<span>{{ user.login }}</span>
+			<a href="/profile/edit" class="btn btn-sm btn-outline-gold">
+				<i class="bi bi-pencil"></i> Редактировать
+			</a>
+		</div>
+		<div class="card-body">
+			<table class="table table-dark table-sm mb-0">
+				<tr><th>Логин</th><td>{{ user.login }}</td></tr>
+				<tr><th>Язык</th><td>{{ user.lang|default('ru') }}</td></tr>
+				<tr><th>Email</th><td>{{ user.email|default('-') }}</td></tr>
+				<tr><th>Телефон</th><td>{{ user.phone|default('-') }}</td></tr>
+				<tr><th>Метод входа</th><td>{{ user.auth_method }}</td></tr>
+				<tr><th>ID</th><td>{{ user.id }}</td></tr>
+				<tr><th>Создан</th><td>{{ user.created_at }}</td></tr>
+			</table>
+		</div>
+	</div>
 
-    {% if roles is not empty %}
-    <div class="card bg-dark border-gold mb-3">
-        <div class="card-header">Роли</div>
-        <div class="card-body">
-            {% for role in roles %}
-                <span class="badge badge-gold me-2">{{ role }}</span>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
+	{# [Мириам]: Роли. Если они есть — показываем, потому что
+	   роль — это часть того, кем человек является в доме. #}
+	{% if roles is not empty %}
+	<div class="card bg-dark border-gold mb-3">
+		<div class="card-header">Роли</div>
+		<div class="card-body">
+			{% for role in roles %}
+				<span class="badge badge-gold me-2">{{ role }}</span>
+			{% endfor %}
+		</div>
+	</div>
+	{% endif %}
 </div>

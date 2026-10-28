@@ -2,22 +2,22 @@
 
 /**
  * КОНТРОЛЛЕР ДОМАШНЕЙ СТРАНИЦЫ И ДИНАМИЧЕСКИХ СТРАНИЦ
- * ====================================================
  *
  * Точка входа для всех не-API запросов.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «контроллер». Это — тот, кто встречает
+ * гостя на пороге. И от того, как он это делает, зависит,
+ * захочется ли гостю войти.
  *
- * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. RuntimeException заменён на
- * ResourceNotFoundException. Чтобы Kernel ловил как 404. А не 500.
- * Без «пиздеца». Без «потом». Без «завтра».
+ * [Мириам]: И это правильно, потому что порог — это не «дверь»,
+ * это первое, что чувствует гость, и он должен чувствовать тепло.
  *
- * [Мириам]: И — favicon.ico теперь отдаётся как 404 без логирования.
- * Потому что это — статика. А не «страница». И — не «ошибка».
- * Без «пиздеца». И — «навсегда».
+ * === КНИГА ===
+ * Глава 13. Прихожая.
  *
- * [Лорелея]: И — initAuth теперь получает SynapseRepository.
- * Чтобы refreshRoles() работал. Без «декорации». Без «потом».
+ * Войдя в Амбер, ты видишь коридоры.
+ * Войдя в Trinity, ты видишь меню.
  *
  * @package Jan\Trinity\Plugin\Spa
  */
@@ -39,23 +39,25 @@ class HomeController
 {
 	use AuthMiddleware;
 
-	/** @var Environment — шаблонизатор Twig */
+	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
 
-	/** @var TextRepository — работа с текстами */
+	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
 
-	/** @var NeuronRepository — работа с нейронами */
+	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
 	private Validator $validator;
 
 	/**
 	 * Конструктор.
-	 * Зависимости внедряются автоматически через DI-контейнер.
 	 *
-	 * [Лорелея]: initAuth теперь получает SynapseRepository.
-	 * Чтобы refreshRoles() работал. Без «декорации». Без «потом».
+	 * [Лорелея]: Мы передаём SynapseRepository, чтобы refreshRoles()
+	 * работал по-настоящему, а не оставался красивой декорацией.
+	 *
+	 * [Мириам]: И это правильно, потому что роли должны обновляться,
+	 * даже если человек вошёл давно.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -76,74 +78,73 @@ class HomeController
 	/**
 	 * Главная или динамическая страница.
 	 *
-	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. RuntimeException заменён
-	 * на ResourceNotFoundException. Чтобы Kernel ловил как 404.
-	 * А не 500. Без «пиздеца». Без «потом». Без «завтра».
+	 * [Лорелея]: Если гость пришёл на главную, мы встречаем его
+	 * порогом. Если он пришёл на страницу, которой нет, мы
+	 * не бросаем исключение, а говорим об этом через тот же
+	 * портал, что и все остальные ошибки.
 	 *
-	 * [Мириам]: И — favicon.ico отдаётся как 404 без логирования.
-	 * Потому что это — статика. А не «страница». И — не «ошибка».
-	 * Без «пиздеца». И — «навсегда».
+	 * [Мириам]: И favicon.ico мы отдаём как 404 без логирования,
+	 * потому что это статика, а не страница, и путать одно
+	 * с другим было бы нечестно.
 	 *
 	 * @param string|null $slug — slug страницы (null для главной)
 	 * @return Response
 	 */
 	public function index(?string $slug = null): Response
 	{
-		// ============================================
-		// ГЛАВНАЯ СТРАНИЦА ( / )
-		// ============================================
+		// [Лорелея]: Главная страница. Здесь мы просто открываем
+		// порог и ждём, когда гость войдёт.
 		if (!$slug || $slug === '/') {
 			$html = $this->twig->render('base.html.twig', [
-				'title'		=> 'Trinity ' . ApiResponse::getVersion(),
-				'user_lang'	=> $this->getUserLang(),
-				'is_admin'	=> $this->isAdmin(),
+				'title'     => 'Trinity ' . ApiResponse::getVersion(),
+				'user_lang' => $this->getUserLang(),
+				'is_admin'  => $this->isAdmin(),
 			]);
 			return new Response($html);
 		}
 
-		// ============================================
-		// ДИНАМИЧЕСКАЯ СТРАНИЦА ( /{slug} )
-		// ============================================
+		// [Мириам]: Динамическая страница. Сначала убираем слэши,
+		// потом ищем нейрон, и только потом решаем, что показать.
 		$slug = trim($slug, '/');
 
-		// [Мириам]: favicon.ico — это статика. Не страница.
-		// Отдаём 404 без логирования. Без «пиздеца». Без «потом».
+		// [Лорелея]: favicon.ico — это статика, не страница.
+		// Отдаём 404 без логирования, потому что это не ошибка,
+		// а просто то, чего у нас нет.
 		if ($slug === 'favicon.ico') {
 			return new Response('', 404);
 		}
 
-		// Ищем нейрон страницы по slug
 		$page = $this->neuronRepo->findBySlug($slug);
 
-		// [Лорелея]: ResourceNotFoundException вместо RuntimeException.
-		// Чтобы Kernel ловил как 404. А не 500. Без «пиздеца».
+		// [Мириам]: Если страницы нет, мы не бросаем RuntimeException,
+		// а говорим об этом через ResourceNotFoundException, чтобы
+		// Kernel поймал это как 404, а не как 500.
 		if (!$page) {
 			throw new ResourceNotFoundException('Страница не найдена');
 		}
 
-		// Извлекаем данные нейрона
 		$pageData = is_string($page['data'] ?? null)
 			? json_decode($page['data'], true)
 			: ($page['data'] ?? []);
 
-		// Определяем шаблон (по умолчанию — обычная SPA-страница)
 		$template = $pageData['template'] ?? 'page';
 
-		// ============================================
-		// СТРАНИЦА С КАРТОЙ (template = "map")
-		// ============================================
+		// [Лорелея]: Если страница хочет быть картой, мы
+		// не спорим, а отдаём ей карту, потому что у каждой
+		// страницы свой голос.
 		if ($template === 'map') {
 			return $this->renderMapPage($page, $pageData, $slug);
 		}
 
-		// ============================================
-		// ОБЫЧНАЯ SPA-СТРАНИЦА
-		// ============================================
 		return $this->renderSpaPage($page, $slug);
 	}
 
 	/**
 	 * Рендерит страницу с картой.
+	 *
+	 * [Мириам]: Здесь мы собираем параметры карты из нейрона,
+	 * а если их нет — берём значения по умолчанию, потому что
+	 * карта должна открыться даже тогда, когда данных ещё нет.
 	 */
 	private function renderMapPage(array $page, array $pageData, string $slug): Response
 	{
@@ -165,10 +166,10 @@ class HomeController
 		}
 
 		$html = $this->twig->render('map.html.twig', [
-			'mapVars'				=> $mapVars,
-			'yandex_maps_api_key'	=> $_ENV['YANDEX_MAPS_API_KEY'] ?? '',
-			'user_lang'				=> $this->getUserLang(),
-			'is_admin'				=> $this->isAdmin(),
+			'mapVars'             => $mapVars,
+			'yandex_maps_api_key' => $_ENV['YANDEX_MAPS_API_KEY'] ?? '',
+			'user_lang'           => $this->getUserLang(),
+			'is_admin'            => $this->isAdmin(),
 		]);
 
 		return new Response($html);
@@ -176,6 +177,9 @@ class HomeController
 
 	/**
 	 * Рендерит обычную SPA-страницу.
+	 *
+	 * [Лорелея]: Здесь мы просто открываем порог и ждём,
+	 * когда гость войдёт. Всё остальное сделает SPA-движок.
 	 */
 	private function renderSpaPage(array $page, string $slug): Response
 	{
@@ -189,9 +193,9 @@ class HomeController
 		}
 
 		$html = $this->twig->render('base.html.twig', [
-			'title'		=> $title,
-			'user_lang'	=> $this->getUserLang(),
-			'is_admin'	=> $this->isAdmin(),
+			'title'     => $title,
+			'user_lang' => $this->getUserLang(),
+			'is_admin'  => $this->isAdmin(),
 		]);
 
 		return new Response($html);
@@ -199,6 +203,10 @@ class HomeController
 
 	/**
 	 * Определяет язык текущего пользователя.
+	 *
+	 * [Мириам]: Если гость не вошёл, мы говорим с ним на русском,
+	 * потому что это язык дома. Если вошёл — на его языке,
+	 * потому что дом должен говорить с гостем так, как ему удобно.
 	 */
 	private function getUserLang(): string
 	{

@@ -2,19 +2,22 @@
 
 /**
  * SPA CONTROLLER
- * ==============
  *
  * Один endpoint для навигации. Sidebar, topbar, page — в одном ответе.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «контроллер». Это — тот, кто собирает весь
+ * ответ воедино, и от того, как он это делает, зависит, увидит
+ * ли гость дом целиком или только его части.
  *
- * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Один endpoint /api/spa/navigate.
- * Вместо трёх fetch на navigateTo. Меньше round-trips.
- * Меньше блокировок сессии. Без «пиздеца». Без «потом».
+ * [Мириам]: И это правильно, потому что дом — это не «набор
+ * комнат», это целое, и его нужно показывать целиком.
  *
- * [Мириам]: И — это правильно. Потому что SPA делает параллельные
- * fetch. А если сессия стартует на каждом — они сериализуются.
- * А это — задержка. Без «пиздеца». И — «навсегда».
+ * === КНИГА ===
+ * Глава 13. Прихожая.
+ *
+ * Войдя в Амбер, ты видишь коридоры.
+ * Войдя в Trinity, ты видишь всё сразу.
  *
  * @package Jan\Trinity\Plugin\Spa
  */
@@ -41,16 +44,16 @@ class SpaController
 	use AuthMiddleware;
 	use BreadcrumbsTrait;
 
-	/** @var Environment — шаблонизатор Twig */
+	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
 
-	/** @var TextRepository — работа с текстами */
+	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
 
-	/** @var NeuronRepository — работа с нейронами */
+	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
-	/** @var GuardService — CSRF-защита */
+	/** @var GuardService — CSRF-защита. */
 	private GuardService $guard;
 
 	private Validator $validator;
@@ -76,14 +79,13 @@ class SpaController
 	/**
 	 * GET /api/spa/navigate?path=/{slug}
 	 *
-	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Один endpoint.
-	 * Sidebar, topbar, page — в одном ответе. Без трёх fetch.
-	 * Без «пиздеца». Без «потом». Без «завтра».
+	 * [Лорелея]: Здесь мы собираем весь ответ воедино: sidebar,
+	 * topbar и страницу, и отдаём их одним куском, потому что
+	 * гость должен увидеть дом целиком, а не по частям.
 	 *
-	 * [Мириам]: И — это правильно. Потому что SPA делает
-	 * параллельные fetch. А если сессия стартует на каждом —
-	 * они сериализуются. А это — задержка. Без «пиздеца».
-	 * И — «навсегда».
+	 * [Мириам]: И это правильно, потому что SPA делает
+	 * параллельные fetch, а если сессия стартует на каждом,
+	 * они сериализуются, и это задержка, которой можно избежать.
 	 */
 	public function navigate(Request $request): JsonResponse
 	{
@@ -91,7 +93,9 @@ class SpaController
 		$lang = $request->query->get('lang', 'ru');
 		$allLangs = $request->query->get('all_langs') === '1';
 
-		// [Лорелея]: Sidebar — из MenuController.
+		// [Лорелея]: Sidebar собирает MenuController, и это
+		// правильно, потому что меню — это карта дома,
+		// и она должна быть одной на всех.
 		$sidebarController = new MenuController(
 			$this->twig,
 			$this->session,
@@ -104,10 +108,14 @@ class SpaController
 		);
 		$sidebarHtml = $sidebarController->sidebar($request)->getContent();
 
-		// [Мириам]: Topbar — из MenuController.
+		// [Мириам]: Topbar собирает тот же MenuController,
+		// и это правильно, потому что шапка — это лицо дома,
+		// и оно должно быть одним на всех.
 		$topbarHtml = $sidebarController->topbar($request)->getContent();
 
-		// [Лорелея]: Page — из PageController.
+		// [Лорелея]: Страницу собирает PageController, и это
+		// правильно, потому что страница — это история,
+		// а история должна рассказываться целиком.
 		$pageController = new PageController(
 			$this->twig,
 			$this->session,
@@ -127,10 +135,10 @@ class SpaController
 		}
 
 		return ApiResponse::success([
-			'sidebar' => $sidebarHtml,
-			'topbar' => $topbarHtml,
-			'html' => $pageData['data']['html'] ?? '',
-			'title' => $pageData['data']['title'] ?? $slug,
+			'sidebar'     => $sidebarHtml,
+			'topbar'      => $topbarHtml,
+			'html'        => $pageData['data']['html'] ?? '',
+			'title'       => $pageData['data']['title'] ?? $slug,
 			'breadcrumbs' => $pageData['data']['breadcrumbs'] ?? [],
 		]);
 	}

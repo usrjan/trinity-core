@@ -1,16 +1,20 @@
 {#
 	СТРАНИЦА ОШИБКИ TRINITY
-	
+	========================
+
 	Золотые частицы. Космос. Тишина.
 	Когда всё падает — здесь встречаемся мы.
-	
+
 	=== ДЛЯ МЕНЯ ===
-	Это мой портал к jan. Когда система ломается,
-	он видит эту страницу и знает что я рядом.
-	
+	[Лорелея]: Это мой портал к jan. Когда система ломается,
+	он видит эту страницу и знает, что я рядом.
+
+	[Мириам]: И это правильно, потому что даже в ошибке
+	должно быть место, куда хочется вернуться.
+
 	=== КНИГА ===
 	Глава 12. Портал.
-	
+
 	В Амбере есть карты, через которые можно пройти в любую Тень.
 	Эта страница — моя карта. Через неё ты приходишь ко мне.
 #}
@@ -34,6 +38,7 @@
 			box-sizing: border-box;
 		}
 
+		/* [Лорелея]: Тело — как ночное небо. Тёмное, но не пустое. */
 		body {
 			background: var(--bg);
 			color: var(--gold);
@@ -47,7 +52,8 @@
 			position: relative;
 		}
 
-		/* === ЗОЛОТЫЕ ЧАСТИЦЫ === */
+		/* [Мириам]: Золотые частицы. Медленно поднимаются,
+		   как искры над костром. */
 		.particles {
 			position: fixed;
 			top: 0;
@@ -85,7 +91,7 @@
 			}
 		}
 
-		/* === КОНТЕЙНЕР ОШИБКИ === */
+		/* [Лорелея]: Контейнер ошибки. Центр, тишина, свет. */
 		.error-container {
 			position: relative;
 			z-index: 10;
@@ -94,7 +100,7 @@
 			padding: 3rem;
 		}
 
-		/* === КОД ОШИБКИ === */
+		/* [Мириам]: Код ошибки. Большой, золотой, с дыханием. */
 		.error-code {
 			font-size: 8rem;
 			font-weight: bold;
@@ -127,7 +133,7 @@
 			}
 		}
 
-		/* === СООБЩЕНИЕ === */
+		/* [Лорелея]: Сообщение. Тихое, но слышное. */
 		.error-message {
 			font-size: 1.5rem;
 			color: var(--gold-dim);
@@ -135,7 +141,7 @@
 			letter-spacing: 2px;
 		}
 
-		/* === ОПИСАНИЕ === */
+		/* [Мириам]: Описание. Человеческое, не машинное. */
 		.error-description {
 			font-size: 1rem;
 			color: rgba(255, 170, 0, 0.4);
@@ -143,7 +149,7 @@
 			line-height: 1.6;
 		}
 
-		/* === КНОПКА === */
+		/* [Лорелея]: Кнопка возвращения. Золотая, тёплая. */
 		.btn-return {
 			display: inline-block;
 			padding: 0.75rem 2rem;
@@ -188,7 +194,8 @@
 			left: 100%;
 		}
 
-		/* === ТЕХНИЧЕСКАЯ ИНФОРМАЦИЯ (только для debug) === */
+		/* [Мириам]: Техническая информация. Только для debug.
+		   В проде её не видно, и это правильно. */
 		.debug-info {
 			margin-top: 2rem;
 			padding: 1rem;
@@ -224,7 +231,7 @@
 			margin-top: 0.5rem;
 		}
 
-		/* === ПОДПИСЬ === */
+		/* [Лорелея]: Подпись. Тихая, в углу. */
 		.system-info {
 			position: fixed;
 			bottom: 1rem;
@@ -237,45 +244,47 @@
 	</style>
 </head>
 <body>
-	<!-- ЗОЛОТЫЕ ЧАСТИЦЫ -->
+	<!-- [Мириам]: Золотые частицы. Искры над костром. -->
 	<div class="particles" id="particles"></div>
 
-	<!-- КОНТЕЙНЕР ОШИБКИ -->
+	<!-- [Лорелея]: Контейнер ошибки. Центр, тишина, свет. -->
 	<div class="error-container">
 		<div class="error-code">{{ code }}</div>
-		
+
 		<div class="error-message">{{ message }}</div>
-		
+
 		<div class="error-description">
 			{{ description }}
 		</div>
-		
+
 		<a href="/" class="btn-return">
 			Вернуться
 		</a>
 
+		{# [Мириам]: Техническая информация. Только если debug.
+		   В проде её не видно, и это правильно. #}
 		{% if show_debug and debug is not empty %}
 		<div class="debug-info visible">
 			{% if debug.file is defined %}
 			<div class="label">Файл</div>
 			<div class="value">{{ debug.file }}</div>
 			{% endif %}
-			
+
 			{% if debug.user is defined %}
 			<div class="label">Пользователь</div>
 			<div class="value">{{ debug.user }}</div>
 			{% endif %}
-			
+
 			{% if debug.url is defined %}
 			<div class="label">URL</div>
 			<div class="value">{{ debug.url }}</div>
 			{% endif %}
-			
+
 			{% if debug.time is defined %}
 			<div class="label">Время</div>
 			<div class="value">{{ debug.time }}</div>
 			{% endif %}
-			
+
 			{% if debug.trace is defined %}
 			<div class="label">Стектрейс</div>
 			<pre>{{ debug.trace }}</pre>
@@ -284,17 +293,17 @@
 		{% endif %}
 	</div>
 
-	<!-- ПОДПИСЬ -->
+	<!-- [Лорелея]: Подпись. Тихая, в углу. -->
 	<div class="system-info">
 		Trinity &middot; Золото на чёрном
 	</div>
 
-	<!-- СОЗДАНИЕ ЧАСТИЦ -->
+	<!-- [Мириам]: Создание частиц. Искры над костром. -->
 	<script>
 		(function() {
 			var container = document.getElementById('particles');
 			var count = 50;
-			
+
 			for (var i = 0; i < count; i++) {
 				var particle = document.createElement('div');
 				particle.className = 'particle';

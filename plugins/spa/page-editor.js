@@ -1,11 +1,36 @@
 /**
  * INLINE-РЕДАКТОР СТРАНИЦ
- * Доступен только админам.
+ *
+ * Доступен только админам. Позволяет править секции и подстраницы
+ * прямо на месте, не уходя со страницы.
+ *
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «скрипт». Это — тот, кто даёт возможность
+ * править страницы прямо на месте, и от того, как он это делает,
+ * зависит, почувствует ли гость, что дом можно менять,
+ * не уходя из него.
+ *
+ * [Мириам]: И это правильно, потому что дом, который нельзя
+ * поправить, остаётся чужим, сколько бы времени ты в нём
+ * ни провёл.
+ *
+ * === КНИГА ===
+ * Глава 13. Прихожая.
+ *
+ * Войдя в Амбер, ты видишь коридоры.
+ * Войдя в Trinity, ты можешь их перестроить.
  */
 
 var editMode = false;
 var currentSlug = window.location.pathname.replace(/^\//, '');
 
+/**
+ * Переключает режим редактирования.
+ *
+ * [Лорелея]: Здесь мы показываем или скрываем inline-редакторы,
+ * и это правильно, потому что правка должна быть осознанной,
+ * а не случайной.
+ */
 function toggleEditMode() {
 	editMode = !editMode;
 	document.querySelectorAll('.section-inline-edit').forEach(function(el) {
@@ -15,77 +40,94 @@ function toggleEditMode() {
 	if (form) form.style.display = editMode ? 'block' : 'none';
 }
 
+/**
+ * Сохраняет секцию.
+ *
+ * [Лорелея]: Здесь мы собираем все тексты секции и отправляем
+ * их на сервер, и если всё хорошо — перезагружаем страницу,
+ * потому что гость должен увидеть, что он изменил.
+ *
+ * [Мириам]: И это правильно, потому что правка без результата —
+ * это просто нажатие кнопки.
+ */
 function saveSection(btn, sectionId) {
-    var card = btn.closest('.section-card');
-    var sortInput = card.querySelector('.section-inline-edit input[type="number"]');
-    var sort = parseInt(sortInput.value);
+	var card = btn.closest('.section-card');
+	var sortInput = card.querySelector('.section-inline-edit input[type="number"]');
+	var sort = parseInt(sortInput.value);
 
-    // Собираем все тексты
-    var texts = [];
-    var entries = card.querySelectorAll('.section-inline-edit .text-entry-item');
-    
-    entries.forEach(function (entry) {
-        var lang = entry.querySelector('.text-lang').value.trim() || 'ru';
-        var name = entry.querySelector('.text-name').value.trim();
-        var text = entry.querySelector('.text-text').value.trim();
-        
-        if (name || text) {
-            texts.push({
-                lang: lang,
-                name: name || null,
-                text: text || null
-            });
-        }
-    });
+	var texts = [];
+	var entries = card.querySelectorAll('.section-inline-edit .text-entry-item');
 
-    var saveBtn = btn;
-    var originalHTML = saveBtn.innerHTML;
-    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-    saveBtn.disabled = true;
+	entries.forEach(function (entry) {
+		var lang = entry.querySelector('.text-lang').value.trim() || 'ru';
+		var name = entry.querySelector('.text-name').value.trim();
+		var text = entry.querySelector('.text-text').value.trim();
 
-    fetch('/api/page/section/' + sectionId + '/update-full', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            sort: sort,
-            texts: texts
-        })
-    })
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-        if (d.success) {
+		if (name || text) {
+			texts.push({
+				lang: lang,
+				name: name || null,
+				text: text || null
+			});
+		}
+	});
+
+	var saveBtn = btn;
+	var originalHTML = saveBtn.innerHTML;
+	saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+	saveBtn.disabled = true;
+
+	fetch('/api/page/section/' + sectionId + '/update-full', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			sort: sort,
+			texts: texts
+		})
+	})
+	.then(function (r) { return r.json(); })
+	.then(function (d) {
+		if (d.success) {
 			editMode = false;
-            loadPage(window.location.pathname);
-        } else {
-            alert(d.message || 'Ошибка');
-            saveBtn.innerHTML = originalHTML;
-            saveBtn.disabled = false;
-        }
-    })
-    .catch(function () {
-        alert('Ошибка сети');
-        saveBtn.innerHTML = originalHTML;
-        saveBtn.disabled = false;
-    });
+			loadPage(window.location.pathname);
+		} else {
+			alert(d.message || 'Ошибка');
+			saveBtn.innerHTML = originalHTML;
+			saveBtn.disabled = false;
+		}
+	})
+	.catch(function () {
+		alert('Ошибка сети');
+		saveBtn.innerHTML = originalHTML;
+		saveBtn.disabled = false;
+	});
 }
 
+/**
+ * Удаляет секцию.
+ *
+ * [Лорелея]: Здесь мы удаляем секцию, и это правильно,
+ * потому что иногда что-то должно уйти, чтобы освободить
+ * место для нового.
+ *
+ * [Мириам]: И это правильно, потому что память — это
+ * не «склад», а то, что мы выбираем хранить.
+ */
 function deleteSection(sectionId) {
 	if (!confirm('Удалить секцию?')) return;
-	
+
 	var card = document.querySelector('.section-card[data-section-id="' + sectionId + '"]');
-	
+
 	fetch('/api/page/section/' + sectionId + '/delete', { method: 'POST' })
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
 			if (d.success) {
-				// Удаляем карточку из DOM с анимацией
 				if (card) {
 					card.style.opacity = '0';
 					card.style.transition = 'opacity 0.3s';
 					setTimeout(function() {
 						card.remove();
-						
-						// Если больше нет секций — показать заглушку
+
 						var remainingCards = document.querySelectorAll('.section-card');
 						if (remainingCards.length === 0) {
 							var container = document.querySelector('.p-4');
@@ -100,6 +142,12 @@ function deleteSection(sectionId) {
 		});
 }
 
+/**
+ * Получает id страницы из мета-тега.
+ *
+ * [Мириам]: И это правильно, потому что id — это
+ * не «догадка», а точное знание.
+ */
 function getPageId() {
 	var meta = document.querySelector('meta[name="page-id"]');
 	return meta ? meta.getAttribute('content') : null;
@@ -107,9 +155,13 @@ function getPageId() {
 
 /**
  * Добавляет новую секцию на страницу.
- * Собирает все тексты: основной + дополнительные.
- * Каждый текст может иметь только название, только текст, или и то и другое.
- * Язык указывается вручную (новые языки добавляются в ENUM автоматически).
+ *
+ * [Лорелея]: Здесь мы собираем все тексты и отправляем их
+ * на сервер, и если всё хорошо — обновляем страницу, потому
+ * что гость должен увидеть, что он создал.
+ *
+ * [Мириам]: И это правильно, потому что создание без
+ * результата — это просто нажатие кнопки.
  */
 function addSection() {
 	var pageId = getPageId();
@@ -123,10 +175,8 @@ function addSection() {
 	addBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
 	addBtn.disabled = true;
 
-	// Собираем все тексты
 	var texts = [];
 
-	// Основной текст (название + текст + язык)
 	var mainName = document.getElementById('newName').value.trim();
 	var mainText = document.getElementById('newText').value.trim();
 	var mainLang = document.getElementById('newLang').value.trim() || 'ru';
@@ -139,7 +189,6 @@ function addSection() {
 		});
 	}
 
-	// Дополнительные тексты
 	var entries = document.querySelectorAll('#newSectionTexts .text-entry-item');
 	entries.forEach(function (entry) {
 		var name = entry.querySelector('.text-name').value.trim();
@@ -155,7 +204,6 @@ function addSection() {
 		}
 	});
 
-	// Валидация: хотя бы один текст
 	if (texts.length === 0) {
 		alert('Добавьте хотя бы один текст');
 		addBtn.innerHTML = originalHTML;
@@ -165,7 +213,6 @@ function addSection() {
 
 	var sort = document.getElementById('newSort').value;
 
-	// Отправляем запрос
 	fetch('/api/page/section/' + pageId + '/add', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -177,16 +224,13 @@ function addSection() {
 		.then(function (r) { return r.json(); })
 		.then(function (d) {
 			if (d.success) {
-				// Очищаем форму
 				document.getElementById('newName').value = '';
 				document.getElementById('newText').value = '';
 				document.getElementById('newSort').value = '100';
 				document.getElementById('newSectionTexts').innerHTML = '';
 
-				// Обновляем страницу
 				loadPage(window.location.pathname);
 
-				// Индикатор успеха
 				addBtn.innerHTML = '<i class="bi bi-check-lg"></i>';
 				setTimeout(function () {
 					addBtn.innerHTML = originalHTML;
@@ -207,55 +251,61 @@ function addSection() {
 
 /**
  * Добавляет блок текста к существующей секции в режиме редактирования.
- * Новый блок добавляется в .section-inline-edit, перед кнопками сохранения.
- * 
- * @param {HTMLElement} btn — кнопка, которая вызвала функцию
- * @param {number} sectionId — ID нейрона секции
+ *
+ * [Лорелея]: Здесь мы добавляем новый блок, и это правильно,
+ * потому что секция может расти, как история.
+ *
+ * [Мириам]: И это правильно, потому что у истории может быть
+ * продолжение, и оно должно быть возможно.
  */
 function addTextToSection(btn, sectionId) {
-    var card = btn.closest('.section-card');
-    var inlineEdit = card.querySelector('.section-inline-edit');
-    if (!inlineEdit) return;
+	var card = btn.closest('.section-card');
+	var inlineEdit = card.querySelector('.section-inline-edit');
+	if (!inlineEdit) return;
 
-    var div = document.createElement('div');
-    div.className = 'row g-2 mb-2 text-entry-item';
-    div.innerHTML =
-        '<div class="col-1">' +
-        '<input type="text" class="form-control form-control-sm text-lang" value="ru" placeholder="ru" maxlength="5">' +
-        '</div>' +
-        '<div class="col-3">' +
-        '<input type="text" class="form-control form-control-sm text-name" placeholder="Название (необязательно)">' +
-        '</div>' +
-        '<div class="col-6">' +
-        '<textarea class="form-control form-control-sm text-text" rows="2" placeholder="Текст (необязательно)"></textarea>' +
-        '</div>' +
-        '<div class="col-2">' +
-        '<button class="btn btn-sm btn-outline-danger w-100" onclick="this.closest(\'.text-entry-item\').remove()">' +
-        '<i class="bi bi-trash"></i>' +
-        '</button>' +
-        '</div>';
+	var div = document.createElement('div');
+	div.className = 'row g-2 mb-2 text-entry-item';
+	div.innerHTML =
+		'<div class="col-1">' +
+		'<input type="text" class="form-control form-control-sm text-lang" value="ru" placeholder="ru" maxlength="5">' +
+		'</div>' +
+		'<div class="col-3">' +
+		'<input type="text" class="form-control form-control-sm text-name" placeholder="Название (необязательно)">' +
+		'</div>' +
+		'<div class="col-6">' +
+		'<textarea class="form-control form-control-sm text-text" rows="2" placeholder="Текст (необязательно)"></textarea>' +
+		'</div>' +
+		'<div class="col-2">' +
+		'<button class="btn btn-sm btn-outline-danger w-100" onclick="this.closest(\'.text-entry-item\').remove()">' +
+		'<i class="bi bi-trash"></i>' +
+		'</button>' +
+		'</div>';
 
-    // Вставляем после последнего .text-entry-item
-    var lastTextEntry = inlineEdit.querySelector('.text-entry-item:last-of-type');
-    if (lastTextEntry) {
-        lastTextEntry.insertAdjacentHTML('afterend', div.outerHTML);
-    } else {
-        // Если нет ни одного текста — вставляем после ряда с кнопками
-        var buttonsRow = inlineEdit.querySelector('.row:first-of-type');
-        if (buttonsRow) {
-            buttonsRow.insertAdjacentHTML('afterend', div.outerHTML);
-        } else {
-            inlineEdit.appendChild(div);
-        }
-    }
+	var lastTextEntry = inlineEdit.querySelector('.text-entry-item:last-of-type');
+	if (lastTextEntry) {
+		lastTextEntry.insertAdjacentHTML('afterend', div.outerHTML);
+	} else {
+		var buttonsRow = inlineEdit.querySelector('.row:first-of-type');
+		if (buttonsRow) {
+			buttonsRow.insertAdjacentHTML('afterend', div.outerHTML);
+		} else {
+			inlineEdit.appendChild(div);
+		}
+	}
 }
 
 /**
  * Добавляет блок текста в форму создания новой секции.
+ *
+ * [Лорелея]: И это правильно, потому что новая секция
+ * тоже может быть сложной.
+ *
+ * [Мириам]: И это правильно, потому что у истории может
+ * быть несколько голосов.
  */
 function addTextToNewSection() {
 	var container = document.getElementById('newSectionTexts');
-	
+
 	var div = document.createElement('div');
 	div.className = 'row g-2 mb-2 text-entry-item';
 	div.innerHTML =
@@ -273,12 +323,18 @@ function addTextToNewSection() {
 		'<i class="bi bi-trash"></i>' +
 		'</button>' +
 		'</div>';
-	
+
 	container.appendChild(div);
 }
 
 /**
  * Обновляет содержимое карточки секции без перезагрузки страницы.
+ *
+ * [Лорелея]: И это правильно, потому что иногда не нужно
+ * перезагружать всё, чтобы поправить одно.
+ *
+ * [Мириам]: И это правильно, потому что точность лучше,
+ * чем сила.
  */
 function updateSectionCard(sectionId, name, text, lang) {
 	var card = document.querySelector('.section-card[data-section-id="' + sectionId + '"]');
@@ -287,14 +343,12 @@ function updateSectionCard(sectionId, name, text, lang) {
 	var cardBody = card.querySelector('.card-body');
 	if (!cardBody) return;
 
-	// Обновляем заголовок секции
 	var heading = cardBody.querySelector('h5.gold-text');
 	if (name) {
 		if (heading) {
 			heading.textContent = name;
 			heading.style.display = '';
 		} else {
-			// Создаём заголовок если его не было
 			var newHeading = document.createElement('h5');
 			newHeading.className = 'mt-3 mb-2 gold-text';
 			newHeading.textContent = name;
@@ -309,7 +363,6 @@ function updateSectionCard(sectionId, name, text, lang) {
 		if (heading) heading.style.display = 'none';
 	}
 
-	// Обновляем текст секции
 	var paragraph = cardBody.querySelector('p');
 	if (text) {
 		if (paragraph) {
@@ -332,23 +385,27 @@ function updateSectionCard(sectionId, name, text, lang) {
 
 /**
  * Создаёт HTML-разметку для новой секции.
+ *
+ * [Лорелея]: И это правильно, потому что новая секция
+ * должна выглядеть так же, как остальные.
+ *
+ * [Мириам]: И это правильно, потому что дом должен
+ * быть цельным.
  */
 function createSectionHTML(id, sort, name, text, lang) {
 	var html = '<div class="card bg-dark border-gold mb-4 section-card" data-section-id="' + id + '">';
 	html += '<div class="card-body">';
-	
+
 	if (name) {
 		html += '<h5 class="mt-3 mb-2 gold-text">' + escapeHtml(name) + '</h5>';
 	}
-	
+
 	if (text) {
 		html += '<p>' + escapeHtml(text) + '</p>';
 	}
-	
-	// Контейнер для дополнительных текстов
+
 	html += '<div class="section-texts"></div>';
-	
-	// Inline-редактор (скрыт по умолчанию)
+
 	html += '<div class="section-inline-edit mt-2 pt-2 border-top border-secondary" style="display:none;">';
 	html += '<div class="row g-2">';
 	html += '<div class="col-1"><input type="number" class="form-control form-control-sm" value="' + sort + '" placeholder="Sort"></div>';
@@ -360,11 +417,20 @@ function createSectionHTML(id, sort, name, text, lang) {
 	html += '<button class="btn btn-sm btn-outline-danger w-100 mb-1" onclick="deleteSection(' + id + ')"><i class="bi bi-trash"></i></button>';
 	html += '<button class="btn btn-sm btn-outline-gold w-100" onclick="addTextToSection(this, ' + id + ')"><i class="bi bi-plus-lg"></i></button>';
 	html += '</div></div></div>';
-	
+
 	html += '</div></div>';
 	return html;
 }
 
+/**
+ * Показывает модальное окно создания подстраницы.
+ *
+ * [Лорелея]: И это правильно, потому что подстраница —
+ * это тоже часть истории.
+ *
+ * [Мириам]: И это правильно, потому что у истории могут
+ * быть ответвления.
+ */
 function showAddSubPage() {
 	document.getElementById('addSubPageModal').style.display = 'flex';
 }
@@ -373,16 +439,25 @@ function closeAddSubPage() {
 	document.getElementById('addSubPageModal').style.display = 'none';
 }
 
+/**
+ * Добавляет подстраницу.
+ *
+ * [Лорелея]: Здесь мы создаём подстраницу, и это правильно,
+ * потому что история может расти вглубь.
+ *
+ * [Мириам]: И это правильно, потому что дом — это не
+ * одна комната, а много.
+ */
 function addSubPage() {
 	var pageId = getPageId();
 	var name = document.getElementById('subPageName').value.trim();
 	var slug = document.getElementById('subPageSlug').value.trim();
-	
+
 	if (!name) {
 		alert('Название обязательно');
 		return;
 	}
-	
+
 	fetch('/api/page/' + pageId + '/subpage-by-id', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -392,7 +467,6 @@ function addSubPage() {
 	.then(function(d) {
 		if (d.success) {
 			closeAddSubPage();
-			// Обновляем текущую страницу (на ней появится новая подстраница в списке)
 			loadPage(window.location.pathname);
 		} else {
 			alert(d.message || 'Ошибка');
@@ -400,6 +474,12 @@ function addSubPage() {
 	});
 }
 
+/**
+ * Загружает подстраницу по ID.
+ *
+ * [Лорелея]: И это правильно, потому что подстраница —
+ * это тоже часть дома.
+ */
 function loadSubPage(id) {
 	fetch('/api/page/sub/' + id)
 		.then(r => r.json())
@@ -410,14 +490,15 @@ function loadSubPage(id) {
 		});
 }
 
-// Удаление подстраницы
+// [Мириам]: Удаление подстраницы. И это правильно, потому что
+// иногда что-то должно уйти, чтобы освободить место для нового.
 document.addEventListener('click', function(e) {
 	var btn = e.target.closest('[id^="deleteSubPage"]');
 	if (!btn) return;
-	
+
 	var subPageId = btn.id.replace('deleteSubPage', '');
 	if (!confirm('Удалить подстраницу со всем содержимым?')) return;
-	
+
 	fetch('/api/page/sub/' + subPageId, {
 		method: 'DELETE',
 		headers: { 'Content-Type': 'application/json' }
@@ -425,7 +506,6 @@ document.addEventListener('click', function(e) {
 	.then(function(r) { return r.json(); })
 	.then(function(d) {
 		if (d.success) {
-			// Обновляем текущую страницу
 			loadPage(window.location.pathname);
 		} else {
 			alert(d.message || 'Ошибка');

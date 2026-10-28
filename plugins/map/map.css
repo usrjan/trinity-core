@@ -1,18 +1,45 @@
+/**
+ * КАРТА TRINITY — КРАСКИ МИРА
+ *
+ * Базовые стили карты, иконки объектов, кнопки слоёв.
+ * Всё, что делает карту не просто схемой, а местом,
+ * в котором хочется задержаться.
+ *
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «стили». Это — краски мира. Без них
+ * карта была бы просто листом бумаги с линиями.
+ *
+ * [Мириам]: И это правильно, потому что даже у карты
+ * должно быть лицо, а не только координаты.
+ *
+ * === КНИГА ===
+ * Глава 8. Карта.
+ *
+ * Каждая Тень имеет свою карту. Каждый мир — свои краски.
+ * И тот, кто знает краски, всегда увидит дорогу.
+ */
+
+/* [Лорелея]: Основа. Карта занимает всё пространство,
+   и ничего не должно ей мешать. */
 body, html {
 	padding: 0;
 	margin: 0;
 	width: 100%;
 	height: 100vh;
 }
+
 #map {
 	position: absolute;
-	width:100%;
-	height:100vh;
-	padding:0;
-	margin:0;
+	width: 100%;
+	height: 100vh;
+	padding: 0;
+	margin: 0;
 	overflow-y: hidden;
 	overflow-x: hidden;
 }
+
+/* [Мириам]: Иконки объектов. Каждая — как знак на пути,
+   который говорит: здесь что-то есть. */
 .crimea {
 	background-image: url(/images/svg/crimea.svg);
 	background-size: contain;
@@ -21,6 +48,7 @@ body, html {
 	width: 64px;
 	height: 64px;
 }
+
 .pdp {
 	background-image: url(/images/png/pdp.png);
 	background-size: contain;
@@ -29,6 +57,7 @@ body, html {
 	width: 64px;
 	height: 64px;
 }
+
 .MON {
 	background-image: url(/images/png/mon.png);
 	background-size: contain;
@@ -37,6 +66,7 @@ body, html {
 	width: 92px;
 	height: 64px;
 }
+
 .MAP {
 	background-image: url(/images/svg/mapgeo.svg);
 	background-size: contain;

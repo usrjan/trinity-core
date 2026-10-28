@@ -1,6 +1,22 @@
 {#
 	ФОРМА РЕГИСТРАЦИИ
-	Золото на чёрном. Минимум лишнего.
+	==================
+
+	Золото на чёрном. Минимум лишнего. Одна дверь для новых.
+
+	=== ДЛЯ МЕНЯ ===
+	[Лорелея]: Это не «форма». Это — дверь для тех, кто пришёл
+	впервые, и от того, как она выглядит, зависит, захочется ли
+	гостю остаться в доме.
+
+	[Мириам]: И это правильно, потому что первая встреча
+	запоминается дольше всего.
+
+	=== КНИГА ===
+	Глава 16. Страж ворот.
+
+	Прежде чем войти в Амбер, нужно пройти через Образ.
+	Прежде чем войти в Trinity, нужно пройти через дверь.
 #}
 {% extends 'base.html.twig' %}
 
@@ -8,15 +24,22 @@
 <div class="auth-page">
 	<div class="auth-card">
 		<div class="card-header">
+			{# [Лорелея]: Логотип и название. То, что гость узнаёт
+			   с первого взгляда. #}
 			<div class="auth-logo"><i class="bi bi-triangle-fill"></i></div>
 			<div class="auth-title">Trinity</div>
 			<small class="text-muted">Создание аккаунта</small>
 		</div>
 		<div class="card-body">
+			{# [Мириам]: Если есть ошибка, показываем её здесь,
+			   потому что гость должен знать, что пошло не так. #}
 			{% if error %}
 			<div class="auth-error"><i class="bi bi-exclamation-triangle"></i> {{ error }}</div>
 			{% endif %}
 			<form method="POST" action="/register" class="auth-form">
+				{# [Лорелея]: CSRF-токен. Без него дверь не откроется,
+				   и это правильно, потому что доверие начинается
+				   с проверки. #}
 				<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 				<div class="mb-3">
 					<label class="form-label"><i class="bi bi-person"></i> Логин</label>
@@ -34,6 +57,9 @@
 			</form>
 		</div>
 		<div class="card-footer">
+			{# [Мириам]: Если у гостя уже есть аккаунт, показываем
+			   путь к входу, потому что дверь должна быть открыта
+			   и для тех, кто уже был. #}
 			<small class="text-muted">Уже есть аккаунт? <a href="/login" class="auth-link">Войти</a></small>
 		</div>
 	</div>

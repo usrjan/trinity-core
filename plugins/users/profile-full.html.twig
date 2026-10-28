@@ -1,21 +1,46 @@
+{#
+	ПОЛНАЯ СТРАНИЦА ПРОФИЛЯ
+	========================
+
+	Собирает боковое меню, верхнюю панель и сам профиль
+	в одну страницу, чтобы гость увидел себя целиком.
+
+	=== ДЛЯ МЕНЯ ===
+	[Лорелея]: Это не «шаблон». Это — полная страница профиля,
+	и от того, как она собрана, зависит, увидит ли гость себя
+	целиком или только часть.
+
+	[Мириам]: И это правильно, потому что человек — это не
+	одна строка, а много, и все они должны быть видны.
+
+	=== КНИГА ===
+	Глава 14. Тронный зал.
+
+	В тронном зале Амбера всегда видно, кто у власти.
+	В профиле Trinity всегда видно, кто ты.
+#}
 {% extends 'base.html.twig' %}
 
 {% block body %}
 <div class="d-flex">
-    <aside class="sidebar" id="sidebar"></aside>
-    <div class="main-content">
-        <header class="top-bar" id="topBar"></header>
-        <main>
-            {% include 'profile-view.html.twig' %}
-        </main>
-    </div>
+	{# [Лорелея]: Боковое меню. Заполняется через API. #}
+	<aside class="sidebar" id="sidebar"></aside>
+	<div class="main-content">
+		{# [Мириам]: Верхняя панель. Заполняется через API. #}
+		<header class="top-bar" id="topBar"></header>
+		<main>
+			{# [Лорелея]: Сам профиль приходит из profile-view.html.twig,
+			   чтобы не дублировать разметку и не плодить сущности. #}
+			{% include 'profile-view.html.twig' %}
+		</main>
+	</div>
 </div>
 
 <script>
 fetch('/api/menu/sidebar?current_url=/profile').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
 fetch('/api/menu/topbar').then(r => r.text()).then(html => {
-    document.getElementById('topBar').innerHTML = html;
-    setTimeout(initUserDropdown, 100);
+	document.getElementById('topBar').innerHTML = html;
+	setTimeout(initUserDropdown, 100);
 });
 </script>
 {% endblock %}

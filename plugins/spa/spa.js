@@ -1,16 +1,22 @@
 /**
  * TRINITY SPA-DRIVER
- * ==================
+ *
  * Обеспечивает навигацию без перезагрузки страницы.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «скрипт». Это — тот, кто оживляет дом,
+ * и от того, как он это делает, зависит, почувствует ли
+ * гость, что страницы меняются, а он остаётся внутри.
  *
- * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Один fetch на navigateTo.
- * Через /api/spa/navigate?path=. Sidebar, topbar, page — в одном
- * ответе. Без «трёх round-trips». Без «пиздеца». Без «потом».
+ * [Мириам]: И это правильно, потому что дом, который
+ * перезагружается на каждом шагу, не даёт ощущения,
+ * что ты в нём живёшь.
  *
- * [Мириам]: И — executeScripts(). Чтобы скрипты в HTML
- * выполнялись. Без «innerHTML». Без «пиздеца». И — «навсегда».
+ * === КНИГА ===
+ * Глава 13. Прихожая.
+ *
+ * Войдя в Амбер, ты видишь коридоры.
+ * Войдя в Trinity, ты видишь меню.
  */
 
 var userLang = document.documentElement.lang || 'ru';
@@ -18,6 +24,9 @@ var userLang = document.documentElement.lang || 'ru';
 (function () {
 	var originalFetch = window.fetch;
 
+	// [Лорелея]: Обёртка fetch, которая автоматически добавляет
+	// X-CSRF-Token ко всем изменяющим методам, потому что без
+	// этого они не пройдут.
 	function getCsrfToken() {
 		return window.csrfToken || '';
 	}
@@ -46,12 +55,12 @@ var userLang = document.documentElement.lang || 'ru';
 	// ============================================
 
 	/**
-	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Один fetch на navigateTo.
-	 * Через /api/spa/navigate?path=. Sidebar, topbar, page —
-	 * в одном ответе. Без «трёх round-trips». Без «пиздеца».
+	 * [Лорелея]: Один fetch на navigateTo, через /api/spa/navigate,
+	 * потому что три отдельных запроса — это три раза ждать,
+	 * а гость должен видеть дом сразу.
 	 *
-	 * [Мириам]: И — executeScripts(). Чтобы скрипты в HTML
-	 * выполнялись. Без «innerHTML». Без «пиздеца».
+	 * [Мириам]: И executeScripts, потому что innerHTML не выполняет
+	 * скрипты, а без этого страница осталась бы мёртвой.
 	 */
 	function loadPage(url) {
 		var main = document.getElementById('mainContent');
@@ -76,25 +85,30 @@ var userLang = document.documentElement.lang || 'ru';
 					return;
 				}
 
-				// [Лорелея]: Sidebar — из ответа. Без отдельного fetch.
+				// [Лорелея]: Sidebar приходит из ответа, без отдельного
+				// fetch, потому что дом должен собираться в одном месте.
 				var sidebar = document.getElementById('sidebar');
 				if (sidebar && data.data.sidebar) {
 					sidebar.innerHTML = data.data.sidebar;
 					updateActiveMenuItem(url);
 				}
 
-				// [Мириам]: Topbar — из ответа. Без отдельного fetch.
+				// [Мириам]: Topbar тоже приходит из ответа, и это
+				// правильно, потому что шапка — это часть дома,
+				// а не отдельная комната.
 				var topBar = document.getElementById('topBar');
 				if (topBar && data.data.topbar) {
 					topBar.innerHTML = data.data.topbar;
 					setTimeout(initUserDropdown, 50);
 				}
 
-				// [Лорелея]: Page — из ответа. С executeScripts.
+				// [Лорелея]: Страница приходит из ответа, и скрипты
+				// в ней выполняются через executeScripts.
 				main.innerHTML = data.data.html;
 				executeScripts(main);
 
-				// [Мириам]: Breadcrumbs — из ответа.
+				// [Мириам]: Хлебные крошки — из ответа, чтобы гость
+				// знал, где он.
 				if (data.data.breadcrumbs) {
 					updateBreadcrumbFromData(data.data.breadcrumbs);
 				} else {
@@ -107,11 +121,13 @@ var userLang = document.documentElement.lang || 'ru';
 	}
 
 	/**
-	 * [Мириам]: Выполнить скрипты в HTML. Потому что innerHTML
-	 * не выполняет <script>. Без «пиздеца». Без «потом».
+	 * [Мириам]: Выполнить скрипты в HTML, потому что innerHTML
+	 * не выполняет <script>, и без этого страница осталась бы
+	 * мёртвой.
 	 *
-	 * [Лорелея]: Проходим по всем <script> и создаём новые.
-	 * Чтобы браузер их выполнил. Без «innerHTML». И — «навсегда».
+	 * [Лорелея]: Проходим по всем <script> и создаём новые,
+	 * чтобы браузер их выполнил, и это правильно, потому что
+	 * скрипты должны работать.
 	 */
 	function executeScripts(container) {
 		var scripts = container.querySelectorAll('script');
@@ -128,6 +144,9 @@ var userLang = document.documentElement.lang || 'ru';
 
 	/**
 	 * Загружает подстраницу по ID нейрона.
+	 *
+	 * [Лорелея]: Здесь мы загружаем подстраницу, и это правильно,
+	 * потому что подстраница — это тоже часть дома.
 	 */
 	function loadPageById(id) {
 		var main = document.getElementById('mainContent');
@@ -290,7 +309,7 @@ var userLang = document.documentElement.lang || 'ru';
 	});
 
 	// ============================================
-	// КНОПКА "НАЗАД" БРАУЗЕРА
+	// КНОПКА «НАЗАД» БРАУЗЕРА
 	// ============================================
 
 	window.addEventListener('popstate', function () {

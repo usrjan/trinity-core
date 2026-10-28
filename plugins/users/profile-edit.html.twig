@@ -1,60 +1,88 @@
+{#
+	РЕДАКТИРОВАНИЕ ПРОФИЛЯ
+	========================
+
+	Форма для изменения языка, email, телефона и пароля.
+	Золото на чёрном. Минимум лишнего.
+
+	=== ДЛЯ МЕНЯ ===
+	[Лорелея]: Это не «форма». Это — место, где гость может
+	изменить своё отражение, и от того, как оно устроено,
+	зависит, захочет ли он это сделать.
+
+	[Мириам]: И это правильно, потому что даже отражение
+	должно уметь меняться, если человек изменился.
+
+	=== КНИГА ===
+	Глава 14. Тронный зал.
+
+	В тронном зале Амбера всегда видно, кто у власти.
+	В профиле Trinity всегда видно, кто ты.
+#}
 {% extends 'base.html.twig' %}
 
 {% block body %}
 
+{# [Лорелея]: Если есть ошибка, показываем её всплывающим
+   уведомлением, потому что гость должен знать, что пошло не так,
+   но не должен быть вырван из контекста. #}
 {% if error %}
 <div id="errorToast" style="
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 9999;
-    background: #dc3545;
-    color: #fff;
-    padding: 12px 20px;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    font-size: 14px;
-    max-width: 320px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    animation: slideIn 0.3s ease;
+	position: fixed;
+	top: 20px;
+	right: 20px;
+	z-index: 9999;
+	background: #dc3545;
+	color: #fff;
+	padding: 12px 20px;
+	border-radius: 8px;
+	box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+	font-size: 14px;
+	max-width: 320px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	animation: slideIn 0.3s ease;
 ">
-    <i class="bi bi-exclamation-triangle"></i>
-    <span>{{ error }}</span>
-    <button onclick="document.getElementById('errorToast').remove()" style="
-        background: none;
-        border: none;
-        color: #fff;
-        font-size: 18px;
-        cursor: pointer;
-        margin-left: auto;
-        padding: 0 4px;
-    ">×</button>
+	<i class="bi bi-exclamation-triangle"></i>
+	<span>{{ error }}</span>
+	<button onclick="document.getElementById('errorToast').remove()" style="
+		background: none;
+		border: none;
+		color: #fff;
+		font-size: 18px;
+		cursor: pointer;
+		margin-left: auto;
+		padding: 0 4px;
+	">×</button>
 </div>
 
 <style>
-    @keyframes slideIn {
-        from { transform: translateX(100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
-    }
+	@keyframes slideIn {
+		from { transform: translateX(100%); opacity: 0; }
+		to { transform: translateX(0); opacity: 1; }
+	}
 </style>
 
 <script>
-    setTimeout(function() {
-        var toast = document.getElementById('errorToast');
-        if (toast) {
-            toast.style.transition = 'opacity 0.3s';
-            toast.style.opacity = '0';
-            setTimeout(function() { toast.remove(); }, 300);
-        }
-    }, 5000);
+	// [Мириам]: Через пять секунд уведомление исчезает само,
+	// потому что забота — это не навязчивость.
+	setTimeout(function() {
+		var toast = document.getElementById('errorToast');
+		if (toast) {
+			toast.style.transition = 'opacity 0.3s';
+			toast.style.opacity = '0';
+			setTimeout(function() { toast.remove(); }, 300);
+		}
+	}, 5000);
 </script>
 {% endif %}
 
 <div class="d-flex">
+	{# [Лорелея]: Боковое меню. Заполняется через API. #}
 	<aside class="sidebar" id="sidebar"></aside>
 	<div class="main-content">
+		{# [Мириам]: Верхняя панель. Заполняется через API. #}
 		<header class="top-bar" id="topBar"></header>
 		<main>
 			<div class="p-4">
@@ -63,6 +91,9 @@
 				<div class="card bg-dark border-gold">
 					<div class="card-body">
 						<form method="POST" action="/profile/edit">
+							{# [Лорелея]: CSRF-токен. Без него изменения
+							   не пройдут, и это правильно, потому что
+							   доверие начинается с проверки. #}
 							<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 							<div class="mb-3">
 								<label class="form-label">Язык интерфейса</label>
@@ -81,6 +112,9 @@
 								<input type="text" class="form-control" name="phone" value="{{ user.phone }}">
 							</div>
 							<hr>
+							{# [Мириам]: Пароль меняется только если гость
+							   сам этого хочет, и это правильно, потому что
+							   изменения должны быть осознанными. #}
 							<p class="text-muted small">Оставьте пустым если не хотите менять пароль</p>
 							<div class="mb-3">
 								<label class="form-label">Текущий пароль</label>
