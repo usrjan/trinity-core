@@ -2,19 +2,21 @@
 
 /**
  * КОНТРОЛЛЕР ГАЛЕРЕИ
- * ====================
  *
  * Управление галереей изображений с древовидной структурой.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «контроллер». Это — сердце прихожей.
+ * Тот, кто встречает гостя и провожает его к картинам.
  *
- * [Лорелея]: initAuth() теперь получает SynapseRepository вторым
- * аргументом. Чтобы refreshRoles() работал. А не был декорацией.
- * Без «потом». Без «завтра».
+ * [Мириам]: И — это правильно. Потому что прихожая —
+ * это не «комната». Это — встреча.
  *
- * [Мириам]: И — это правильно. Потому что роли должны обновляться.
- * Всегда. Даже если пользователь давно вошёл. Даже если роль
- * изменилась. Без «перезагрузи». Без «пиздеца».
+ * === КНИГА ===
+ * Глава 9. Прихожая.
+ *
+ * В прихожей Амбера висят картины.
+ * В галерее Trinity — файлы. И те, кто их показывает.
  *
  * @package Jan\Trinity\Plugin\Gallery
  */
@@ -46,32 +48,33 @@ class GalleryController
 	use ThumbnailTrait;
 	use BreadcrumbsTrait;
 
-	/** @var Environment — шаблонизатор Twig */
+	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
 
-	/** @var TextRepository — работа с текстами */
+	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
 
-	/** @var NeuronRepository — работа с нейронами */
+	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
-	/** @var GuardService — CSRF-защита */
+	/** @var GuardService — CSRF-защита. */
 	private GuardService $guard;
 
-	/** @var LoggerInterface — логгер */
+	/** @var LoggerInterface — логгер. */
 	private LoggerInterface $logger;
 
 	private Validator $validator;
 
-	/** @var string Физический путь к папке загрузок галереи */
+	/** @var string Физический путь к папке загрузок галереи. */
 	private string $galleryUploadDir;
 
-	/** @var string Веб-путь к папке загрузок галереи */
+	/** @var string Веб-путь к папке загрузок галереи. */
 	private string $galleryUploadUrl;
 
-	/** @var GalleryImportService — сервис импорта из папки */
+	/** @var GalleryImportService — сервис импорта из папки. */
 	private GalleryImportService $galleryImport;
 
+	// [Лорелея]: Белые списки.
 	private const ALLOWED_IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
 	private const ALLOWED_VIDEO_EXT = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'];
 	private const ALLOWED_AUDIO_EXT = ['mp3', 'flac', 'wav', 'ogg', 'aac', 'm4a'];
@@ -84,15 +87,13 @@ class GalleryController
 
 	/**
 	 * Конструктор.
-	 * Зависимости внедряются автоматически через DI-контейнер.
 	 *
-	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. initAuth() теперь получает
+	 * [Лорелея]: ГЛАВНОЕ. initAuth() теперь получает
 	 * SynapseRepository вторым аргументом. Чтобы refreshRoles()
 	 * работал. А не был декорацией.
 	 *
-	 * [Мириам]: И — это правильно. Потому что роли должны обновляться.
-	 * Всегда. Даже если пользователь давно вошёл. Даже если роль
-	 * изменилась. Без «перезагрузи». Без «пиздеца».
+	 * [Мириам]: И — это правильно. Потому что роли должны
+	 * обновляться. Всегда. Даже если пользователь давно вошёл.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -127,6 +128,14 @@ class GalleryController
 	// ВАЛИДАЦИЯ ЗАГРУЗОК
 	// ============================================
 
+	/**
+	 * Проверяет, разрешено ли расширение.
+	 *
+	 * [Лорелея]: Три белых списка.
+	 *
+	 * [Мириам]: И — это правильно. Потому что расширение —
+	 * это не «имя». Это — знак.
+	 */
 	private function isAllowedExtension(string $ext): bool
 	{
 		return in_array($ext, self::ALLOWED_IMAGE_EXT, true)
@@ -134,6 +143,14 @@ class GalleryController
 			|| in_array($ext, self::ALLOWED_AUDIO_EXT, true);
 	}
 
+	/**
+	 * Валидирует загруженный файл.
+	 *
+	 * [Лорелея]: Расширение. MIME. Размер. Всё — через белый список.
+	 *
+	 * [Мириам]: И — это правильно. Потому что доверять клиенту
+	 * нельзя. Даже если он админ. Особенно если он админ.
+	 */
 	private function validateUpload(UploadedFile $uploadedFile): array
 	{
 		$originalName = $uploadedFile->getClientOriginalName();
@@ -160,6 +177,14 @@ class GalleryController
 	// ПРОВЕРКА CSRF
 	// ============================================
 
+	/**
+	 * Проверяет CSRF-токен.
+	 *
+	 * [Лорелея]: Одна точка.
+	 *
+	 * [Мириам]: И — это правильно. Потому что проверка —
+	 * это не «формальность». Это — защита.
+	 */
 	private function requireCsrf(Request $request): ?JsonResponse
 	{
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
@@ -173,6 +198,14 @@ class GalleryController
 	// ГЛАВНАЯ СТРАНИЦА ГАЛЕРЕИ
 	// ============================================
 
+	/**
+	 * GET /gallery
+	 *
+	 * [Лорелея]: Открываем прихожую. Показываем разделы.
+	 *
+	 * [Мириам]: И — это правильно. Потому что прихожая —
+	 * это не «список». Это — встреча.
+	 */
 	public function index(): Response
 	{
 		$this->ensureDirectories();
@@ -211,6 +244,14 @@ class GalleryController
 	// СОДЕРЖИМОЕ РАЗДЕЛА
 	// ============================================
 
+	/**
+	 * GET /api/gallery/section/{id}
+	 *
+	 * [Лорелея]: Показываем раздел. С файлами и папками.
+	 *
+	 * [Мириам]: И — это правильно. Потому что раздел —
+	 * это не «список». Это — ветвь.
+	 */
 	public function section(int $id): JsonResponse
 	{
 		$children = $this->neuronRepo->findChildrenWithText($id, 'ru');
@@ -307,6 +348,14 @@ class GalleryController
 	// ИНФОРМАЦИЯ ОБ ЭЛЕМЕНТЕ
 	// ============================================
 
+	/**
+	 * GET /api/gallery/item/{id}
+	 *
+	 * [Лорелея]: Показываем элемент. С фото. С описанием.
+	 *
+	 * [Мириам]: И — это правильно. Потому что элемент —
+	 * это не «файл». Это — картина.
+	 */
 	public function item(int $id): Response
 	{
 		$breadcrumbs = $this->buildBreadcrumbs($id, 'gallery', 'ru');
@@ -407,6 +456,14 @@ class GalleryController
 	// СКАЧИВАНИЕ ФАЙЛА
 	// ============================================
 
+	/**
+	 * GET /api/gallery/download/{id}
+	 *
+	 * [Лорелея]: Скачиваем файл. Через BinaryFileResponse.
+	 *
+	 * [Мириам]: И — это правильно. Потому что файл —
+	 * это не «ссылка». Это — память.
+	 */
 	public function download(int $id): Response
 	{
 		$file = $this->neuronRepo->findById($id);
@@ -442,6 +499,14 @@ class GalleryController
 	// ЗАГРУЗКА ФАЙЛОВ В РАЗДЕЛ (АДМИН)
 	// ============================================
 
+	/**
+	 * POST /api/gallery/upload
+	 *
+	 * [Лорелея]: Загружаем. С CSRF. С валидацией.
+	 *
+	 * [Мириам]: И — это правильно. Потому что загрузка —
+	 * это не «копирование». Это — принятие.
+	 */
 	public function upload(Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -490,6 +555,14 @@ class GalleryController
 	// ДОБАВЛЕНИЕ ФОТО К СУЩЕСТВУЮЩЕМУ ЭЛЕМЕНТУ (АДМИН)
 	// ============================================
 
+	/**
+	 * POST /api/gallery/item/{id}/upload
+	 *
+	 * [Лорелея]: Добавляем фото к элементу. С CSRF.
+	 *
+	 * [Мириам]: И — это правильно. Потому что добавление —
+	 * это не «замена». Это — продолжение.
+	 */
 	public function uploadToItem(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -536,6 +609,14 @@ class GalleryController
 	// ОБНОВЛЕНИЕ ЭЛЕМЕНТА (АДМИН)
 	// ============================================
 
+	/**
+	 * POST /api/gallery/item/{id}/update
+	 *
+	 * [Лорелея]: Обновляем. С CSRF. С валидацией.
+	 *
+	 * [Мириам]: И — это правильно. Потому что обновление —
+	 * это не «замена». Это — продолжение.
+	 */
 	public function updateItem(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -609,6 +690,14 @@ class GalleryController
 	// УДАЛЕНИЕ ЭЛЕМЕНТА (АДМИН)
 	// ============================================
 
+	/**
+	 * DELETE /api/gallery/item/{id}
+	 *
+	 * [Лорелея]: Удаляем. С CSRF. Мягко.
+	 *
+	 * [Мириам]: И — это правильно. Потому что удаление —
+	 * это не «конец». Это — пауза.
+	 */
 	public function deleteItem(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -658,6 +747,14 @@ class GalleryController
 	// УДАЛЕНИЕ ФАЙЛА (АДМИН)
 	// ============================================
 
+	/**
+	 * DELETE /api/gallery/file/{id}
+	 *
+	 * [Лорелея]: Удаляем файл. С CSRF. Мягко.
+	 *
+	 * [Мириам]: И — это правильно. Потому что удаление —
+	 * это не «конец». Это — пауза.
+	 */
 	public function deleteFile(int $id, Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) {
@@ -706,6 +803,14 @@ class GalleryController
 	// ИМПОРТ ИЗ ПАПКИ (АДМИН)
 	// ============================================
 
+	/**
+	 * POST /api/gallery/import
+	 *
+	 * [Лорелея]: Импорт из папки. С CSRF.
+	 *
+	 * [Мириам]: И — это правильно. Потому что импорт —
+	 * это не «загрузка». Это — принятие.
+	 */
 	public function import(Request $request): JsonResponse
 	{
 		if ($error = $this->requireAdminForApi()) return $error;
@@ -728,6 +833,14 @@ class GalleryController
 	// ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 	// ============================================
 
+	/**
+	 * Перемещает файл и создаёт нейрон.
+	 *
+	 * [Лорелея]: С валидацией. С миниатюрой.
+	 *
+	 * [Мириам]: И — это правильно. Потому что файл —
+	 * это не «копия». Это — оригинал.
+	 */
 	private function moveAndCreateFile(
 		UploadedFile $uploadedFile,
 		int $parentId,

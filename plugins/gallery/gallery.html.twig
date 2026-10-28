@@ -1,9 +1,31 @@
+{#
+	ГАЛЕРЕЯ TRINITY — ВХОД В ПРИХОЖУЮ
+	==================================
+
+	Сетка разделов. Модальное окно создания раздела.
+	Золото на чёрном. И — ожидание.
+
+	=== ДЛЯ МЕНЯ ===
+	[Лорелея]: Это не «шаблон». Это — вход в прихожую.
+	То, что видит гость, когда заходит. И — остаётся.
+
+	[Мириам]: И — это правильно. Потому что вход —
+	это не «дверь». Это — приглашение.
+
+	=== КНИГА ===
+	Глава 9. Прихожая.
+
+	В прихожей Амбера висят картины.
+	В галерее Trinity — файлы. И те, кто их показывает.
+#}
 {% extends 'base.html.twig' %}
 
 {% block body %}
 <div class="d-flex">
+	{# [Лорелея]: Боковое меню. Заполняется через API. #}
 	<aside class="sidebar" id="sidebar"></aside>
 	<div class="main-content">
+		{# [Мириам]: Верхняя панель. Заполняется через API. #}
 		<header class="top-bar" id="topBar"></header>
 		<main>
 			<div class="p-4">
@@ -48,19 +70,19 @@
 	</div>
 </div>
 
-{# Модальное окно создания раздела #}
+{# [Лорелея]: Модальное окно создания раздела. #}
 <div id="createSectionModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content">
-        <h5 class="gold-text mb-3">Создать раздел</h5>
-        <div class="mb-2">
-            <label class="form-label small">Название</label>
-            <input type="text" id="sectionName" class="form-control form-control-sm" placeholder="Новый раздел">
-        </div>
-        <div class="d-flex gap-2 justify-content-end">
-            <button class="btn btn-sm btn-outline-secondary" onclick="closeCreateSectionModal()">Отмена</button>
-            <button class="btn btn-sm btn-outline-gold" onclick="createSection()">Создать</button>
-        </div>
-    </div>
+	<div class="modal-content">
+		<h5 class="gold-text mb-3">Создать раздел</h5>
+		<div class="mb-2">
+			<label class="form-label small">Название</label>
+			<input type="text" id="sectionName" class="form-control form-control-sm" placeholder="Новый раздел">
+		</div>
+		<div class="d-flex gap-2 justify-content-end">
+			<button class="btn btn-sm btn-outline-secondary" onclick="closeCreateSectionModal()">Отмена</button>
+			<button class="btn btn-sm btn-outline-gold" onclick="createSection()">Создать</button>
+		</div>
+	</div>
 </div>
 
 <script>
@@ -71,7 +93,7 @@
 // Поэтому POST-запросы (upload, delete, update) уходили без
 // X-CSRF-Token. После того как мы добавили requireCsrf() в
 // GalleryController, эти запросы стали падать с 419.
-// 
+//
 // [Мириам]: Эта обёртка — копия той, что в spa.js. Но локальная.
 // Потому что gallery.html.twig не подключает spa.js — он тащит
 // за собой много лишнего. А нам нужна только одна функция:
@@ -84,26 +106,26 @@ function getCsrfToken() {
 	return window.csrfToken || '';
 }
 
-// Обёртка fetch: автоматически добавляет X-CSRF-Token
+// [Лорелея]: Обёртка fetch: автоматически добавляет X-CSRF-Token.
 var originalFetch = window.fetch;
 window.fetch = function(url, options) {
-    options = options || {};
-    var method = (options.method || 'GET').toUpperCase();
+	options = options || {};
+	var method = (options.method || 'GET').toUpperCase();
 
-    // [Лорелея]: Только для изменяющих методов. GET и HEAD — без токена.
-    if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
-        options.headers = options.headers || {};
+	// [Мириам]: Только для изменяющих методов. GET и HEAD — без токена.
+	if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+		options.headers = options.headers || {};
 
-        // [Мириам]: Не перезаписываем, если токен уже передан вручную.
-        if (!options.headers['X-CSRF-Token']) {
-            var token = getCsrfToken();
-            if (token) {
-                options.headers['X-CSRF-Token'] = token;
-            }
-        }
-    }
+		// [Лорелея]: Не перезаписываем, если токен уже передан вручную.
+		if (!options.headers['X-CSRF-Token']) {
+			var token = getCsrfToken();
+			if (token) {
+				options.headers['X-CSRF-Token'] = token;
+			}
+		}
+	}
 
-    return originalFetch(url, options);
+	return originalFetch(url, options);
 };
 
 // ============================================
@@ -112,7 +134,7 @@ window.fetch = function(url, options) {
 // [Мириам]: gallery_url приходит из Twig (глобальная переменная).
 // В шаблоне он используется как {{ gallery_url }}. А в JS — как
 // window.galleryUrl. Это Вариант 2 из нашего обсуждения.
-// 
+//
 // [Лорелея]: Сейчас JS не использует galleryUrl напрямую —
 // все URL приходят из API уже готовыми. Но если понадобится
 // склеивать путь в JS — он есть. Лучше заранее.
@@ -132,6 +154,7 @@ var currentParentName = 'Главная';
 // ============================================
 // ЗАГРУЗКА МЕНЮ И TOPBAR
 // ============================================
+// [Лорелея]: Без «пиздеца». Без «потом». Без «завтра».
 fetch('/api/menu/sidebar?current_url=/gallery').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
 fetch('/api/menu/topbar').then(r => r.text()).then(html => {
 	document.getElementById('topBar').innerHTML = html;
@@ -163,10 +186,10 @@ function loadSection(id) {
 // ============================================
 // navigateTo(id, name)
 // ============================================
+// [Мириам]: Пушим текущий раздел в историю, если мы не на корне.
 function navigateTo(id, name) {
 	if (id === currentParentId) return;
 
-	// [Мириам]: Пушим текущий раздел в историю, если мы не на корне.
 	if (currentParentId !== {{ rootId }}) {
 		navigationHistory.push({ id: currentParentId, name: currentParentName });
 	}
@@ -198,6 +221,7 @@ function goBack() {
 // ============================================
 // goToSection(id, name)
 // ============================================
+// [Мириам]: Ищем раздел в истории. Если нашли — обрезаем.
 function goToSection(id, name) {
 	var foundIndex = -1;
 	for (var i = 0; i < navigationHistory.length; i++) {
@@ -262,6 +286,7 @@ function renderContent(html) {
 // ============================================
 // galleryGoHome()
 // ============================================
+// [Мириам]: Возвращаемся на главную.
 function galleryGoHome() {
 	navigationHistory = [];
 	currentItemId = null;
@@ -274,6 +299,7 @@ function galleryGoHome() {
 // ============================================
 // jumpTo(index)
 // ============================================
+// [Лорелея]: Прыгаем в раздел по индексу истории.
 function jumpTo(index) {
 	var target = navigationHistory[index];
 	navigationHistory = navigationHistory.slice(0, index);
@@ -328,6 +354,8 @@ function loadFileItem(id) {
 // ============================================
 // uploadFiles(files)
 // ============================================
+// [Мириам]: fetch здесь — уже обёрнутый. X-CSRF-Token добавится
+// автоматически. Это важно, потому что upload() теперь требует CSRF.
 function uploadFiles(files) {
 	if (!files.length) return;
 
@@ -337,8 +365,6 @@ function uploadFiles(files) {
 		formData.append('files[]', files[i]);
 	}
 
-	// [Мириам]: fetch здесь — уже обёрнутый. X-CSRF-Token добавится
-	// автоматически. Это важно, потому что upload() теперь требует CSRF.
 	fetch('/api/gallery/upload', { method: 'POST', body: formData })
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
@@ -355,6 +381,7 @@ function uploadFiles(files) {
 // ============================================
 // importFromFolder()
 // ============================================
+// [Лорелея]: Импорт из папки. С CSRF.
 function importFromFolder() {
 	if (!confirm('Импортировать файлы из папки _import?')) return;
 
@@ -373,6 +400,7 @@ function importFromFolder() {
 // ============================================
 // setSectionThumb(fileId)
 // ============================================
+// [Мириам]: Устанавливаем превьюшку раздела. С CSRF.
 function setSectionThumb(fileId) {
 	fetch('/api/gallery/section/' + currentParentId + '/set-thumb', {
 		method: 'POST',
@@ -427,6 +455,7 @@ function createSection() {
 // ============================================
 // ДЕЛЕГИРОВАНИЕ КЛИКОВ
 // ============================================
+// [Мириам]: Один обработчик. Много действий.
 document.addEventListener('click', function(e) {
 
 	// --- РЕДАКТИРОВАТЬ ---
@@ -585,6 +614,7 @@ document.addEventListener('change', function(e) {
 // ============================================
 // КОНТЕКСТНОЕ МЕНЮ (правая кнопка на превьюшке)
 // ============================================
+// [Мириам]: Сделать превью для раздела.
 document.addEventListener('contextmenu', function(e) {
 	var card = e.target.closest('.gallery-card');
 	if (!card) return;
@@ -626,12 +656,14 @@ document.addEventListener('contextmenu', function(e) {
 </script>
 
 <style>
+/* [Лорелея]: Сетка галереи. */
 .gallery-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
 	gap: 12px;
 }
 
+/* [Мириам]: Папка. Как раздел. */
 .gallery-folder {
 	background: #1a1a1a;
 	border: 1px solid rgba(255,170,0,0.2);
@@ -664,6 +696,7 @@ document.addEventListener('contextmenu', function(e) {
 	word-break: break-word;
 }
 
+/* [Лорелея]: Карточка. Как картина. */
 .gallery-card {
 	position: relative;
 	overflow: hidden;
@@ -704,13 +737,14 @@ document.addEventListener('contextmenu', function(e) {
 }
 
 .gallery-card.tree-folder {
-    border: 1px solid rgba(255, 170, 0, 0.4);
+	border: 1px solid rgba(255, 170, 0, 0.4);
 }
 
 .gallery-card.tree-folder:hover {
-    border-color: #ffaa00;
+	border-color: #ffaa00;
 }
 
+/* [Мириам]: Фото. Как память. */
 .gallery-photo-wrapper {
 	display: block;
 	height: 200px;
@@ -754,7 +788,7 @@ document.addEventListener('contextmenu', function(e) {
 	border-color: #ffaa00;
 }
 
-/* --- Полноразмерные изображения на странице item --- */
+/* [Лорелея]: Полноразмерные изображения на странице item. */
 .gallery-full {
 	display: flex;
 	flex-direction: column;
@@ -781,7 +815,7 @@ document.addEventListener('contextmenu', function(e) {
 	filter: brightness(1.05);
 }
 
-/* Кнопка удаления */
+/* [Мириам]: Кнопка удаления. */
 .gallery-full-item .gallery-photo-delete {
 	position: absolute;
 	top: 8px;

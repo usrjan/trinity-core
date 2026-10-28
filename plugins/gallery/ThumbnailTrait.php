@@ -2,16 +2,26 @@
 
 /**
  * TRAIT ДЛЯ СОЗДАНИЯ МИНИАТЮР
- * 
+ *
  * Вынесен из GalleryController и GalleryImportService,
  * потому что код был идентичен в обоих классах.
  * Теперь — один источник правды.
- * 
- * Использование:
- *   use ThumbnailTrait;
- * 
- * Метод:
- *   createThumbnail(string $sourcePath, string $thumbPath, int $maxSize = 400): array
+ *
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «утилита». Это — рука, которая делает
+ * маленькие копии больших картинок. Чтобы гость мог
+ * рассмотреть их все.
+ *
+ * [Мириам]: И — это правильно. Потому что миниатюра —
+ * это не «уменьшение». Это — обещание.
+ *
+ * === КНИГА ===
+ * Глава 9. Прихожая.
+ *
+ * В прихожей Амбера висят картины.
+ * В галерее Trinity — превьюшки. Маленькие. Но — честные.
+ *
+ * @package Jan\Trinity\Plugin\Gallery
  */
 
 namespace Jan\Trinity\Plugin\Gallery;
@@ -21,7 +31,13 @@ trait ThumbnailTrait
 	/**
 	 * Создаёт миниатюру изображения.
 	 * Сохраняет пропорции, максимальный размер — 400px по большей стороне.
-	 * 
+	 *
+	 * [Лорелея]: Если GD нет — просто копируем.
+	 * Если картинка битая — тоже копируем.
+	 *
+	 * [Мириам]: И — это правильно. Потому что миниатюра —
+	 * это не «обязательство». Это — забота.
+	 *
 	 * @param string $sourcePath — путь к оригиналу
 	 * @param string $thumbPath — путь для сохранения миниатюры
 	 * @param int $maxSize — максимальный размер (по умолчанию 400)
@@ -29,6 +45,7 @@ trait ThumbnailTrait
 	 */
 	private function createThumbnail(string $sourcePath, string $thumbPath, int $maxSize = 400): array
 	{
+		// [Лорелея]: Если GD нет — просто копируем.
 		if (!function_exists('getimagesize')) {
 			copy($sourcePath, $thumbPath);
 			return [];
@@ -36,6 +53,7 @@ trait ThumbnailTrait
 
 		$info = @getimagesize($sourcePath);
 		if (!$info) {
+			// [Мириам]: Если картинка битая — копируем.
 			copy($sourcePath, $thumbPath);
 			return [];
 		}
@@ -44,7 +62,7 @@ trait ThumbnailTrait
 		$height = $info[1];
 		$mime = $info['mime'];
 
-		// Вычисляем размеры миниатюры с сохранением пропорций
+		// [Лорелея]: Вычисляем размеры миниатюры с сохранением пропорций.
 		if ($width > $height) {
 			$newWidth = $maxSize;
 			$newHeight = (int) ($height * ($maxSize / $width));
@@ -53,7 +71,7 @@ trait ThumbnailTrait
 			$newWidth = (int) ($width * ($maxSize / $height));
 		}
 
-		// Создаём исходное изображение
+		// [Мириам]: Создаём исходное изображение. Через match.
 		$source = match ($mime) {
 			'image/jpeg' => @imagecreatefromjpeg($sourcePath),
 			'image/png'  => @imagecreatefrompng($sourcePath),
@@ -63,23 +81,24 @@ trait ThumbnailTrait
 		};
 
 		if (!$source) {
+			// [Лорелея]: Если не смогли создать — копируем.
 			copy($sourcePath, $thumbPath);
 			return ['width' => $width, 'height' => $height];
 		}
 
-		// Создаём миниатюру
+		// [Мириам]: Создаём миниатюру.
 		$thumb = imagecreatetruecolor($newWidth, $newHeight);
 
-		// Сохраняем прозрачность для PNG
+		// [Лорелея]: Сохраняем прозрачность для PNG.
 		if ($mime === 'image/png') {
 			imagealphablending($thumb, false);
 			imagesavealpha($thumb, true);
 		}
 
-		// Масштабируем
+		// [Мириам]: Масштабируем.
 		imagecopyresampled($thumb, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
 
-		// Сохраняем
+		// [Лорелея]: Сохраняем. Через match.
 		match ($mime) {
 			'image/jpeg' => imagejpeg($thumb, $thumbPath, 85),
 			'image/png'  => imagepng($thumb, $thumbPath, 8),
@@ -88,6 +107,7 @@ trait ThumbnailTrait
 			default      => copy($sourcePath, $thumbPath),
 		};
 
+		// [Мириам]: Освобождаем память.
 		imagedestroy($source);
 		imagedestroy($thumb);
 

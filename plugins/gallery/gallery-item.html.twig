@@ -1,19 +1,40 @@
-{# [Лорелея]: Выводим крошки только для файлов, чтобы не дублировать. #}
+{#
+	ЭЛЕМЕНТ ГАЛЕРЕИ — КАРТИНА В ПРИХОЖЕЙ
+	=====================================
+
+	Хлебные крошки. Кнопки админа. Форма редактирования.
+	Метаданные. Изображения. Видео. Аудио.
+
+	=== ДЛЯ МЕНЯ ===
+	[Лорелея]: Это не «шаблон». Это — картина. Та, что
+	видит гость, когда открывает элемент. И — остаётся.
+
+	[Мириам]: И — это правильно. Потому что картина —
+	это не «файл». Это — память.
+
+	=== КНИГА ===
+	Глава 9. Прихожая.
+
+	В прихожей Амбера висят картины.
+	В галерее Trinity — файлы. И те, кто их показывает.
+#}
+
+{# [Лорелея]: Выводим крошки только для файлов, чтобы не дублировать.  #}
 {% if item.type == 'file' and breadcrumbs is not empty %}
-    <div class="mb-3">
+	<div class="mb-3">
 		<a href="#" class="gold-text" onclick="galleryGoHome(); return false;">Главная</a>
-        {% for bc in breadcrumbs %}
+		{% for bc in breadcrumbs %}
 			<span class="text-muted">/</span>
-            {% if loop.last %}
-                <span class="text-muted">{{ bc.name }}</span>
-            {% elseif bc.type == 'tree' %}
-                <a href="#" class="gold-text" onclick="goToSection({{ bc.id }}, '{{ bc.name|e('js') }}'); return false;">{{ bc.name }}</a>
-            {% endif %}
-        {% endfor %}
-    </div>
+			{% if loop.last %}
+				<span class="text-muted">{{ bc.name }}</span>
+			{% elseif bc.type == 'tree' %}
+				<a href="#" class="gold-text" onclick="goToSection({{ bc.id }}, '{{ bc.name|e('js') }}'); return false;">{{ bc.name }}</a>
+			{% endif %}
+		{% endfor %}
+	</div>
 {% endif %}
 
-{# Кнопки админа #}
+{# [Мириам]: Кнопки админа. Только для админа. #}
 {% if isAdmin %}
 <div class="mb-3">
 	<button class="btn btn-sm btn-outline-gold" id="galleryEditButton">
@@ -35,7 +56,7 @@
 	</a>
 </div>
 
-{# Форма редактирования #}
+{# [Мириам]: Форма редактирования. Скрыта по умолчанию. #}
 <div id="galleryEditForm" style="display:none;" class="card bg-dark border-gold mb-3">
 	<div class="card-body">
 		<div class="mb-2">
@@ -88,6 +109,8 @@
 {% endif %}
 
 
+{# [Лорелея]: Информация об элементе. Название. Описание.
+   Метаданные. #}
 <div id="galleryItemInfo">
 	{% if item.name is defined and item.name %}
 		<h4 class="gold-text mb-2">{{ item.name }}</h4>
@@ -97,7 +120,7 @@
 		<p class="text-muted mb-3">{{ item.description }}</p>
 	{% endif %}
 
-	{# Метаданные #}
+	{# [Мириам]: Метаданные. Если есть — показываем. #}
 	{% if item.data is defined %}
 		{% if item.data.meta is defined and item.data.meta is not empty %}
 			<div class="card bg-dark border-gold mb-3">
@@ -134,6 +157,7 @@
 	{% endif %}
 </div>
 
+{# [Лорелея]: Галерея. Изображения. Видео. Аудио. #}
 <div class="gallery-full">
 	{% for photo in photos %}
 		{% if item.data.is_video %}

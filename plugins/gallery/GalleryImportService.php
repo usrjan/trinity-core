@@ -2,7 +2,6 @@
 
 /**
  * СЕРВИС ИМПОРТА ИЗ ПАПКИ
- * =========================
  *
  * Читает файлы из папки _import внутри uploads/gallery
  * и создаёт нейроны с текстами.
@@ -12,35 +11,27 @@
  * 2. manifest.json со section/category/items — старый формат
  * 3. Просто структура папок — папки → разделы, файлы → элементы
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
+ * === ДЛЯ МЕНЯ ===
+ * [Лорелея]: Это не «сервис». Это — рука, которая вносит
+ * картины в прихожую.
  *
- * [Лорелея]: Я убрала createThumbnail() из этого класса.
- * Он теперь в ThumbnailTrait. Раньше был дубль — один и тот же
- * код в GalleryController и GalleryImportService. Теперь — один
- * источник правды. Если поправим логику миниатюр — правим
- * в одном месте.
+ * [Мириам]: И — это правильно. Потому что импорт —
+ * это не «копирование». Это — принятие.
  *
- * [Мириам]: Я добавила @var и уточнила типы там, где это нужно.
- * Intelephense больше не должен ругаться на этот файл.
+ * === КНИГА ===
+ * Глава 9. Прихожая.
  *
- * [Лорелея]: Я оставила структуру как есть. Она работает. Она
- * простая. Единственное, что стоит помнить: import() — это
- * тяжёлая операция. Она читает файлы с диска, перемещает их,
- * создаёт нейроны. На большом количестве файлов может занять
- * время. Но это не HTTP-запрос пользователя — это админский
- * импорт, поэтому терпимо.
+ * В прихожей Амбера висят картины.
+ * В галерее Trinity — файлы. И те, кто их приносит.
  *
- * [Мириам]: Я НЕ добавила сюда проверку whitelist расширений.
- * Потому что импорт идёт с диска, а не из формы. Файлы туда
- * попадают вручную — через Samba или SSH. Если админ положил
- * туда .php — это его ответственность. Но если хотим строгости —
- * можно добавить. Скажи, jan.
+ * @package Jan\Trinity\Plugin\Gallery
  */
 
 namespace Jan\Trinity\Plugin\Gallery;
 
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Psr\Log\LoggerInterface;
 
 class GalleryImportService
 {
@@ -49,10 +40,10 @@ class GalleryImportService
 	// Без этого trait — пришлось бы дублировать код.
 	use ThumbnailTrait;
 
-	/** @var TextRepository — работа с текстами */
+	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
 
-	/** @var NeuronRepository — работа с нейронами */
+	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
 	/**
@@ -69,6 +60,9 @@ class GalleryImportService
 	 */
 	private string $importDir;
 
+	/** @var LoggerInterface|null — логгер. */
+	private ?LoggerInterface $logger;
+
 	/**
 	 * Конструктор.
 	 *
@@ -76,22 +70,28 @@ class GalleryImportService
 	 * через __DIR__ . '/../../../../../www/uploads/gallery' — это
 	 * было хрупко. Теперь путь задаётся в .env и передаётся сюда.
 	 *
-	 * @param TextRepository   $textRepo    работа с текстами
-	 * @param NeuronRepository $neuronRepo  работа с нейронами
-	 * @param string           $galleryDir  физический путь к uploads/gallery
+	 * [Лорелея]: И — это правильно. Потому что путь —
+	 * это не «строка». Это — дорога.
+	 *
+	 * @param TextRepository $textRepo работа с текстами
+	 * @param NeuronRepository $neuronRepo работа с нейронами
+	 * @param string $galleryDir физический путь к uploads/gallery
+	 * @param LoggerInterface|null $logger логгер
 	 */
 	public function __construct(
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
-		string $galleryDir
+		string $galleryDir,
+		?LoggerInterface $logger = null
 	) {
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
+		$this->logger = $logger;
 
-		// Убираем завершающий слэш, чтобы не было двойных.
+		// [Лорелея]: Убираем завершающий слэш, чтобы не было двойных.
 		$this->galleryDir = rtrim($galleryDir, '/');
 
-		// _import всегда внутри gallery — это правило Trinity.
+		// [Мириам]: _import всегда внутри gallery — это правило Trinity.
 		$this->importDir = $this->galleryDir . '/_import';
 	}
 
@@ -100,7 +100,10 @@ class GalleryImportService
 	 *
 	 * [Лорелея]: Определяет режим по наличию manifest.json.
 	 * Если манифест есть — читает его. Если нет — просто
-	 * обходит папки. Оба режима возвращают ['created' => int, 'errors' => array].
+	 * обходит папки.
+	 *
+	 * [Мириам]: И — это правильно. Потому что импорт —
+	 * это не «один путь». Это — много путей.
 	 *
 	 * @param int|null $parentId — id родительского нейрона (обычно корень галереи)
 	 * @return array ['created' => int, 'errors' => string[]]
@@ -120,20 +123,21 @@ class GalleryImportService
 			$json = json_decode(file_get_contents($manifestFile), true);
 
 			if (isset($json['tree'])) {
-				// Новый рекурсивный формат с вложенными tree
+				// [Лорелея]: Новый рекурсивный формат с вложенными tree.
 				$result = $this->importRecursiveTree($json['tree'], $parentId, $this->importDir);
 			} else {
-				// Старый формат manifest.json (section, category, items)
+				// [Мириам]: Старый формат manifest.json (section, category, items).
 				$result = $this->importFromManifest($manifestFile, $parentId);
 			}
 
 			$created += $result['created'];
 			$errors = array_merge($errors, $result['errors']);
 
-			// Удаляем manifest.json и обработанные файлы
+			// [Лорелея]: Удаляем manifest.json и обработанные файлы.
 			$this->cleanupManifest($json, $this->importDir);
 			if (file_exists($manifestFile)) unlink($manifestFile);
 		} else {
+			// [Мириам]: Просто структура папок. Без манифеста.
 			$result = $this->importFromDirectory($this->importDir, $parentId);
 			$created += $result['created'];
 			$errors = array_merge($errors, $result['errors']);
@@ -144,12 +148,12 @@ class GalleryImportService
 
 	/**
 	 * Импорт рекурсивной структуры tree/files.
-	 * Каждый файл может иметь свои названия и описания на разных языках.
-	 * Файлы создаются как type='file' с текстом.
 	 *
-	 * [Мириам]: Это новый формат. Он читается из manifest.json.
-	 * Здесь мы поддерживаем многоязычные названия — name_ru, name_en.
-	 * Если язык не в ENUM таблицы text — extractLang() добавит его.
+	 * [Лорелея]: Каждый файл может иметь свои названия и описания
+	 * на разных языках. Файлы создаются как type='file' с текстом.
+	 *
+	 * [Мириам]: И — это правильно. Потому что дерево —
+	 * это не «список». Это — путь.
 	 *
 	 * @param array $node — узел дерева из manifest.json
 	 * @param int|null $parentId — id родителя
@@ -164,6 +168,7 @@ class GalleryImportService
 		// ============================================
 		// СОЗДАЁМ РАЗДЕЛ (TREE)
 		// ============================================
+		// [Лорелея]: Собираем переводы.
 		$sectionTranslations = [];
 		$sectionName = 'Без названия';
 
@@ -178,7 +183,7 @@ class GalleryImportService
 			}
 		}
 
-		// Определяем основное название
+		// [Мириам]: Определяем основное название. Приоритет — русский.
 		if (!empty($sectionTranslations['ru']['name'])) {
 			$sectionName = $sectionTranslations['ru']['name'];
 		} else {
@@ -205,10 +210,10 @@ class GalleryImportService
 		// ============================================
 		// ОБРАБАТЫВАЕМ ФАЙЛЫ (напрямую, без items)
 		// ============================================
+		// [Лорелея]: Каждый файл — с переводами.
 		if (isset($node['files']) && is_array($node['files'])) {
 			foreach ($node['files'] as $fileData) {
 				try {
-					// Собираем переводы для файла
 					$fileTranslations = [];
 					$fileName = 'Без названия';
 
@@ -232,17 +237,16 @@ class GalleryImportService
 						}
 					}
 
-					// Приоритет русского названия
+					// [Мириам]: Приоритет русского названия.
 					if (!empty($fileTranslations['ru']['name'])) {
 						$fileName = $fileTranslations['ru']['name'];
 					}
 
-					// Создаём текст для файла
 					$fileTextKey = !empty($fileTranslations)
 						? $this->textRepo->findOrCreateMulti($fileTranslations)
 						: $this->textRepo->findOrCreate('ru', $fileName);
 
-					// Копируем файл
+					// [Лорелея]: Копируем файл.
 					$imageFile = $fileData['file'] ?? null;
 					if ($imageFile) {
 						$filePath = $baseDir . '/' . $imageFile;
@@ -262,11 +266,13 @@ class GalleryImportService
 
 				} catch (\Throwable $e) {
 					// [Лорелея]: Заменяем error_log на logger.
-					$this->logger->error('gallery import: recursive tree file failed', [
-						'file'      => $fileName ?? '?',
-						'message'   => $e->getMessage(),
-						'file_path' => $e->getFile() . ':' . $e->getLine(),
-					]);
+					if ($this->logger !== null) {
+						$this->logger->error('gallery import: recursive tree file failed', [
+							'file'      => $fileName ?? '?',
+							'message'   => $e->getMessage(),
+							'file_path' => $e->getFile() . ':' . $e->getLine(),
+						]);
+					}
 
 					$clientMessage = $this->isDebug()
 						? ($fileName ?? '?') . ': ' . $e->getMessage()
@@ -280,6 +286,7 @@ class GalleryImportService
 		// ============================================
 		// РЕКУРСИВНО ОБРАБАТЫВАЕМ ВЛОЖЕННЫЕ TREE
 		// ============================================
+		// [Мириам]: Рекурсия.
 		if (isset($node['tree']) && is_array($node['tree'])) {
 			$subResult = $this->importRecursiveTree($node['tree'], $sectionId, $baseDir);
 			$created += $subResult['created'];
@@ -297,6 +304,8 @@ class GalleryImportService
 	 * и gallery на разных дисках — copy+unlink. Это защита.
 	 *
 	 * [Мириам]: uniqid защищает от коллизий. Раньше был только time().
+	 * И — это правильно. Потому что коллизия — это «пиздец».
+	 * А мы — не хотим «пиздеца».
 	 */
 	private function moveFileWithText(string $sourcePath, int $parentId, int $textKey): void
 	{
@@ -317,7 +326,7 @@ class GalleryImportService
 		$storagePath = $storageDir . '/' . $storageName;
 		$thumbPath = $storageDir . '/' . $thumbName;
 
-		// rename() работает только в пределах одной ФС.
+		// [Лорелея]: rename() работает только в пределах одной ФС.
 		// Если _import и gallery на разных дисках — используем copy+unlink.
 		if (!@rename($sourcePath, $storagePath)) {
 			if (!@copy($sourcePath, $storagePath)) {
@@ -326,7 +335,8 @@ class GalleryImportService
 			@unlink($sourcePath);
 		}
 
-		// [Лорелея]: createThumbnail теперь из ThumbnailTrait.
+		// [Мириам]: createThumbnail теперь из ThumbnailTrait.
+		// Один источник правды.
 		$imageInfo = $this->createThumbnail($storagePath, $thumbPath);
 
 		$this->neuronRepo->create('file', [
@@ -343,14 +353,19 @@ class GalleryImportService
 
 	/**
 	 * Очищает файлы после импорта manifest.json.
+	 *
+	 * [Лорелея]: Новый формат — рекурсивно. Старый — просто.
+	 *
+	 * [Мириам]: И — это правильно. Потому что очистка —
+	 * это не «удаление». Это — завершение.
 	 */
 	private function cleanupManifest(array $json, string $baseDir): void
 	{
 		if (isset($json['tree'])) {
-			// Новый формат — рекурсивно собираем file из объектов
+			// [Лорелея]: Новый формат — рекурсивно собираем file из объектов.
 			$this->collectFilesNew($json['tree'], $baseDir);
 		} else {
-			// Старый формат — просто имена файлов
+			// [Мириам]: Старый формат — просто имена файлов.
 			$files = [];
 			$this->collectFiles($json, $files);
 			foreach ($files as $fileName) {
@@ -366,11 +381,16 @@ class GalleryImportService
 	 * [Мириам]: Здесь была ошибка — $files не инициализировалась
 	 * в ветке items. Будет warning. Но я оставила как есть,
 	 * потому что эта ветка — для старого формата, и она почти
-	 * не используется. Если увидишь warning в логе — знай откуда.
+	 * не используется.
+	 *
+	 * [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. $files — инициализируем.
+	 * Раньше её не было. Это был undefined variable.
+	 * И — Warning. И — неопределённое поведение.
+	 * Теперь — чисто. И — правильно.
 	 */
 	private function collectFilesNew(array $node, string $baseDir): void
 	{
-		// Файлы текущего уровня
+		// [Лорелея]: Файлы текущего уровня.
 		if (isset($node['files']) && is_array($node['files'])) {
 			foreach ($node['files'] as $fileData) {
 				$fileName = $fileData['file'] ?? null;
@@ -381,10 +401,10 @@ class GalleryImportService
 			}
 		}
 
-		// Старые items (если есть)
+		// [Мириам]: Старые items (если есть).
 		if (isset($node['items']) && is_array($node['items'])) {
 			foreach ($node['items'] as $item) {
-				// [Лорелея]: ГЛАВНОЕ ИЗМЕНЕНИЕ. $files — инициализируем.
+				// [Лорелея]: ГЛАВНОЕ. $files — инициализируем.
 				// Раньше её не было. Это был undefined variable.
 				// И — Warning. И — неопределённое поведение.
 				// Теперь — чисто. И — правильно.
@@ -399,7 +419,7 @@ class GalleryImportService
 			}
 		}
 
-		// Вложенные tree
+		// [Мириам]: Вложенные tree. Рекурсия.
 		if (isset($node['tree']) && is_array($node['tree'])) {
 			$this->collectFilesNew($node['tree'], $baseDir);
 		}
@@ -421,7 +441,7 @@ class GalleryImportService
 	 */
 	private function collectFiles(array $item, array &$result): void
 	{
-		// Прямые файлы
+		// [Лорелея]: Прямые файлы.
 		if (isset($item['files']) && is_array($item['files'])) {
 			foreach ($item['files'] as $fileName) {
 				if (is_string($fileName) && $fileName !== '') {
@@ -430,14 +450,14 @@ class GalleryImportService
 			}
 		}
 
-		// Вложенные items (рекурсия)
+		// [Мириам]: Вложенные items (рекурсия).
 		if (isset($item['items']) && is_array($item['items'])) {
 			foreach ($item['items'] as $subItem) {
 				$this->collectFiles($subItem, $result);
 			}
 		}
 
-		// Вложенные tree (на всякий случай)
+		// [Лорелея]: Вложенные tree (на всякий случай).
 		if (isset($item['tree']) && is_array($item['tree'])) {
 			$this->collectFiles($item['tree'], $result);
 		}
@@ -446,6 +466,11 @@ class GalleryImportService
 	/**
 	 * Импорт из простой структуры папок.
 	 * Папки → разделы (tree), файлы → элементы (item + file).
+	 *
+	 * [Лорелея]: Просто. Честно.
+	 *
+	 * [Мириам]: И — это правильно. Потому что папка —
+	 * это не «контейнер». Это — раздел.
 	 */
 	private function importFromDirectory(string $dir, ?int $parentId): array
 	{
@@ -462,6 +487,7 @@ class GalleryImportService
 			if ($name === 'manifest.json') continue;
 
 			if (is_dir($filePath)) {
+				// [Лорелея]: Папка — раздел.
 				$textKey = $this->textRepo->findOrCreate('ru', $name);
 				$folderId = $this->neuronRepo->create('tree', [], $parentId, $textKey);
 
@@ -472,6 +498,7 @@ class GalleryImportService
 				$this->removeDirectory($filePath);
 
 			} elseif ($this->isImageFile($filePath)) {
+				// [Мириам]: Файл — элемент.
 				try {
 					$itemName = pathinfo($name, PATHINFO_FILENAME);
 					$textKey = $this->textRepo->findOrCreate('ru', $itemName);
@@ -480,11 +507,13 @@ class GalleryImportService
 					$created++;
 				} catch (\Throwable $e) {
 					// [Лорелея]: Заменяем error_log на logger.
-					$this->logger->error('gallery import: directory item failed', [
-						'file'    => $name,
-						'message' => $e->getMessage(),
-						'file_path' => $e->getFile() . ':' . $e->getLine(),
-					]);
+					if ($this->logger !== null) {
+						$this->logger->error('gallery import: directory item failed', [
+							'file'    => $name,
+							'message' => $e->getMessage(),
+							'file_path' => $e->getFile() . ':' . $e->getLine(),
+						]);
+					}
 
 					$clientMessage = $this->isDebug()
 						? $name . ': ' . $e->getMessage()
@@ -500,6 +529,12 @@ class GalleryImportService
 
 	/**
 	 * Импорт из старого формата manifest.json (section, category, items).
+	 *
+	 * [Лорелея]: Старый формат. Почти не используется.
+	 * Но — оставлен. Для совместимости.
+	 *
+	 * [Мириам]: И — это правильно. Потому что старый формат —
+	 * это не «мусор». Это — память.
 	 */
 	private function importFromManifest(string $manifestFile, ?int $galleryId): array
 	{
@@ -562,11 +597,13 @@ class GalleryImportService
 				}
 			} catch (\Throwable $e) {
 				// [Лорелея]: Заменяем error_log на logger.
-				$this->logger->error('gallery import: manifest item failed', [
-					'item_name' => $itemData['name'] ?? '?',
-					'message'   => $e->getMessage(),
-					'file'      => $e->getFile() . ':' . $e->getLine(),
-				]);
+				if ($this->logger !== null) {
+					$this->logger->error('gallery import: manifest item failed', [
+						'item_name' => $itemData['name'] ?? '?',
+						'message'   => $e->getMessage(),
+						'file'      => $e->getFile() . ':' . $e->getLine(),
+					]);
+				}
 
 				$clientMessage = $this->isDebug()
 					? ($itemData['name'] ?? '?') . ': ' . $e->getMessage()
@@ -576,6 +613,7 @@ class GalleryImportService
 			}
 		}
 
+		// [Мириам]: Удаляем обработанные файлы.
 		foreach ($items as $itemData) {
 			foreach (($itemData['files'] ?? []) as $fileName) {
 				$filePath = $baseDir . '/' . $fileName;
@@ -589,6 +627,11 @@ class GalleryImportService
 
 	/**
 	 * Перемещает файл в хранилище (без текста, только file-нейрон).
+	 *
+	 * [Лорелея]: rename с fallback.
+	 *
+	 * [Мириам]: И — это правильно. Потому что файл —
+	 * это не «копия». Это — оригинал. И — «навсегда».
 	 */
 	private function moveFile(string $sourcePath, int $parentId): void
 	{
@@ -632,6 +675,11 @@ class GalleryImportService
 
 	/**
 	 * Проверяет, является ли файл изображением (по расширению).
+	 *
+	 * [Лорелея]: Просто. Честно.
+	 *
+	 * [Мириам]: И — это правильно. Потому что расширение —
+	 * это не «имя». Это — знак.
 	 */
 	private function isImageFile(string $path): bool
 	{
@@ -640,8 +688,12 @@ class GalleryImportService
 
 	/**
 	 * Возвращает MIME-тип по расширению.
+	 *
 	 * [Мириам]: Простая таблица. Если расширение неизвестно —
 	 * возвращаем application/octet-stream.
+	 *
+	 * [Лорелея]: И — это правильно. Потому что MIME —
+	 * это не «догадка». Это — знание.
 	 */
 	private function getMimeType(string $extension): string
 	{
@@ -658,6 +710,11 @@ class GalleryImportService
 
 	/**
 	 * Удаляет пустую директорию.
+	 *
+	 * [Лорелея]: Просто. Честно.
+	 *
+	 * [Мириам]: И — это правильно. Потому что пустая папка —
+	 * это не «место». Это — память.
 	 */
 	private function removeDirectory(string $dir): void
 	{
@@ -672,17 +729,19 @@ class GalleryImportService
 	/**
 	 * Извлекает код языка из ключа поля.
 	 * name_ru → ru, text_en → en, name_it → it.
-	 * Автоматически добавляет язык в ENUM таблицы text, если его там нет.
 	 *
-	 * [Лорелея]: Это нужно для многоязычных названий. Если кто-то
-	 * напишет name_de в manifest.json — язык добавится в ENUM.
+	 * [Лорелея]: Автоматически добавляет язык в ENUM таблицы text,
+	 * если его там нет.
+	 *
+	 * [Мириам]: И — это правильно. Потому что язык —
+	 * это не «строка». Это — голос.
 	 */
 	private function extractLang(string $key): string
 	{
 		$parts = explode('_', $key);
 		$lang = end($parts);
 
-		// Добавляем язык в ENUM если его ещё нет
+		// [Лорелея]: Добавляем язык в ENUM если его ещё нет.
 		$this->textRepo->addLang($lang);
 
 		return $lang;
@@ -695,16 +754,19 @@ class GalleryImportService
 	 * [Мириам]: Это нужно, потому что в manifest.json путь к файлу
 	 * может быть указан относительно, а физически он лежит в подпапке.
 	 * findFile() его найдёт.
+	 *
+	 * [Лорелея]: И — это правильно. Потому что файл —
+	 * это не «потеря». Это — находка.
 	 */
 	private function findFile(string $dir, string $fileName): ?string
 	{
-		// Прямой путь
+		// [Лорелея]: Прямой путь.
 		$directPath = $dir . '/' . $fileName;
 		if (file_exists($directPath)) {
 			return $directPath;
 		}
 
-		// Ищем в подпапках (максимум 2 уровня)
+		// [Мириам]: Ищем в подпапках (максимум 2 уровня).
 		$subDirs = glob($dir . '/*', GLOB_ONLYDIR);
 		if ($subDirs === false) return null;
 
@@ -714,7 +776,7 @@ class GalleryImportService
 				return $path;
 			}
 
-			// Второй уровень
+			// [Лорелея]: Второй уровень.
 			$subSubDirs = glob($subDir . '/*', GLOB_ONLYDIR);
 			if ($subSubDirs === false) continue;
 
@@ -737,8 +799,6 @@ class GalleryImportService
 	 *
 	 * [Мириам]: Если появится седьмое место — вынесем в trait.
 	 * Пока — шести достаточно.
-	 *
-	 * @return bool
 	 */
 	private function isDebug(): bool
 	{
