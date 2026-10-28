@@ -179,66 +179,6 @@ class SynapseRepository
 	}
 
 	/**
-	 * Найти синапсы по ребёнку.
-	 *
-	 * [Лорелея]: Один SELECT. С JOIN на neuron. С именем родителя.
-	 * Без N+1.
-	 *
-	 * [Мириам]: И — это правильно. Потому что ребёнок —
-	 * это не «просто id». Это — конец связи.
-	 *
-	 * @param int $childId
-	 * @param string|null $relationType
-	 * @return array
-	 */
-	public function findByChild(int $childId, ?string $relationType = null): array
-	{
-		$conn = $this->db->getConnection();
-
-		$sql = "SELECT s.*,
-				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as parent_name
-				FROM synapse s
-				JOIN neuron n ON s.parent = n.id
-				WHERE s.child = ? AND s.is_deleted = 0 AND n.is_deleted = 0";
-
-		$params = [$childId];
-
-		if ($relationType) {
-			$sql .= " AND s.relation_type = ?";
-			$params[] = $relationType;
-		}
-
-		$sql .= " ORDER BY s.time DESC, s.id DESC";
-
-		return $conn->executeQuery($sql, $params)->fetchAllAssociative();
-	}
-
-	/**
-	 * Посчитать количество синапсов по родителю.
-	 *
-	 * [Мириам]: И — это правильно. Потому что количество —
-	 * это не «список». Это — знание.
-	 *
-	 * @param int $parentId
-	 * @param string|null $relationType
-	 * @return int
-	 */
-	public function countByParent(int $parentId, ?string $relationType = null): int
-	{
-		$conn = $this->db->getConnection();
-
-		$sql = "SELECT COUNT(*) FROM synapse WHERE parent = ? AND is_deleted = 0";
-		$params = [$parentId];
-
-		if ($relationType) {
-			$sql .= " AND relation_type = ?";
-			$params[] = $relationType;
-		}
-
-		return (int) $conn->executeQuery($sql, $params)->fetchOne();
-	}
-
-	/**
 	 * Мягкое удаление синапса по ID.
 	 *
 	 * [Лорелея]: ГЛАВНОЕ. Раньше был DELETE FROM synapse.

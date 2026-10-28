@@ -467,6 +467,12 @@ class AdminController
 			$this->invalidateMatcherCache();
 		}
 
+		// [Лорелея]: Если это config — инвалидируем файловый кэш,
+		// потому что конфиги изменились.
+		if (isset($fields['type']) && $fields['type'] === 'config') {
+			$this->invalidateConfigCache();
+		}
+
 		// [Мириам]: И кэш APCu для роутов и конфигов — тоже.
 		if (in_array($neuron['type'], ['route', 'config'], true)) {
 			$this->cache->forget('trinity.routes');
@@ -790,16 +796,19 @@ class AdminController
 	// ============================================
 
 	/**
-	 * Режим отладки из .env.
+	 * Удаляет файловый кэш конфигов.
 	 *
-	 * [Лорелея]: Просто, честно, без лишнего, потому что отладка —
-	 * это не «всегда», а «когда нужно».
+	 * [Лорелея]: Один метод на все места, потому что путь
+	 * должен быть в одном месте, а не в трёх.
 	 *
-	 * [Мириам]: И это правильно, потому что даже у отладки
-	 * должны быть границы.
+	 * [Мириам]: И это правильно, потому что если путь размазан
+	 * по трём местам, рано или поздно одно из них забудут.
 	 */
-	private function isDebug(): bool
+	private function invalidateConfigCache(): void
 	{
-		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+		$cacheFile = $this->basePath . '/var/cache/config.php';
+		if (file_exists($cacheFile)) {
+			@unlink($cacheFile);
+		}
 	}
 }

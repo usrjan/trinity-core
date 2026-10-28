@@ -369,11 +369,12 @@ class Validator
 			throw new \RuntimeException("Validator: column '{$column}' невалидна");
 		}
 
-		// [Лорелея]: Для neuron проверяем только активные записи,
-		// потому что удалённые не должны мешать уникальности.
+		// [Лорелея]: Для neuron и synapse используем is_deleted = 0,
+		// потому что это тот же критерий, что и в остальном коде.
+		// Два критерия — это два места для ошибки.
 		$sql = "SELECT 1 FROM {$table} WHERE {$column} = ?";
-		if ($table === 'neuron') {
-			$sql .= " AND deleted_at IS NULL";
+		if (in_array($table, ['neuron', 'synapse'], true)) {
+			$sql .= " AND is_deleted = 0";
 		}
 		$sql .= " LIMIT 1";
 

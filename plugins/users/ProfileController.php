@@ -114,6 +114,9 @@ class ProfileController
 	{
 		$this->requireAuth();
 
+		// [Лорелея]: user_id берётся строго из сессии, а не из запроса,
+		// потому что IDOR — это когда пользователь подставляет чужой id,
+		// и это не должно быть возможно.
 		$userId = $this->session->get('user_id');
 
 		$user = $this->neuronRepo->findById($userId);
@@ -223,6 +226,9 @@ class ProfileController
 	{
 		$this->requireAuth();
 
+		// [Лорелея]: user_id берётся строго из сессии, а не из запроса,
+		// потому что IDOR — это когда пользователь подставляет чужой id,
+		// и это не должно быть возможно.
 		$userId = $this->session->get('user_id');
 
 		$lang = trim($request->request->get('lang', 'ru'));
@@ -308,6 +314,9 @@ class ProfileController
 	{
 		if ($error = $this->requireAuthForApi()) return $error;
 
+		// [Лорелея]: user_id берётся строго из сессии, а не из запроса,
+		// потому что IDOR — это когда пользователь подставляет чужой id,
+		// и это не должно быть возможно.
 		$userId = $this->session->get('user_id');
 
 		$user = $this->neuronRepo->findById($userId);

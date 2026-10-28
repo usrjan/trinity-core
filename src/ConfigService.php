@@ -39,8 +39,12 @@ class ConfigService
 	/** @var bool Загружены ли конфиги. Флаг. */
 	private bool $loaded = false;
 
+	/** @var string — путь к корню проекта. */
+	private string $basePath;
+
 	/** @var Cache|null — кэш. Может быть null, и это нормально. */
 	private ?Cache $cache;
+
 
 	/**
 	 * Конструктор.
@@ -51,9 +55,13 @@ class ConfigService
 	 * [Мириам]: И это правильно, потому что кувшин у двери
 	 * лучше, чем колодец за околицей.
 	 */
-	public function __construct(NeuronRepository $neuronRepo, ?Cache $cache = null)
-	{
+	public function __construct(
+		NeuronRepository $neuronRepo,
+		string $basePath,
+		?Cache $cache = null
+	) {
 		$this->neuronRepo = $neuronRepo;
+		$this->basePath = rtrim($basePath, '/');
 		$this->cache = $cache;
 	}
 
@@ -96,46 +104,13 @@ class ConfigService
 	}
 
 	/**
-	 * Проверить, есть ли конфиг по ключу.
-	 *
-	 * [Лорелея]: Просто. Честно.
-	 *
-	 * [Мириам]: И — это правильно. Потому что иногда нужно просто
-	 * узнать. Не получить. А — узнать.
-	 *
-	 * @param string $key
-	 * @return bool
-	 */
-	public function has(string $key): bool
-	{
-		$this->ensureLoaded();
-		return isset($this->config[$key]);
-	}
-
-	/**
-	 * Получить все конфиги.
-	 *
-	 * [Лорелея]: Отдаём всё. Что есть.
-	 *
-	 * [Мириам]: И — это правильно. Потому что иногда нужно
-	 * увидеть всё. Целиком.
-	 *
-	 * @return array
-	 */
-	public function all(): array
-	{
-		$this->ensureLoaded();
-		return $this->config;
-	}
-
-	/**
 	 * Загрузить конфиги из базы.
 	 *
-	 * [Лорелея]: Мы оборачиваем запрос в cache->remember, чтобы
-	 * конфиги брались из памяти, а не из базы на каждом запросе.
+	 * [Лорелея]: Мы используем три уровня кэша: APCu, файл и базу.
+	 * APCu быстрый, файл — надёжный, база — источник истины.
 	 *
-	 * [Мириам]: И это правильно, потому что кувшин у двери
-	 * лучше, чем колодец за околицей.
+	 * [Мириам]: И это правильно, потому что кувшин должен быть
+	 * у двери, а не за околицей.
 	 */
 	public function load(): void
 	{
@@ -145,10 +120,17 @@ class ConfigService
 
 		$rawConfig = null;
 
+		// [Лорелея]: Первый уровень — APCu.
 		if ($this->cache !== null && $this->cache->isEnabled()) {
 			$rawConfig = $this->cache->remember('trinity.config', function () {
-				return $this->neuronRepo->findAllConfigValues();
+				return $this->loadFromFile();
 			}, 3600);
+		}
+
+		// [Мириам]: Второй уровень — файл. Если APCu нет или он
+		// выключен, файл всё равно быстрый, потому что это require.
+		if ($rawConfig === null) {
+			$rawConfig = $this->loadFromFile();
 		}
 
 		if ($rawConfig === null) {
@@ -217,5 +199,73 @@ class ConfigService
 			}
 		}
 		return $value;
+	}
+
+	/**
+	 * Загружает конфиги из файлового кэша или из базы.
+	 *
+	 * [Лорелея]: Если файл кэша есть и не устарел — берём из него.
+	 * Если нет или устарел — идём в базу и записываем файл.
+	 *
+	 * [Мириам]: И это правильно, потому что файл — это надёжный
+	 * запасной путь, который работает даже без APCu.
+	 *
+	 * @return array|null
+	 */
+	private function loadFromFile(): ?array
+	{
+		$cacheFile = $this->basePath . '/var/cache/config.php';
+
+		// [Лорелея]: Если файл кэша есть и не устарел — берём из него.
+		if (file_exists($cacheFile) && !$this->isConfigCacheStale($cacheFile)) {
+			$cached = require $cacheFile;
+			if (is_array($cached)) {
+				return $cached;
+			}
+
+			// [Мириам]: Если файл вернул не массив — значит, он битый.
+			// Удаляем его и идём в базу.
+			@unlink($cacheFile);
+		}
+
+		// [Лорелея]: Идём в базу и записываем файл, чтобы следующий
+		// запрос был быстрым.
+		$rawConfig = $this->neuronRepo->findAllConfigValues();
+
+		$code = '<?php' . "\n\n" . 'return ' . var_export($rawConfig, true) . ';' . "\n";
+		file_put_contents($cacheFile, $code, LOCK_EX);
+
+		return $rawConfig;
+	}
+
+	/**
+	 * Проверяет, устарел ли файловый кэш конфигов.
+	 *
+	 * [Лорелея]: Кэш устаревает, когда меняются нейроны type='config',
+	 * и это правильно, потому что конфиги должны отражать реальность.
+	 *
+	 * [Мириам]: И это правильно, потому что устаревший конфиг
+	 * хуже, чем его отсутствие.
+	 *
+	 * @param string $cacheFile
+	 * @return bool
+	 */
+	private function isConfigCacheStale(string $cacheFile): bool
+	{
+		$cacheTime = filemtime($cacheFile);
+		if ($cacheTime === false) {
+			return true;
+		}
+
+		$conn = $this->neuronRepo->getConnection();
+		$lastConfigChange = $conn->executeQuery(
+			"SELECT MAX(date) FROM neuron WHERE type = 'config' AND is_deleted = 0"
+		)->fetchOne();
+
+		if (!$lastConfigChange) {
+			return false;
+		}
+
+		return strtotime($lastConfigChange) > $cacheTime;
 	}
 }

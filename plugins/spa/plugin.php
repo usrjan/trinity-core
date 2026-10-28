@@ -37,12 +37,8 @@ const TRINITY_RESERVED_SLUGS = [
 	// PageController — специфичные маршруты
 	'sub',
 	'section',
-	'add',
-	'update',
-	'delete',
 	'update-full',
 	'subpage-by-id',
-	'addSection',
 	'addSectionById',
 	'addSubPage',
 	'addSubPageById',
@@ -82,16 +78,12 @@ return function ($routes) use ($reservedSlugsPattern) {
 	// ============================================
 	// SPA — НАВИГАЦИЯ (ОДИН ENDPOINT)
 	// ============================================
-	// [Лорелея]: Один endpoint вместо трёх fetch, потому что
-	// гость должен видеть дом сразу, а не по частям.
-	//
-	// [Мириам]: И это правильно, потому что SPA делает
-	// параллельные fetch, а если сессия стартует на каждом,
-	// они сериализуются, и это задержка, которой можно избежать.
+	// [Лорелея]: _csrf => false здесь не нужен, потому что Kernel
+	// проверяет CSRF только для POST, PUT и DELETE, а этот маршрут
+	// только для GET.
 	$routes->add('spa_navigate', new Route('/api/spa/navigate', [
 		'_controller' => SpaController::class,
 		'_method'     => 'navigate',
-		'_csrf'       => false,
 	]));
 
 	// ============================================
@@ -173,6 +165,13 @@ return function ($routes) use ($reservedSlugsPattern) {
 		'_controller' => PageController::class,
 		'_method'     => 'addSubPageById',
 	], ['pageId' => '\d+'], [], '', [], ['POST']));
+
+	// [Лорелея]: Поиск по текстам, потому что дом должен уметь
+	// отвечать на вопрос, даже если вопрос — это одно слово.
+	$routes->add('spa_search', new Route('/api/search', [
+		'_controller' => SpaController::class,
+		'_method'     => 'search',
+	]));
 
 	// ============================================
 	// ПРОСМОТР СТРАНИЦЫ — ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ

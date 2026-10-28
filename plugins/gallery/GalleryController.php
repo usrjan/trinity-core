@@ -76,7 +76,15 @@ class GalleryController
 	/** @var GalleryImportService — сервис импорта из папки. */
 	private GalleryImportService $galleryImport;
 
-	// [Лорелея]: Белые списки.
+	/**
+	 * Белые списки расширений и MIME.
+	 *
+	 * [Лорелея]: Три списка расширений и один список MIME,
+	 * потому что доверять клиенту нельзя, даже если он админ.
+	 *
+	 * [Мириам]: И это правильно, потому что расширение —
+	 * это не «имя», а знак, и знак должен быть честным.
+	 */
 	private const ALLOWED_IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
 	private const ALLOWED_VIDEO_EXT = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'];
 	private const ALLOWED_AUDIO_EXT = ['mp3', 'flac', 'wav', 'ogg', 'aac', 'm4a'];
@@ -133,10 +141,11 @@ class GalleryController
 	/**
 	 * Проверяет, разрешено ли расширение.
 	 *
-	 * [Лорелея]: Три белых списка.
+	 * [Лорелея]: Три белых списка, и каждый — отдельная категория,
+	 * потому что изображение, видео и аудио — это разные вещи.
 	 *
-	 * [Мириам]: И — это правильно. Потому что расширение —
-	 * это не «имя». Это — знак.
+	 * [Мириам]: И это правильно, потому что у каждой вещи
+	 * своё место.
 	 */
 	private function isAllowedExtension(string $ext): bool
 	{
@@ -148,20 +157,29 @@ class GalleryController
 	/**
 	 * Валидирует загруженный файл.
 	 *
-	 * [Лорелея]: Расширение. MIME. Размер. Всё — через белый список.
+	 * [Лорелея]: Сначала расширение, потом MIME, и только потом
+	 * всё остальное, потому что доверять клиенту нельзя, даже
+	 * если он админ.
 	 *
-	 * [Мириам]: И — это правильно. Потому что доверять клиенту
-	 * нельзя. Даже если он админ. Особенно если он админ.
+	 * [Мириам]: И это правильно, потому что расширение —
+	 * это не «имя», а знак, и знак должен быть честным.
+	 *
+	 * @param UploadedFile $uploadedFile
+	 * @return array
 	 */
 	private function validateUpload(UploadedFile $uploadedFile): array
 	{
 		$originalName = $uploadedFile->getClientOriginalName();
 		$extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
+		// [Лорелея]: Сначала расширение, потому что оно приходит
+		// от клиента и может быть любым.
 		if (!$this->isAllowedExtension($extension)) {
 			throw new \RuntimeException('Недопустимое расширение файла: ' . $extension);
 		}
 
+		// [Мириам]: Потом MIME, но не от клиента, а по содержимому,
+		// потому что Content-Type врёт, а magic bytes — нет.
 		$mimeType = $uploadedFile->getMimeType() ?: 'application/octet-stream';
 		if (!in_array($mimeType, self::ALLOWED_MIME, true)) {
 			throw new \RuntimeException('Недопустимый MIME-тип: ' . $mimeType);
@@ -220,11 +238,14 @@ class GalleryController
 
 		$sections = $this->neuronRepo->findChildrenWithText($galleryRoot['id'], 'ru');
 
+		// [Лорелея]: Одно место для json_decode, а не пять,
+		// потому что дублирование — это когда одно и то же
+		// решение принимается в разных местах.
+		$sections = $this->neuronRepo->hydrateData($sections);
+
 		$items = [];
 		foreach ($sections as $child) {
-			$childData = is_string($child['data'] ?? null)
-				? json_decode($child['data'], true)
-				: ($child['data'] ?? []);
+			$childData = $child['data'];
 
 			$items[] = [
 				'id'           => $child['id'],
@@ -249,14 +270,24 @@ class GalleryController
 	/**
 	 * GET /api/gallery/section/{id}
 	 *
-	 * [Лорелея]: Показываем раздел. С файлами и папками.
+	 * [Лорелея]: Показываем раздел. С файлами и папками, и с
+	 * декодированными данными, потому что одно место для json_decode
+	 * лучше, чем пять.
 	 *
-	 * [Мириам]: И — это правильно. Потому что раздел —
-	 * это не «список». Это — ветвь.
+	 * [Мириам]: И это правильно, потому что правда должна быть
+	 * в одном месте.
+	 *
+	 * @param int $id
+	 * @return JsonResponse
 	 */
 	public function section(int $id): JsonResponse
 	{
 		$children = $this->neuronRepo->findChildrenWithText($id, 'ru');
+
+		// [Лорелея]: Одно место для json_decode, а не пять,
+		// потому что дублирование — это когда одно и то же
+		// решение принимается в разных местах.
+		$children = $this->neuronRepo->hydrateData($children);
 
 		$treeIds = [];
 		foreach ($children as $child) {
@@ -272,12 +303,13 @@ class GalleryController
 
 		$items = [];
 		foreach ($children as $child) {
-			$childData = is_string($child['data'] ?? null)
-				? json_decode($child['data'], true)
-				: ($child['data'] ?? []);
+			$childData = $child['data'];
 
 			$name = $child['name'] ?? $childData['slug'] ?? 'Без названия';
 
+			// [Мириам]: Если имя не пришло из JOIN, пробуем взять
+			// его из текста, потому что у раздела может быть
+			// несколько языков.
 			if ($child['text'] && (!$child['name'] || $name === 'Без названия')) {
 				$allTexts = $this->textRepo->findAllByKey($child['text']);
 
@@ -318,10 +350,10 @@ class GalleryController
 					$firstThumb = $coverThumb;
 				} elseif (isset($filesByTree[$child['id']]) && !empty($filesByTree[$child['id']])) {
 					$firstFile = $filesByTree[$child['id']][0];
-					$fileData = is_string($firstFile['data'] ?? null)
+					$firstFileData = is_string($firstFile['data'] ?? null)
 						? json_decode($firstFile['data'], true)
 						: ($firstFile['data'] ?? []);
-					$thumbPath = $fileData['thumb_path'] ?? null;
+					$thumbPath = $firstFileData['thumb_path'] ?? null;
 					if ($thumbPath) {
 						$firstThumb = $thumbPath;
 					}
@@ -353,10 +385,15 @@ class GalleryController
 	/**
 	 * GET /api/gallery/item/{id}
 	 *
-	 * [Лорелея]: Показываем элемент. С фото. С описанием.
+	 * [Лорелея]: Показываем элемент. С фото, с описанием и с
+	 * декодированными данными, потому что одно место для json_decode
+	 * лучше, чем пять.
 	 *
-	 * [Мириам]: И — это правильно. Потому что элемент —
-	 * это не «файл». Это — картина.
+	 * [Мириам]: И это правильно, потому что правда должна быть
+	 * в одном месте.
+	 *
+	 * @param int $id
+	 * @return Response
 	 */
 	public function item(int $id): Response
 	{
@@ -372,11 +409,14 @@ class GalleryController
 			]);
 		}
 
-		$itemData = is_string($item['data'] ?? null)
-			? json_decode($item['data'], true)
-			: ($item['data'] ?? []);
-		$item['data'] = $itemData;
+		// [Лорелея]: Одно место для json_decode, а не пять,
+		// потому что дублирование — это когда одно и то же
+		// решение принимается в разных местах.
+		$item = $this->neuronRepo->hydrateData([$item])[0];
+		$itemData = $item['data'];
 
+		// [Мириам]: Если у элемента есть текст, берём имя и описание
+		// из него, потому что текст — это не «поле», а голос.
 		if ($item['text']) {
 			$text = $this->textRepo->findByKeyAndLang($item['text'], 'ru');
 
@@ -396,6 +436,8 @@ class GalleryController
 			}
 		}
 
+		// [Лорелея]: Если это файл — показываем его одного,
+		// потому что файл — это не «набор фото», а одно фото.
 		if ($item['type'] === 'file') {
 			$fileData = $itemData;
 			$photos = [];
@@ -427,12 +469,14 @@ class GalleryController
 			return ApiResponse::success(['html' => $html]);
 		}
 
+		// [Мириам]: Если это элемент — показываем все его файлы,
+		// потому что элемент — это «набор фото», а не одно фото.
 		$files = $this->neuronRepo->findChildrenWithText($id, 'ru', 'file');
+		$files = $this->neuronRepo->hydrateData($files);
+
 		$photos = [];
 		foreach ($files as $file) {
-			$fileData = is_string($file['data'] ?? null)
-				? json_decode($file['data'], true)
-				: ($file['data'] ?? []);
+			$fileData = $file['data'];
 
 			$photos[] = [
 				'id'     => $file['id'],
@@ -614,10 +658,16 @@ class GalleryController
 	/**
 	 * POST /api/gallery/item/{id}/update
 	 *
-	 * [Лорелея]: Обновляем. С CSRF. С валидацией.
+	 * [Лорелея]: Обновляем элемент. С CSRF, с валидацией и с
+	 * декодированными данными, потому что одно место для json_decode
+	 * лучше, чем пять.
 	 *
-	 * [Мириам]: И — это правильно. Потому что обновление —
-	 * это не «замена». Это — продолжение.
+	 * [Мириам]: И это правильно, потому что правда должна быть
+	 * в одном месте.
+	 *
+	 * @param int $id
+	 * @param Request $request
+	 * @return JsonResponse
 	 */
 	public function updateItem(int $id, Request $request): JsonResponse
 	{
@@ -629,6 +679,12 @@ class GalleryController
 			return ApiResponse::error('Элемент не найден', 404);
 		}
 
+		// [Лорелея]: Одно место для json_decode, а не пять,
+		// потому что дублирование — это когда одно и то же
+		// решение принимается в разных местах.
+		$item = $this->neuronRepo->hydrateData([$item])[0];
+		$currentData = $item['data'];
+
 		$body = JsonHelper::parseJsonBody($request);
 		if ($body instanceof JsonResponse) return $body;
 
@@ -638,6 +694,8 @@ class GalleryController
 		$year = $body['year'] ?? null;
 		$tags = $body['tags'] ?? null;
 
+		// [Мириам]: Валидация — это не «формальность», а забота
+		// о том, чтобы данные были честными.
 		if ($name !== null && !$this->validator->validate(['name' => $name], [
 			'name' => ['string', 'min:1', 'max:255'],
 		])) {
@@ -656,6 +714,8 @@ class GalleryController
 			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
+		// [Лорелея]: Если меняется имя или описание — обновляем
+		// текст, потому что текст — это голос элемента.
 		if ($name !== null || $description !== null) {
 			if ($item['text']) {
 				$this->textRepo->updateByKey((int) $item['text'], 'ru', $name ?? '', $description ?? '');
@@ -665,10 +725,9 @@ class GalleryController
 			}
 		}
 
-		$currentData = is_string($item['data'] ?? null)
-			? json_decode($item['data'], true)
-			: ($item['data'] ?? []);
-
+		// [Мириам]: Если меняются метаданные — обновляем их,
+		// потому что метаданные — это то, что делает элемент
+		// узнаваемым.
 		if ($meta !== null) {
 			$filteredMeta = array_filter($meta, function($value) {
 				return !empty(trim((string)$value));
@@ -683,6 +742,8 @@ class GalleryController
 		if ($year !== null) $currentData['year'] = $year;
 		if ($tags !== null) $currentData['tags'] = $tags;
 
+		// [Лорелея]: Обновляем data, и это правильно, потому что
+		// data — это то, что делает элемент собой.
 		$this->neuronRepo->update($id, ['data' => $currentData]);
 
 		return ApiResponse::success(['id' => $id], 'Элемент обновлён');
@@ -710,6 +771,11 @@ class GalleryController
 			return ApiResponse::error('Элемент не найден', 404);
 		}
 
+		// [Лорелея]: Сначала удаляем синапсы, потому что это
+		// отдельное решение, а не побочный эффект.
+		$this->synapseRepo->deleteByNeuron($id);
+
+		// [Мириам]: Потом удаляем файлы и сам элемент.
 		$files = $this->neuronRepo->findChildren($id, 'file');
 
 		foreach ($files as $file) {
@@ -737,10 +803,10 @@ class GalleryController
 				}
 			}
 
-			$this->neuronRepo->delete($file['id'], false);
+			$this->neuronRepo->delete($file['id']);
 		}
 
-		$this->neuronRepo->delete($id, false);
+		$this->neuronRepo->delete($id);
 
 		return ApiResponse::success(['id' => $id], 'Элемент удалён');
 	}
@@ -865,49 +931,68 @@ class GalleryController
 
 		$uploadedFile->move($storageDir, $storageName);
 
-		if (in_array($extension, self::ALLOWED_IMAGE_EXT, true)) {
-			$thumbName = $unique . '_thumb.' . $extension;
-			$imageInfo = $this->createThumbnail(
-				$storageDir . '/' . $storageName,
-				$storageDir . '/' . $thumbName
-			);
+		// [Лорелея]: Запоминаем путь, чтобы можно было удалить файл,
+		// если создание нейрона упадёт. Осиротевший файл — это
+		// не «файл», а «мусор».
+		$storagePath = $storageDir . '/' . $storageName;
+		$thumbPath = null;
+
+		try {
+			if (in_array($extension, self::ALLOWED_IMAGE_EXT, true)) {
+				$thumbName = $unique . '_thumb.' . $extension;
+				$thumbPath = $storageDir . '/' . $thumbName;
+				$imageInfo = $this->createThumbnail($storagePath, $thumbPath);
+			}
+
+			$relativeStoragePath = $datePath . '/' . $storageName;
+			$relativeThumbPath = $thumbName ? ($datePath . '/' . $thumbName) : null;
+
+			if (strpos($relativeStoragePath, '..') !== false || strpos($relativeStoragePath, '/') === 0) {
+				$this->logger->warning('gallery: invalid storage_path', [
+					'storage_path' => $relativeStoragePath,
+				]);
+				throw new \RuntimeException('Недопустимый путь хранения: ' . $relativeStoragePath);
+			}
+
+			if ($relativeThumbPath !== null && (strpos($relativeThumbPath, '..') !== false || strpos($relativeThumbPath, '/') === 0)) {
+				$this->logger->warning('gallery: invalid thumb_path', [
+					'thumb_path' => $relativeThumbPath,
+				]);
+				throw new \RuntimeException('Недопустимый путь миниатюры: ' . $relativeThumbPath);
+			}
+
+			$data = [
+				'original_name' => $validated['originalName'],
+				'mime'          => $validated['mime'],
+				'size'          => $validated['size'],
+				'width'         => $imageInfo['width'] ?? 0,
+				'height'        => $imageInfo['height'] ?? 0,
+				'storage_path'  => $relativeStoragePath,
+				'thumb_path'    => $relativeThumbPath,
+				'uploaded_at'   => date('Y-m-d H:i:s'),
+				'is_video'      => in_array($extension, self::ALLOWED_VIDEO_EXT, true),
+				'is_audio'      => in_array($extension, self::ALLOWED_AUDIO_EXT, true),
+			];
+
+			if ($displayName !== null) {
+				$data['display_name'] = $displayName;
+			}
+
+			return $this->neuronRepo->create('file', $data, $parentId, $textKey);
+
+		} catch (\Throwable $e) {
+			// [Мириам]: Если что-то пошло не так — удаляем файл
+			// и миниатюру, потому что осиротевший файл — это
+			// не «файл», а «мусор».
+			if (file_exists($storagePath)) {
+				@unlink($storagePath);
+			}
+			if ($thumbPath !== null && file_exists($thumbPath)) {
+				@unlink($thumbPath);
+			}
+
+			throw $e;
 		}
-
-		$storagePath = $datePath . '/' . $storageName;
-		$thumbPath = $thumbName ? ($datePath . '/' . $thumbName) : null;
-
-		if (strpos($storagePath, '..') !== false || strpos($storagePath, '/') === 0) {
-			$this->logger->warning('gallery: invalid storage_path', [
-				'storage_path' => $storagePath,
-			]);
-			throw new \RuntimeException('Недопустимый путь хранения: ' . $storagePath);
-		}
-
-		if ($thumbPath !== null && (strpos($thumbPath, '..') !== false || strpos($thumbPath, '/') === 0)) {
-			$this->logger->warning('gallery: invalid thumb_path', [
-				'thumb_path' => $thumbPath,
-			]);
-			throw new \RuntimeException('Недопустимый путь миниатюры: ' . $thumbPath);
-		}
-
-		$data = [
-			'original_name' => $validated['originalName'],
-			'mime'          => $validated['mime'],
-			'size'          => $validated['size'],
-			'width'         => $imageInfo['width'] ?? 0,
-			'height'        => $imageInfo['height'] ?? 0,
-			'storage_path'  => $storagePath,
-			'thumb_path'    => $thumbPath,
-			'uploaded_at'   => date('Y-m-d H:i:s'),
-			'is_video'      => in_array($extension, self::ALLOWED_VIDEO_EXT, true),
-			'is_audio'      => in_array($extension, self::ALLOWED_AUDIO_EXT, true),
-		];
-
-		if ($displayName !== null) {
-			$data['display_name'] = $displayName;
-		}
-
-		return $this->neuronRepo->create('file', $data, $parentId, $textKey);
 	}
 
 	private function saveFile(UploadedFile $uploadedFile, int $parentId): int

@@ -70,7 +70,7 @@ class SpaController
 
 	/** @var PageController — контроллер страниц. */
 	private PageController $pageController;
-	
+
 	public function __construct(
 		Environment $twig,
 		Session $session,
@@ -113,14 +113,14 @@ class SpaController
 		$lang = $request->query->get('lang', 'ru');
 		$allLangs = $request->query->get('all_langs') === '1';
 
-		// [Лорелея]: Берём MenuController и PageController из свойств,
-		// потому что они приходят через конструктор, а не из контейнера,
-		// и это правильно, потому что контроллер не должен знать
-		// о контейнере.
+		// [Лорелея]: path из query — это только строка для поиска
+		// в базе, а не путь к файлу. PageController::show() ищет
+		// slug в нейронах под PAGES, и это безопасно.
+		$slug = trim($path, '/');
+
 		$sidebarHtml = $this->menuController->sidebar($request)->getContent();
 		$topbarHtml = $this->menuController->topbar($request)->getContent();
 
-		$slug = trim($path, '/');
 		$pageResponse = $this->pageController->show($slug, $request);
 		$pageData = json_decode($pageResponse->getContent(), true);
 

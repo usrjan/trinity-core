@@ -109,6 +109,10 @@ class PageController
 		$lang = $request->query->get('lang', 'ru');
 		$allLangs = $request->query->get('all_langs') === '1';
 
+		// [Лорелея]: ВАЖНО. slug — это строка для поиска в базе,
+		// а не путь к файлу. Никогда не используйте его для
+		// файловых операций, даже если он выглядит как путь.
+		// Это защита от будущих ошибок, а не от текущих.
 		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
 		if (!$pagesRoot) {
 			return ApiResponse::error('PAGES не найден', 500);
@@ -715,5 +719,45 @@ class PageController
 			$this->deleteChildren($child['id']);
 			$this->neuronRepo->delete($child['id'], false);
 		}
+	}
+
+	/**
+	 * GET /api/search?q=...
+	 *
+	 * [Лорелея]: Поиск по текстам, потому что дом должен уметь
+	 * отвечать на вопрос, даже если вопрос — это одно слово.
+	 *
+	 * [Мириам]: И это правильно, потому что поиск — это не
+	 * «роскошь», а способ найти то, что уже есть.
+	 *
+	 * @param Request $request
+	 * @return JsonResponse
+	 */
+	public function search(Request $request): JsonResponse
+	{
+		$query = trim($request->query->get('q', ''));
+		$lang = $request->query->get('lang', 'ru');
+
+		if ($query === '') {
+			return ApiResponse::error('Параметр q обязателен', 400);
+		}
+
+		$results = $this->textRepo->search($query, $lang, 50);
+
+		$items = [];
+		foreach ($results as $row) {
+			$items[] = [
+				'key'  => $row['key'],
+				'lang' => $row['lang'],
+				'name' => $row['name'] ?? '',
+				'text' => mb_substr($row['text'] ?? '', 0, 200),
+			];
+		}
+
+		return ApiResponse::success([
+			'query'   => $query,
+			'count'   => count($items),
+			'items'   => $items,
+		]);
 	}
 }

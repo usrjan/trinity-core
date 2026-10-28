@@ -40,7 +40,7 @@
 				{# [Лорелея]: CSRF-токен. Без него дверь не откроется,
 				   и это правильно, потому что доверие начинается
 				   с проверки. #}
-				<input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+				<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 				<div class="mb-3">
 					<label class="form-label"><i class="bi bi-person"></i> Логин</label>
 					<input type="text" class="form-control" name="login" placeholder="jan" required autofocus>

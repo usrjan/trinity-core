@@ -78,13 +78,16 @@ class ExcelImportService
 	/**
 	 * Главный метод импорта.
 	 *
-	 * [Лорелея]: ГЛАВНОЕ. На время импорта отключаем FULLTEXT-индекс.
-	 * Через DISABLE KEYS. И — после импорта — ENABLE KEYS.
-	 * Чтобы не было FULLTEXT rebuild на каждой строке.
+	 * [Лорелея]: Мы убрали DISABLE KEYS, потому что на InnoDB он
+	 * не работает, и добавили одну транзакцию на весь импорт,
+	 * потому что COMMIT — это дорогая операция, и если делать
+	 * его на каждую строку, импорт становится медленным.
 	 *
-	 * [Мириам]: И — это правильно. Потому что FULLTEXT rebuild —
-	 * дорогой. И — на 10k строк — минуты. А мы — не хотим
-	 * минуты. Мы хотим — быстро.
+	 * [Мириам]: И это правильно, потому что оптимизация должна
+	 * работать, а не притворяться.
+	 *
+	 * @param string $filePath
+	 * @return array ['created' => int, 'errors' => string[]]
 	 */
 	public function import(string $filePath): array
 	{
@@ -94,23 +97,11 @@ class ExcelImportService
 		$created = 0;
 		$errors = [];
 
-		// [Лорелея]: Отключаем FULLTEXT-индекс на время импорта.
-		// Без «пиздеца». Без «потом». Без «завтра».
+		// [Лорелея]: Оборачиваем весь импорт в одну транзакцию,
+		// потому что COMMIT — это дорогая операция, и если делать
+		// его на каждую строку, импорт становится медленным.
 		$conn = $this->neuronRepo->getConnection();
-		$fulltextDisabled = false;
-		try {
-			$conn->executeStatement('ALTER TABLE `text` DISABLE KEYS');
-			$fulltextDisabled = true;
-			if ($this->logger !== null) {
-				$this->logger->info('excel import: fulltext disabled');
-			}
-		} catch (\Throwable $e) {
-			if ($this->logger !== null) {
-				$this->logger->warning('excel import: failed to disable fulltext', [
-					'message' => $e->getMessage(),
-				]);
-			}
-		}
+		$conn->beginTransaction();
 
 		try {
 			foreach ($spreadsheet->getSheetNames() as $sheetName) {
@@ -124,6 +115,8 @@ class ExcelImportService
 				$type = strtolower(trim($sheetName));
 
 				foreach ($rows as $rowIndex => $row) {
+					// [Мириам]: Пропускаем пустые строки, потому что
+					// пустая строка — это не «данные», а «ничего».
 					if (empty(array_filter($row, fn($v) => $v !== null && trim((string) $v) !== ''))) continue;
 
 					$data = array_combine($headers, $row);
@@ -139,8 +132,11 @@ class ExcelImportService
 						}
 						$created++;
 					} catch (\Throwable $e) {
+						// [Лорелея]: Логируем ошибку строки, но не
+						// откатываем всю транзакцию, потому что одна
+						// плохая строка не должна ронять весь импорт.
 						if ($this->logger !== null) {
-							$this->logger->error('Excel import failed', [
+							$this->logger->error('Excel import row failed', [
 								'sheet'   => $sheetName,
 								'row'     => $rowIndex + 2,
 								'message' => $e->getMessage(),
@@ -158,23 +154,29 @@ class ExcelImportService
 					}
 				}
 			}
-		} finally {
-			// [Лорелея]: Включаем FULLTEXT-индекс обратно. Всегда.
-			// Даже если импорт упал.
-			if ($fulltextDisabled) {
-				try {
-					$conn->executeStatement('ALTER TABLE `text` ENABLE KEYS');
-					if ($this->logger !== null) {
-						$this->logger->info('excel import: fulltext enabled');
-					}
-				} catch (\Throwable $e) {
-					if ($this->logger !== null) {
-						$this->logger->warning('excel import: failed to enable fulltext', [
-							'message' => $e->getMessage(),
-						]);
-					}
-				}
+
+			$conn->commit();
+
+		} catch (\Throwable $e) {
+			// [Мириам]: Если что-то пошло не так на уровне листа
+			// или файла — откатываем всё, потому что импорт должен
+			// быть цельным, а не «наполовину».
+			$conn->rollBack();
+
+			if ($this->logger !== null) {
+				$this->logger->error('Excel import failed', [
+					'message' => $e->getMessage(),
+					'file'    => $e->getFile() . ':' . $e->getLine(),
+				]);
+			} else {
+				error_log("[Excel Import] Failed: " . $e->getMessage());
 			}
+
+			$clientMessage = $this->isDebug()
+				? 'Ошибка импорта: ' . $e->getMessage()
+				: 'Ошибка импорта. Подробности в логах.';
+
+			$errors[] = $clientMessage;
 		}
 
 		return ['created' => $created, 'errors' => $errors];

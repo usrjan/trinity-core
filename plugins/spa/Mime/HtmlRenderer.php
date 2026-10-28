@@ -64,12 +64,12 @@ class HtmlRenderer implements MimeRendererInterface
 	/**
 	 * Возвращает очиститель, создавая его только при первой необходимости.
 	 *
-	 * [Лорелея]: Мы задаём cacheDir и CacheDefinition, потому что
-	 * без них Purifier пересобирает определения HTML на каждый
-	 * purify(), а это сотни миллисекунд на каждую страницу.
+	 * [Лорелея]: Мы явно задаём HTML.Allowed и URI.AllowedSchemes,
+	 * потому что безопасность должна быть нашим решением, а не
+	 * настройками библиотеки по умолчанию.
 	 *
-	 * [Мириам]: И это правильно, потому что русло должно быть
-	 * проложено один раз, а потом только проверяться.
+	 * [Мириам]: И это правильно, потому что доверие, выданное
+	 * по умолчанию, — это не доверие, а его отсутствие.
 	 *
 	 * @return \HTMLPurifier
 	 */
@@ -87,7 +87,35 @@ class HtmlRenderer implements MimeRendererInterface
 
 			$config->set('Cache.DefinitionImpl', 'Serializer');
 			$config->set('Cache.SerializerPath', $cacheDir);
-			$config->set('CSS.CacheDir', $cacheDir);
+
+			// [Мириам]: Явно разрешаем только то, что нужно для
+			// безопасного HTML: заголовки, абзацы, списки, таблицы,
+			// код, ссылки, изображения. Без iframe, form, script.
+			$config->set('HTML.Allowed', implode(',', [
+				'p', 'br', 'strong', 'em', 'u', 's', 'del', 'ins',
+				'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+				'ul', 'ol', 'li',
+				'blockquote', 'pre', 'code',
+				'table', 'thead', 'tbody', 'tr', 'th', 'td',
+				'a[href|title|target|rel]',
+				'img[src|alt|title|width|height]',
+				'hr',
+				'span', 'div',
+			]));
+
+			// [Лорелея]: Запрещаем всё, что может выполнить код
+			// или украсть данные, даже если оно попадёт в HTML.Allowed
+			// по ошибке.
+			$config->set('HTML.ForbiddenElements', 'iframe,form,script,style,object,embed,link,meta,base');
+
+			// [Мириам]: Разрешаем только безопасные схемы URI,
+			// потому что javascript: и data: — это не ссылки,
+			// а оружие.
+			$config->set('URI.AllowedSchemes', [
+				'http' => true,
+				'https' => true,
+				'mailto' => true,
+			]);
 
 			$this->purifier = new \HTMLPurifier($config);
 		}

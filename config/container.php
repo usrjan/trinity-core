@@ -103,10 +103,20 @@ return [
 	// [Мириам]: И — это правильно. Потому что сессия — это
 	// не «всегда». Это — когда нужно.
 	Session::class => function () {
-		// [Лорелея]: cookie_secure включаем только если явно сказано
-		// в .env, потому что на http кука secure не передаётся,
-		// и сессия не находится.
-		$isSecure = ($_ENV['SESSION_SECURE'] ?? 'true') === 'true';
+		// [Лорелея]: По умолчанию cookie_secure выключен, потому что
+		// на локальном http сессия не ставится вообще, и это ловушка
+		// для дев-окружения. В prod его нужно включить явно.
+		$isSecure = ($_ENV['SESSION_SECURE'] ?? 'false') === 'true';
+
+		// [Мириам]: Но если сайт на https, а cookie_secure выключен —
+		// это предупреждение, потому что безопасность должна быть
+		// явной, а не случайной.
+		$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+			|| ($_SERVER['SERVER_PORT'] ?? null) === '443';
+
+		if ($isHttps && !$isSecure) {
+			error_log('[Trinity] SESSION_SECURE is false, but the site is on HTTPS. Enable it in .env.');
+		}
 
 		$storage = new NativeSessionStorage([
 			'cookie_lifetime' => (int)($_ENV['SESSION_LIFETIME'] ?? 86400),
@@ -127,7 +137,7 @@ return [
 	//
 	// [Мириам]: И — это правильно. Потому что GuardService пишет
 	// в $session->set('csrf_token'). А Twig — читает. Один источник.
-	Environment::class => function (Session $session) {
+	Environment::class => function (Session $session, \Jan\Trinity\Core\Service\GuardService $guard) {
 		$basePath = dirname(__DIR__);
 		$isDev = ($_ENV['APP_ENV'] ?? 'prod') === 'dev';
 
@@ -147,20 +157,11 @@ return [
 			'strict_variables' => $isDev,
 		]);
 
-		// [Лорелея]: ГЛАВНОЕ. csrf_token стартует сессию, если она
-		// не запущена. И — возвращает токен. Без «пустого токена».
-		$twig->addFunction(new \Twig\TwigFunction('csrf_token', function () use ($session) {
-			if (!$session->isStarted()) {
-				$session->start();
-			}
-
-			$token = $session->get('csrf_token');
-			if ($token === null) {
-				$token = bin2hex(random_bytes(32));
-				$session->set('csrf_token', $token);
-			}
-
-			return $token;
+		// [Лорелея]: Twig-функция csrf_token вызывает GuardService,
+		// а не работает с сессией напрямую, потому что токен должен
+		// быть в одном месте.
+		$twig->addFunction(new \Twig\TwigFunction('csrf_token', function () use ($guard) {
+			return $guard->getOrCreateCsrfToken();
 		}));
 
 		$twig->addGlobal('gallery_url', rtrim($_ENV['GALLERY_UPLOAD_URL'] ?? '/uploads/gallery', '/'));
@@ -393,7 +394,8 @@ return [
 	// [Мириам]: И — это правильно. Потому что память —
 	// это не «кэш». Это — знание.
 	ConfigService::class => \DI\autowire()
-			->constructorParameter('cache', \DI\get(Cache::class)),
+		->constructorParameter('basePath', \DI\get('app.base_path'))
+		->constructorParameter('cache', \DI\get(Cache::class)),
 
 	// ============================================
 	// MIME REGISTRY

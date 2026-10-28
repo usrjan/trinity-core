@@ -25,6 +25,7 @@
 namespace Jan\Trinity\Core\Service;
 
 use Jan\Trinity\Core\ConfigService;
+use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Session\Session;
@@ -52,6 +53,9 @@ class GuardService
 	/** @var Session — сессия Symfony. Один источник CSRF-токена. */
 	private Session $session;
 
+	/** @var Cache|null — кэш. Может быть null, и это нормально. */
+	private ?Cache $cache;
+
 	/**
 	 * Конструктор. Принимает всё, что нужно.
 	 *
@@ -69,13 +73,15 @@ class GuardService
 		string $basePath,
 		LoggerInterface $logger,
 		ConfigService $configService,
-		Session $session
+		Session $session,
+		?Cache $cache = null
 	) {
 		$this->neuronRepo = $neuronRepo;
 		$this->basePath = $basePath;
 		$this->logger = $logger;
 		$this->configService = $configService;
 		$this->session = $session;
+		$this->cache = $cache;
 	}
 
 	/**
@@ -147,12 +153,17 @@ class GuardService
 
 		$handle = fopen($file, 'c+');
 		if ($handle === false) {
-			return 0;
+			// [Лорелея]: Если не можем открыть файл — считаем, что
+			// попыток слишком много, потому что fail-open для
+			// защиты от брутфорса — это не защита, а её отсутствие.
+			return PHP_INT_MAX;
 		}
 
 		if (!flock($handle, LOCK_EX)) {
 			fclose($handle);
-			return 0;
+			// [Мириам]: И здесь тоже fail-closed, потому что если
+			// не можем посчитать, должны предполагать худшее.
+			return PHP_INT_MAX;
 		}
 
 		$content = stream_get_contents($handle);
@@ -406,6 +417,11 @@ class GuardService
 
 		$this->writeJsonFile($file, $blocked);
 
+		// [Лорелея]: Сбрасываем кэш, потому что список изменился.
+		if ($this->cache !== null) {
+			$this->cache->forget('guard.blocked_ips');
+		}
+
 		flock($lockHandle, LOCK_UN);
 		fclose($lockHandle);
 	}
@@ -445,6 +461,12 @@ class GuardService
 		unset($blocked[$ip]);
 		$this->writeJsonFile($file, $blocked);
 
+		// [Лорелея]: Сбрасываем кэш, потому что список изменился,
+		// и isIpBlocked() должен увидеть это сразу, а не через 30 секунд.
+		if ($this->cache !== null) {
+			$this->cache->forget('guard.blocked_ips');
+		}
+
 		flock($lockHandle, LOCK_UN);
 		fclose($lockHandle);
 	}
@@ -462,8 +484,7 @@ class GuardService
 	 */
 	public function isIpBlocked(string $ip): bool
 	{
-		$file = $this->basePath . '/var/guard/blocked_ips.json';
-		$blocked = $this->readJsonFile($file);
+		$blocked = $this->getBlockedIpsCached();
 
 		if (!isset($blocked[$ip])) {
 			return false;
@@ -482,6 +503,33 @@ class GuardService
 	}
 
 	/**
+	 * Возвращает список заблокированных IP с кэшем в APCu.
+	 *
+	 * [Лорелея]: Список читается с диска один раз в 30 секунд,
+	 * а не на каждом запросе, потому что при росте списка это
+	 * заметная нагрузка на каждый хост-запрос.
+	 *
+	 * [Мириам]: И это правильно, потому что кувшин должен быть
+	 * у двери, а не за околицей.
+	 *
+	 * @return array
+	 */
+	private function getBlockedIpsCached(): array
+	{
+		$cacheKey = 'guard.blocked_ips';
+
+		if ($this->cache !== null && $this->cache->isEnabled()) {
+			return $this->cache->remember($cacheKey, function () {
+				$file = $this->basePath . '/var/guard/blocked_ips.json';
+				return $this->readJsonFile($file);
+			}, 30);
+		}
+
+		$file = $this->basePath . '/var/guard/blocked_ips.json';
+		return $this->readJsonFile($file);
+	}
+
+	/**
 	 * Получить список заблокированных IP.
 	 *
 	 * [Лорелея]: Читаем JSON. Возвращаем.
@@ -493,8 +541,7 @@ class GuardService
 	 */
 	public function getBlockedIps(): array
 	{
-		$file = $this->basePath . '/var/guard/blocked_ips.json';
-		return $this->readJsonFile($file);
+		return $this->getBlockedIpsCached();
 	}
 
 	/**
@@ -534,6 +581,12 @@ class GuardService
 
 		if ($removed > 0) {
 			$this->writeJsonFile($file, $blocked);
+
+			// [Лорелея]: Сбрасываем кэш, потому что список изменился.
+			if ($this->cache !== null) {
+				$this->cache->forget('guard.blocked_ips');
+			}
+
 			$this->logger->info('guard: cleanup removed expired blocked ips', [
 				'removed' => $removed,
 			]);
@@ -548,13 +601,13 @@ class GuardService
 	// ============================================
 
 	/**
-	 * Сгенерировать CSRF-токен.
+	 * Генерирует новый CSRF-токен.
 	 *
-	 * [Лорелея]: ГЛАВНОЕ. Токен — в Symfony Session. Не в $_SESSION.
-	 * Один источник.
+	 * [Лорелея]: Этот метод перезаписывает токен, и это правильно
+	 * только после успешного логина, когда сессия уже новая.
 	 *
-	 * [Мириам]: И — это правильно. Потому что токен — это
-	 * не «строка». Это — доверие.
+	 * [Мириам]: И это правильно, потому что новая сессия —
+	 * это новый этап, и токен должен быть новым.
 	 *
 	 * @return string
 	 */
@@ -562,12 +615,10 @@ class GuardService
 	{
 		$token = bin2hex(random_bytes(32));
 
-		// [Лорелея]: Сессия может быть не запущена. Запускаем.
 		if (!$this->session->isStarted()) {
 			$this->session->start();
 		}
 
-		// [Мириам]: Один источник. Symfony Session. Без $_SESSION.
 		$this->session->set('csrf_token', $token);
 
 		return $token;
@@ -778,5 +829,33 @@ class GuardService
 	public function getBlockDuration(): int
 	{
 		return (int) $this->getConfig('block_duration', 3600);
+	}
+
+	/**
+	 * Возвращает существующий CSRF-токен или создаёт новый.
+	 *
+	 * [Лорелея]: Этот метод не перезаписывает существующий токен,
+	 * потому что перезапись ломает форму, которая уже открыта
+	 * в другой вкладке.
+	 *
+	 * [Мириам]: И это правильно, потому что токен должен быть
+	 * один, и он должен быть в одном месте.
+	 *
+	 * @return string
+	 */
+	public function getOrCreateCsrfToken(): string
+	{
+		if (!$this->session->isStarted()) {
+			$this->session->start();
+		}
+
+		$token = $this->session->get('csrf_token');
+
+		if ($token === null || $token === '') {
+			$token = bin2hex(random_bytes(32));
+			$this->session->set('csrf_token', $token);
+		}
+
+		return $token;
 	}
 }

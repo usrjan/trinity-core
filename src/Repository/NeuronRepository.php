@@ -168,16 +168,16 @@ class NeuronRepository
 	/**
 	 * Мягко удалить нейрон.
 	 *
-	 * [Лорелея]: Ставим deleted_at. Не DELETE. Потому что
-	 * «восстановить» — значит вернуть всё.
+	 * [Лорелея]: Мы не удаляем синапсы здесь, потому что это
+	 * не дело репозитория нейронов. Связи — это отдельное
+	 * решение, и его принимает вызывающий код.
 	 *
-	 * [Мириам]: И — это правильно. Потому что удаление — это
-	 * не «конец». Это — пауза.
+	 * [Мириам]: И это правильно, потому что каждая рука должна
+	 * заниматься своим делом.
 	 *
 	 * @param int $id — id нейрона
-	 * @param bool $deleteSynapses — удалять ли связи
 	 */
-	public function delete(int $id, bool $deleteSynapses = true): void
+	public function delete(int $id): void
 	{
 		$conn = $this->db->getConnection();
 
@@ -193,10 +193,6 @@ class NeuronRepository
 		$conn->update('neuron', [
 			'data' => json_encode($data, JSON_UNESCAPED_UNICODE)
 		], ['id' => $id]);
-
-		if ($deleteSynapses) {
-			$this->softDeleteSynapses($id);
-		}
 
 		$this->logAdminAction('delete', [
 			'neuron_id' => $id,
@@ -741,5 +737,33 @@ class NeuronRepository
 			}
 		}
 		return $result;
+	}
+
+	/**
+	 * Декодирует поле data у массива строк.
+	 *
+	 * [Лорелея]: Одно место для json_decode, потому что дублирование
+	 * — это когда одно и то же решение принимается в разных местах,
+	 * и рано или поздно они начинают расходиться.
+	 *
+	 * [Мириам]: И это правильно, потому что правда должна быть
+	 * в одном месте.
+	 *
+	 * @param array $rows — массив строк с полем data
+	 * @return array — массив строк с декодированным data
+	 */
+	public function hydrateData(array $rows): array
+	{
+		foreach ($rows as &$row) {
+			if (isset($row['data']) && is_string($row['data'])) {
+				$decoded = json_decode($row['data'], true);
+				$row['data'] = is_array($decoded) ? $decoded : [];
+			} elseif (!isset($row['data'])) {
+				$row['data'] = [];
+			}
+		}
+		unset($row);
+
+		return $rows;
 	}
 }

@@ -119,16 +119,11 @@ class AuthController
 			$this->session->start();
 		}
 
-		// [Лорелея]: Генерируем токен до рендера шаблона, чтобы
-		// Twig взял именно его, а не создал новый.
-		$csrfToken = $this->guard->generateCsrfToken();
-
 		$error = $this->session->get('login_error');
 		$this->session->remove('login_error');
 
 		$html = $this->twig->render('login.html.twig', [
 			'error'      => $error,
-			'csrf_token' => $csrfToken,
 		]);
 
 		return new Response($html);
@@ -161,7 +156,7 @@ class AuthController
 			$this->session->set('login_error', 'Недействительный CSRF-токен. Попробуйте снова.');
 			return new RedirectResponse('/login');
 		}
-		
+
 		$login = trim($request->request->get('login') ?? '');
 		$password = $request->request->get('password') ?? '';
 		$ip = $request->getClientIp();
@@ -247,6 +242,8 @@ class AuthController
 		// новый этап, а не продолжение старого.
 		$this->session->migrate(true);
 
+		// [Лорелея]: После миграции сессии старый токен уже
+		// недействителен, поэтому генерируем новый.
 		$this->guard->generateCsrfToken();
 
 		$this->session->set('user_id', $user['id']);

@@ -121,11 +121,17 @@ class Kernel
 	/**
 	 * Загружает плагины из папки plugins/.
 	 *
-	 * [Лорелея]: Список плагинов кэшируется, потому что он меняется
-	 * редко, а glob() на каждом запросе — это I/O без нужды.
+	 * [Лорелея]: Список плагинов кэшируется по mtime папки, потому что
+	 * он меняется редко, а glob() на каждом запросе — это I/O без нужды.
 	 *
 	 * [Мириам]: И это правильно, потому что русло должно быть
 	 * проложено один раз, а потом только проверяться.
+	 *
+	 * ОГРАНИЧЕНИЕ: mtime папки меняется только при добавлении или
+	 * удалении плагина, а не при правке существующего plugin.php.
+	 * При правке содержимого список остаётся прежним, но сам файл
+	 * перечитывается через opcache по mtime. Если нужно обновить
+	 * список — удалите var/cache/plugins.php или измените mtime папки.
 	 */
 	private function loadPlugins(): void
 	{
@@ -183,170 +189,178 @@ class Kernel
 	// ЖИЗНЕННЫЙ ЦИКЛ ЗАПРОСА
 	// ============================================
 
-	/**
-	 * Главный метод. Обрабатывает HTTP-запрос.
-	 */
 	public function handle(): void
 	{
 		$request = Request::createFromGlobals();
 
 		// CORS PREFLIGHT (OPTIONS)
 		if ($request->getMethod() === 'OPTIONS') {
-			$origin = $request->headers->get('Origin');
-			$acrm = $request->headers->get('Access-Control-Request-Method');
-
-			if ($origin && $acrm) {
-				$response = new Response('', 204);
-				$this->applyCorsHeaders($request, $response);
-				$response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-				$response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
-				$response->headers->set('Access-Control-Max-Age', '86400');
-				$response->send();
-				return;
-			}
-
-			$response = new Response('Метод не поддерживается', 405);
-			$response->headers->set('Allow', 'GET, POST, PUT, DELETE');
-			$response->send();
+			$this->handleOptions($request);
 			return;
 		}
 
 		try {
-			// EARLY-CHECK: ЗАБЛОКИРОВАННЫЙ IP
-			$ip = $request->getClientIp();
-			if ($ip && $this->container->has(GuardService::class)) {
-				$guard = $this->container->get(GuardService::class);
-				if ($guard->isIpBlocked($ip)) {
-					$response = new Response('Доступ запрещён. Ваш IP заблокирован.', 403);
-					$this->applyCorsHeaders($request, $response);
-					$response->send();
-					return;
-				}
-			}
+			$response = $this->dispatch($request);
+		} catch (\Throwable $e) {
+			[$code, $message] = match (true) {
+				$e instanceof ResourceNotFoundException => [404, 'Страница не найдена'],
+				$e instanceof MethodNotAllowedException => [405, 'Метод не поддерживается'],
+				$e instanceof UnauthorizedException => [401, $e->getMessage()],
+				$e instanceof ForbiddenException => [403, $e->getMessage()],
+				default => [500, $this->safeErrorMessage($e, 500)],
+			};
 
-			// START SESSION — BEFORE CONTROLLER
-			$session = $this->container->get(Session::class);
-			if (!$session->isStarted()) {
-				$session->start();
-			}
+			$response = $this->renderError($code, $message, $e);
+		}
 
-			// [Лорелея]: Файловые роуты. Один маршрут — home.
-			$routes = require $this->basePath . '/config/routes.php';
+		$this->respond($request, $response);
+	}
 
-			// [Мириам]: Плагины добавляют свои роуты. Каждый — сам.
-			// И каждый — в своём try, чтобы один сломанный не ронял все.
-			foreach ($this->plugins as $plugin) {
-				try {
-					$plugin($routes);
-				} catch (\Throwable $e) {
-					if ($this->logger !== null) {
-						$this->logger->error('plugin route registration failed', [
-							'message' => $e->getMessage(),
-							'file'    => $e->getFile() . ':' . $e->getLine(),
-						]);
-					}
-				}
-			}
+	/**
+	 * Отправляет ответ и ставит CORS-заголовки.
+	 *
+	 * [Лорелея]: Один метод на все ответы, потому что повторение
+	 * applyCorsHeaders в каждом блоке — это пять мест для ошибки.
+	 *
+	 * [Мириам]: И это правильно, потому что ответ должен быть
+	 * один, и CORS должен быть один.
+	 */
+	private function respond(Request $request, Response $response): void
+	{
+		$this->applyCorsHeaders($request, $response);
+		$response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+		$response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+		$response->send();
+	}
 
-			$this->loadRoutesFromDatabase($routes);
+	/**
+	 * Обрабатывает OPTIONS-preflight.
+	 *
+	 * [Лорелея]: Один метод на preflight, потому что он один
+	 * и тот же для всех запросов.
+	 *
+	 * [Мириам]: И это правильно, потому что preflight — это
+	 * не «исключение», а правило.
+	 */
+	private function handleOptions(Request $request): void
+	{
+		$origin = $request->headers->get('Origin');
+		$acrm = $request->headers->get('Access-Control-Request-Method');
 
-			$context = new RequestContext();
-			$context->fromRequest($request);
-			$matcher = $this->getMatcher();
-			$parameters = $matcher->match($context->getPathInfo());
-
-			$controllerClass = $parameters['_controller'];
-			$method = $parameters['_method'] ?? '__invoke';
-
-			// [Лорелея]: Читаем метаданные до unset, потому что
-			// после unset их уже нет, и проверки становятся пустыми.
-			$requiresCsrf = $parameters['_csrf'] ?? true;
-			$requiredRoles = $parameters['_roles'] ?? [];
-
-			unset(
-				$parameters['_controller'],
-				$parameters['_method'],
-				$parameters['_route'],
-				$parameters['_csrf'],
-				$parameters['_roles']
-			);
-
-			// [Лорелея]: CSRF-проверка через метаданные маршрута,
-			// а не через белый список путей в ядре, потому что
-			// ядро не должно знать о конкретных плагинах.
-			$httpMethod = $request->getMethod();
-
-			if (in_array($httpMethod, ['POST', 'PUT', 'DELETE'], true) && $requiresCsrf) {
-				$csrfToken = $request->headers->get('X-CSRF-Token', '')
-					?: $request->request->get('_csrf_token', '');
-
-				$guard = $this->container->get(GuardService::class);
-				if (!$guard->validateCsrfToken($csrfToken)) {
-					$response = new Response('Недействительный CSRF-токен', 419);
-					$this->applyCorsHeaders($request, $response);
-					$response->send();
-					return;
-				}
-			}
-
-			// [Лорелея]: Авторизация через метаданные маршрута,
-			// а не через префиксы путей, потому что ядро не должно
-			// знать о конкретных плагинах.
-			if (!empty($requiredRoles)) {
-				$userRoles = $session->get('user_roles', []);
-				$hasAccess = false;
-
-				foreach ($requiredRoles as $role) {
-					if (in_array($role, $userRoles, true)) {
-						$hasAccess = true;
-						break;
-					}
-				}
-
-				if (!$hasAccess) {
-					$response = new Response('Доступ запрещён', 403);
-					$this->applyCorsHeaders($request, $response);
-					$response->send();
-					return;
-				}
-			}
-
-			$controller = $this->container->get($controllerClass);
-
-			$args = $this->resolveArguments($controller, $method, $parameters, $request);
-
-			$response = $controller->$method(...$args);
-
+		if ($origin && $acrm) {
+			$response = new Response('', 204);
 			$this->applyCorsHeaders($request, $response);
 			$response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
 			$response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
-
-		} catch (ResourceNotFoundException $e) {
-			$response = $this->renderError(404, 'Страница не найдена', $e);
-			$this->applyCorsHeaders($request, $response);
-
-		} catch (MethodNotAllowedException $e) {
-			$response = $this->renderError(405, 'Метод не поддерживается', $e);
-			$this->applyCorsHeaders($request, $response);
-
-		} catch (UnauthorizedException $e) {
-			$response = $this->renderError(401, $e->getMessage(), $e);
-			$this->applyCorsHeaders($request, $response);
-
-		} catch (ForbiddenException $e) {
-			$response = $this->renderError(403, $e->getMessage(), $e);
-			$this->applyCorsHeaders($request, $response);
-
-		} catch (\Throwable $e) {
-			$response = $this->renderError(500, $this->safeErrorMessage($e, 500), $e);
-			$this->applyCorsHeaders($request, $response);
-		}
-
-		if ($response instanceof Response) {
+			$response->headers->set('Access-Control-Max-Age', '86400');
 			$response->send();
-		} else {
-			echo (string) $response;
+			return;
 		}
+
+		$response = new Response('Метод не поддерживается', 405);
+		$response->headers->set('Allow', 'GET, POST, PUT, DELETE');
+		$response->send();
+	}
+
+	/**
+	 * Обрабатывает запрос и возвращает ответ.
+	 *
+	 * [Лорелея]: Здесь только логика, без CORS и без catch,
+	 * потому что это делают respond() и handle().
+	 *
+	 * [Мириам]: И это правильно, потому что каждая вещь
+	 * должна заниматься своим делом.
+	 */
+	private function dispatch(Request $request): Response
+	{
+		// EARLY-CHECK: ЗАБЛОКИРОВАННЫЙ IP
+		$ip = $request->getClientIp();
+		if ($ip && $this->container->has(GuardService::class)) {
+			$guard = $this->container->get(GuardService::class);
+			if ($guard->isIpBlocked($ip)) {
+				return new Response('Доступ запрещён. Ваш IP заблокирован.', 403);
+			}
+		}
+
+		// START SESSION — BEFORE CONTROLLER
+		$session = $this->container->get(Session::class);
+		if (!$session->isStarted()) {
+			$session->start();
+		}
+
+		$routes = require $this->basePath . '/config/routes.php';
+
+		foreach ($this->plugins as $plugin) {
+			try {
+				$plugin($routes);
+			} catch (\Throwable $e) {
+				if ($this->logger !== null) {
+					$this->logger->error('plugin route registration failed', [
+						'message' => $e->getMessage(),
+						'file'    => $e->getFile() . ':' . $e->getLine(),
+					]);
+				}
+			}
+		}
+
+		$this->loadRoutesFromDatabase($routes);
+
+		$context = new RequestContext();
+		$context->fromRequest($request);
+
+		// [Лорелея]: Передаём собранную коллекцию в getMatcher(),
+		// потому что пересобирать её там — это дважды вызывать
+		// каждый плагин.
+		$matcher = $this->getMatcher($routes);
+		$parameters = $matcher->match($context->getPathInfo());
+
+		$controllerClass = $parameters['_controller'];
+		$method = $parameters['_method'] ?? '__invoke';
+
+		$requiresCsrf = $parameters['_csrf'] ?? true;
+		$requiredRoles = $parameters['_roles'] ?? [];
+
+		unset(
+			$parameters['_controller'],
+			$parameters['_method'],
+			$parameters['_route'],
+			$parameters['_csrf'],
+			$parameters['_roles']
+		);
+
+		// CSRF-проверка
+		$httpMethod = $request->getMethod();
+		if (in_array($httpMethod, ['POST', 'PUT', 'DELETE'], true) && $requiresCsrf) {
+			$csrfToken = $request->headers->get('X-CSRF-Token', '')
+				?: $request->request->get('_csrf_token', '');
+
+			$guard = $this->container->get(GuardService::class);
+			if (!$guard->validateCsrfToken($csrfToken)) {
+				return new Response('Недействительный CSRF-токен', 419);
+			}
+		}
+
+		// Авторизация
+		if (!empty($requiredRoles)) {
+			$userRoles = $session->get('user_roles', []);
+			$hasAccess = false;
+
+			foreach ($requiredRoles as $role) {
+				if (in_array($role, $userRoles, true)) {
+					$hasAccess = true;
+					break;
+				}
+			}
+
+			if (!$hasAccess) {
+				return new Response('Доступ запрещён', 403);
+			}
+		}
+
+		$controller = $this->container->get($controllerClass);
+		$args = $this->resolveArguments($controller, $method, $parameters, $request);
+
+		return $controller->$method(...$args);
 	}
 
 	/**
@@ -403,13 +417,11 @@ class Kernel
 			if ($this->cache !== null && $this->cache->isEnabled()) {
 				$dbRoutes = $this->cache->remember($cacheKey, function () use (&$wasCalled) {
 					$wasCalled = true;
-
-					if ($this->logger !== null) {
-						$this->logger->info('routes loaded from db');
-					}
 					return $this->fetchRoutesFromDatabase();
 				}, 3600);
 
+				// [Лорелея]: Логируем один раз, а не дважды, потому что
+				// лог, который повторяется, — это не лог, а шум.
 				if ($this->logger !== null) {
 					$this->logger->info($wasCalled ? 'routes loaded from db' : 'routes loaded from cache', [
 						'count' => count($dbRoutes),
@@ -450,13 +462,26 @@ class Kernel
 
 				$name = $data['name'] ?? 'route_' . ($route['id'] ?? uniqid());
 
+				// [Лорелея]: Читаем _roles и _csrf из data, потому что
+				// ядро умеет их проверять, но не знает, что проверять,
+				// если метаданные не доходят.
+				$defaults = [
+					'_controller' => $controller,
+					'_method'     => $data['method'] ?? '__invoke',
+				];
+
+				if (!empty($data['roles']) && is_array($data['roles'])) {
+					$defaults['_roles'] = $data['roles'];
+				}
+
+				if (isset($data['csrf'])) {
+					$defaults['_csrf'] = (bool) $data['csrf'];
+				}
+
 				$routes->add($name,
 					new \Symfony\Component\Routing\Route(
 						$path,
-						[
-							'_controller' => $controller,
-							'_method' => $data['method'] ?? '__invoke',
-						],
+						$defaults,
 						$data['requirements'] ?? [],
 						$data['options'] ?? [],
 						$data['host'] ?? '',
@@ -584,16 +609,29 @@ class Kernel
 	/**
 	 * Загружает скомпилированный матчер маршрутов.
 	 *
-	 * [Лорелея]: dump() возвращает готовый PHP-код строкой,
-	 * а не массив, и это важно, потому что от этого зависит,
-	 * что мы пишем в файл и что передаём в матчер.
+	 * [Лорелея]: Мы не проверяем устаревание на каждом запросе,
+	 * потому что это лишний SQL-запрос. Вместо этого кэш
+	 * инвалидируется явно из AdminController при изменении маршрута.
 	 *
-	 * [Мириам]: И это правильно, потому что двойная обёртка —
-	 * это лишняя работа, которая только путает.
+	 * [Мириам]: И это правильно, потому что кэш должен экономить
+	 * запросы, а не добавлять их.
 	 *
 	 * @return \Symfony\Component\Routing\Matcher\UrlMatcherInterface
 	 */
-	private function getMatcher(): \Symfony\Component\Routing\Matcher\UrlMatcherInterface
+	/**
+	 * Загружает скомпилированный матчер маршрутов.
+	 *
+	 * [Лорелея]: Коллекция маршрутов приходит параметром, потому что
+	 * пересобирать её здесь — это дважды вызывать каждый плагин,
+	 * а плагин может делать не только маршруты.
+	 *
+	 * [Мириам]: И это правильно, потому что русло должно быть
+	 * проложено один раз, а не дважды.
+	 *
+	 * @param \Symfony\Component\Routing\RouteCollection $routes
+	 * @return \Symfony\Component\Routing\Matcher\UrlMatcherInterface
+	 */
+	private function getMatcher(\Symfony\Component\Routing\RouteCollection $routes): \Symfony\Component\Routing\Matcher\UrlMatcherInterface
 	{
 		$cacheDir = $this->basePath . '/var/cache';
 		if (!is_dir($cacheDir)) {
@@ -605,25 +643,23 @@ class Kernel
 		$context = new RequestContext();
 		$context->fromRequest(Request::createFromGlobals());
 
-		// [Лорелея]: Если файл кэша есть и не устарел — забираем
-		// результат require в переменную и проверяем, что это массив.
-		if (file_exists($matcherFile) && !$this->isRoutesCacheStale($matcherFile)) {
+		// [Лорелея]: Если файл кэша есть — забираем результат require
+		// в переменную и проверяем, что это массив.
+		if (file_exists($matcherFile)) {
 			$compiled = require $matcherFile;
 
 			if (is_array($compiled)) {
 				return new \Symfony\Component\Routing\Matcher\CompiledUrlMatcher($compiled, $context);
 			}
 
-			// [Мириам]: Если файл вернул не массив — значит, он битый
-			// или создан старой версией кода. Удаляем его и строим заново.
+			// [Мириам]: Если файл вернул не массив — значит, он битый.
+			// Удаляем его и строим заново.
 			@unlink($matcherFile);
 		}
 
-		// [Лорелея]: Строим маршруты заново. dump() возвращает
-		// готовый PHP-код строкой, поэтому мы пишем его в файл
-		// как есть, без дополнительной обёртки.
-		$routes = $this->buildRoutes();
-
+		// [Лорелея]: Строим матчер из переданной коллекции, а не
+		// из buildRoutes(), потому что buildRoutes() снова вызвал бы
+		// каждый плагин.
 		$dumper = new \Symfony\Component\Routing\Matcher\Dumper\CompiledUrlMatcherDumper($routes);
 		$code = $dumper->dump();
 
@@ -636,70 +672,32 @@ class Kernel
 		return new \Symfony\Component\Routing\Matcher\CompiledUrlMatcher($compiled, $context);
 	}
 
-	/**
-	 * Собирает все маршруты: файловые, плагинные, из базы.
-	 *
-	 * [Лорелея]: Здесь мы собираем всё в одном месте, чтобы
-	 * компилятор видел полную картину.
-	 *
-	 * [Мириам]: И это правильно, потому что карта должна быть
-	 * цельной, а не собранной из кусков.
-	 *
-	 * @return \Symfony\Component\Routing\RouteCollection
-	 */
-	private function buildRoutes(): \Symfony\Component\Routing\RouteCollection
-	{
-		$routes = require $this->basePath . '/config/routes.php';
-
-		foreach ($this->plugins as $plugin) {
-			$plugin($routes);
-		}
-
-		$this->loadRoutesFromDatabase($routes);
-
-		return $routes;
-	}
-
-	/**
-	 * Проверяет, устарел ли кэш маршрутов.
-	 *
-	 * [Лорелея]: Кэш устаревает, когда меняются нейроны
-	 * type='route', и это правильно, потому что карта должна
-	 * отражать местность.
-	 *
-	 * [Мириам]: И это правильно, потому что устаревшая карта
-	 * хуже, чем её отсутствие.
-	 *
-	 * @param string $matcherFile
-	 * @return bool
-	 */
-	private function isRoutesCacheStale(string $matcherFile): bool
-	{
-		$cacheTime = filemtime($matcherFile);
-		if ($cacheTime === false) {
-			return true;
-		}
-
-		$conn = $this->container->get(DatabaseService::class)->getConnection();
-		$lastRouteChange = $conn->executeQuery(
-			"SELECT MAX(date) FROM neuron WHERE type = 'route' AND is_deleted = 0"
-		)->fetchOne();
-
-		if (!$lastRouteChange) {
-			return false;
-		}
-
-		return strtotime($lastRouteChange) > $cacheTime;
-	}
-
 	private function renderError(int $code, string $message, \Throwable $e): Response
 	{
+		// [Лорелея]: Берём реальный login из сессии, а не пишем
+		// «guest» жёстко, потому что метаданные должны быть
+		// настоящими, а не «guest» по умолчанию.
+		$user = 'guest';
+
+		try {
+			$session = $this->container->get(Session::class);
+			if ($session->isStarted()) {
+				$login = $session->get('user_login');
+				if ($login) {
+					$user = $login;
+				}
+			}
+		} catch (\Throwable $inner) {
+			// [Мириам]: Если сессия недоступна — оставляем guest,
+			// потому что лучше «guest», чем ничего.
+		}
+
 		try {
 			$errorHandler = $this->container->get(ErrorHandlerInterface::class);
 			return $errorHandler->showError($code, $message, [
 				'file'             => $e->getFile() . ':' . $e->getLine(),
 				'trace'            => $e->getTraceAsString(),
-				'user'             => 'guest',
+				'user'             => $user,
 				'url'              => $_SERVER['REQUEST_URI'] ?? '/',
 				'time'             => date('Y-m-d H:i:s'),
 				'original_message' => $e->getMessage(),
@@ -739,9 +737,17 @@ class Kernel
 		$message = $e->getMessage();
 
 		// [Лорелея]: Даже в debug — не всё. Убираем пути, SQL, токены.
-		$message = preg_replace('/\/(?:[^\s\/]+\/)+[^\s\/]+/', '[path]', $message);
+		// Regex точечнее: ловит пути, но не трогает URL.
+		$message = preg_replace('#(?:[A-Z]:)?/[^\s]+#', '[path]', $message);
 		$message = preg_replace('/SQLSTATE\[[^\]]+\][^;]*/i', '[sql]', $message);
 		$message = preg_replace('/\b[0-9a-f]{32,}\b/i', '[token]', $message);
+
+		// [Мириам]: Обрезаем длину, потому что в debug можно случайно
+		// отправить клиенту мегабайт текста, и это уже не «отладка»,
+		// а «утечка».
+		if (mb_strlen($message) > 500) {
+			$message = mb_substr($message, 0, 500) . '…';
+		}
 
 		return $message ?: $this->defaultErrorMessage($code);
 	}
