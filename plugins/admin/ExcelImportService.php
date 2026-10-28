@@ -25,14 +25,18 @@
 
 namespace Jan\Trinity\Plugin\Admin;
 
+use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
+use Jan\Trinity\Core\Trait\DebugTrait;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Psr\Log\LoggerInterface;
 
 class ExcelImportService
 {
+	use DebugTrait;
+	
 	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
 
@@ -48,6 +52,9 @@ class ExcelImportService
 	/** @var LoggerInterface|null — логгер. */
 	private ?LoggerInterface $logger;
 
+	/** @var ConfigService — сервис конфигурации. */
+	private ConfigService $configService;
+
 	/**
 	 * Конструктор. Принимает три руки и логгер.
 	 *
@@ -58,11 +65,13 @@ class ExcelImportService
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
+		ConfigService $configService,
 		?LoggerInterface $logger = null
 	) {
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
+		$this->configService = $configService;
 		$this->logger = $logger;
 	}
 

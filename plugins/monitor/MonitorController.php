@@ -30,6 +30,7 @@ use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\JsonHelper;
 use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\ConfigService;
+use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -82,6 +83,9 @@ class MonitorController implements ErrorHandlerInterface
 
 	private Validator $validator;
 
+	/** @var Cache|null — кэш. Может быть null, и это нормально. */
+	private ?Cache $cache;
+
 	/**
 	 * Конструктор.
 	 *
@@ -100,7 +104,8 @@ class MonitorController implements ErrorHandlerInterface
 		SynapseRepository $synapseRepo,
 		LoggerInterface $logger,
 		ConfigService $configService,
-		Validator $validator
+		Validator $validator,
+		?Cache $cache = null
 	) {
 		$this->twig = $twig;
 		$this->basePath = $basePath;
@@ -111,6 +116,7 @@ class MonitorController implements ErrorHandlerInterface
 		$this->configService = $configService;
 		$this->validator = $validator;
 		$this->isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+		$this->cache = $cache;
 
 		$this->initAuth($session, $synapseRepo);
 	}
@@ -341,16 +347,37 @@ class MonitorController implements ErrorHandlerInterface
 	/**
 	 * Найти актуальный файл лога с учётом ротации.
 	 *
-	 * [Мириам]: RotatingFileHandler создаёт файлы с датой:
-	 * error-2026-10-07.log, и этот метод ищет самый свежий.
+	 * [Лорелея]: glob() и rsort() кэшируются на минуту, потому что
+	 * имена файлов меняются редко, а просмотр логов может быть частым.
 	 *
-	 * [Лорелея]: Если файлов с датой нет, ищем просто error.log,
-	 * на случай, если ротация ещё не сработала.
+	 * [Мириам]: И это правильно, потому что русло должно быть
+	 * проложено один раз, а потом только проверяться.
 	 */
 	private function findLogFile(string $type): ?string
 	{
 		$logDir = $this->basePath . '/var/log';
 
+		$cacheKey = 'monitor.log_file.' . $type;
+		if ($this->cache !== null && $this->cache->isEnabled()) {
+			$cached = $this->cache->remember($cacheKey, function () use ($logDir, $type) {
+				return $this->resolveLogFile($logDir, $type);
+			}, 60);
+
+			return $cached;
+		}
+
+		return $this->resolveLogFile($logDir, $type);
+	}
+
+	/**
+	 * [Лорелея]: Разрешает файл лога без кэша, чтобы кэш мог
+	 * вызвать этот метод и сохранить результат.
+	 *
+	 * [Мириам]: И это правильно, потому что кэш должен знать,
+	 * что кэшировать, а не гадать.
+	 */
+	private function resolveLogFile(string $logDir, string $type): ?string
+	{
 		$pattern = $logDir . '/' . $type . '-*.log';
 		$files = glob($pattern);
 
@@ -431,6 +458,9 @@ class MonitorController implements ErrorHandlerInterface
 			return [];
 		}
 
+		// [Лорелея]: Идём в конец файла и читаем блоками с конца,
+		// а не загружаем весь файл в память, потому что лог
+		// может быть гигабайтным.
 		fseek($handle, 0, SEEK_END);
 		$pos = ftell($handle);
 		$buffer = '';
@@ -441,6 +471,14 @@ class MonitorController implements ErrorHandlerInterface
 			$pos -= $read;
 			fseek($handle, $pos);
 			$buffer = fread($handle, $read) . $buffer;
+			$result = explode("\n", $buffer);
+		}
+
+		// [Мириам]: Если файл маленький и цикл не выполнился —
+		// читаем весь файл, потому что иначе результат будет пустым.
+		if (empty($result) && $pos === 0) {
+			rewind($handle);
+			$buffer = stream_get_contents($handle);
 			$result = explode("\n", $buffer);
 		}
 

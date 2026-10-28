@@ -34,6 +34,7 @@ return function ($routes) {
 	$routes->add('monitor_js_error', new Route('/api/monitor/js-error', [
 		'_controller' => MonitorController::class,
 		'_method'     => 'collectJsError',
+		'_csrf'       => false,
 	], [], [], '', [], ['POST']));
 
 	// ============================================

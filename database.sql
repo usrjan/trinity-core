@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS `neuron` (
 	`email` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.email'))) STORED,
 	`sort` INT GENERATED ALWAYS AS (COALESCE(JSON_EXTRACT(`data`, '$.sort'), 999999)) STORED,
 	`is_deleted` TINYINT(1) GENERATED ALWAYS AS (CASE WHEN JSON_EXTRACT(`data`, '$.deleted_at') IS NOT NULL THEN 1 ELSE 0 END) STORED,
+	`deleted_at` DATETIME GENERATED ALWAYS AS (JSON_EXTRACT(`data`, '$.deleted_at')) STORED,
 	`hash` VARCHAR(64) GENERATED ALWAYS AS (SHA2(CONCAT(CAST(COALESCE(`pid`, '') AS CHAR), `type`, CAST(COALESCE(`data`, '') AS CHAR)), 256)) STORED,
 
 	`job_class` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.job_class'))) STORED,
@@ -106,8 +107,8 @@ CREATE TABLE IF NOT EXISTS `neuron` (
 
 	PRIMARY KEY (`id`),
 	UNIQUE KEY `idx_code` (`code`),
-	UNIQUE KEY `idx_login_unique` (`login`, `is_deleted`),
-	UNIQUE KEY `idx_email_unique` (`email`, `is_deleted`),
+	UNIQUE KEY `idx_login_unique` (`login`, `deleted_at`),
+	UNIQUE KEY `idx_email_unique` (`email`, `deleted_at`),
 	INDEX `idx_pid` (`pid`),
 	INDEX `idx_type` (`type`),
 	INDEX `idx_tree` (`tree`),

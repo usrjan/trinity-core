@@ -30,6 +30,7 @@ use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
+use Jan\Trinity\Core\Trait\DebugTrait;
 use Jan\Trinity\Plugin\Tools\Handlers\ReportSocialHandler;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -41,6 +42,7 @@ use Psr\Log\LoggerInterface;
 class ToolsController
 {
 	use AuthMiddleware;
+	use DebugTrait;
 
 	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;

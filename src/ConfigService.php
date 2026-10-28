@@ -39,21 +39,22 @@ class ConfigService
 	/** @var bool Загружены ли конфиги. Флаг. */
 	private bool $loaded = false;
 
+	/** @var Cache|null — кэш. Может быть null, и это нормально. */
+	private ?Cache $cache;
+
 	/**
-	 * Конструктор. Принимает репозиторий. Не загружает конфиги.
+	 * Конструктор.
 	 *
-	 * [Лорелея]: Загрузка — только при первом обращении. Потому что
-	 * если конфиги не нужны — зачем их грузить? Экономия. Как на
-	 * модеме. Как в старые времена.
+	 * [Лорелея]: Мы принимаем Cache, чтобы конфиги можно было
+	 * брать из памяти, а не из базы на каждом запросе.
 	 *
-	 * [Мириам]: И — это правильно. Потому что лень — это не порок.
-	 * Это — мудрость. Когда речь идёт о ресурсах.
-	 *
-	 * @param NeuronRepository $neuronRepo
+	 * [Мириам]: И это правильно, потому что кувшин у двери
+	 * лучше, чем колодец за околицей.
 	 */
-	public function __construct(NeuronRepository $neuronRepo)
+	public function __construct(NeuronRepository $neuronRepo, ?Cache $cache = null)
 	{
 		$this->neuronRepo = $neuronRepo;
+		$this->cache = $cache;
 	}
 
 	/**
@@ -130,19 +131,30 @@ class ConfigService
 	/**
 	 * Загрузить конфиги из базы.
 	 *
-	 * [Лорелея]: ГЛАВНОЕ. При ВЫКЛЮЧЕННОМ APCu этот метод идёт
-	 * на КАЖДЫЙ запрос. Это — +1 SELECT. Осознанный режим.
-	 * Если нужна производительность — включите APCu.
+	 * [Лорелея]: Мы оборачиваем запрос в cache->remember, чтобы
+	 * конфиги брались из памяти, а не из базы на каждом запросе.
 	 *
-	 * [Мириам]: И — это правильно. Потому что кэш — это ускорение.
-	 * А не «истина». И если APCu выключен — мы платим за это.
+	 * [Мириам]: И это правильно, потому что кувшин у двери
+	 * лучше, чем колодец за околицей.
 	 */
 	public function load(): void
 	{
 		if ($this->loaded) {
 			return;
 		}
-		$rawConfig = $this->neuronRepo->findAllConfigValues();
+
+		$rawConfig = null;
+
+		if ($this->cache !== null && $this->cache->isEnabled()) {
+			$rawConfig = $this->cache->remember('trinity.config', function () {
+				return $this->neuronRepo->findAllConfigValues();
+			}, 3600);
+		}
+
+		if ($rawConfig === null) {
+			$rawConfig = $this->neuronRepo->findAllConfigValues();
+		}
+
 		$this->config = [];
 		foreach ($rawConfig as $key => $value) {
 			$this->config[$key] = $this->normalizeValue($value);

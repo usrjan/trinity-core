@@ -29,8 +29,10 @@
 
 namespace Jan\Trinity\Plugin\Gallery;
 
+use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Jan\Trinity\Core\Trait\DebugTrait;
 use Psr\Log\LoggerInterface;
 
 class GalleryImportService
@@ -39,6 +41,7 @@ class GalleryImportService
 	// Без этого метода сервис не сможет делать миниатюры.
 	// Без этого trait — пришлось бы дублировать код.
 	use ThumbnailTrait;
+	use DebugTrait;
 
 	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
@@ -63,6 +66,9 @@ class GalleryImportService
 	/** @var LoggerInterface|null — логгер. */
 	private ?LoggerInterface $logger;
 
+	/** @var ConfigService — сервис конфигурации. */
+	private ConfigService $configService;
+
 	/**
 	 * Конструктор.
 	 *
@@ -82,10 +88,12 @@ class GalleryImportService
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		string $galleryDir,
+		ConfigService $configService,
 		?LoggerInterface $logger = null
 	) {
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
+		$this->configService = $configService;
 		$this->logger = $logger;
 
 		// [Лорелея]: Убираем завершающий слэш, чтобы не было двойных.

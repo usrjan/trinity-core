@@ -37,6 +37,7 @@ return function ($routes) {
 	$routes->add('admin_page', new Route('/admin', [
 		'_controller' => AdminController::class,
 		'_method'     => 'index',
+		'_roles'      => ['role_admin'],
 	]));
 
 	// ============================================

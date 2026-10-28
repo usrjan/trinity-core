@@ -128,34 +128,31 @@ class GuardService
 	}
 
 	/**
-	 * Записать попытку.
+	 * Записать попытку и вернуть актуальное количество.
 	 *
-	 * [Лорелея]: ГЛАВНОЕ. С flock(LOCK_EX). Без гонок.
+	 * [Лорелея]: Мы возвращаем количество после записи, а не до,
+	 * потому что решение должно приниматься по факту, а не
+	 * по предположению.
 	 *
-	 * [Мириам]: И — это правильно. Потому что попытка — это
-	 * не «запись». Это — факт.
+	 * [Мириам]: И это правильно, потому что гонка — это когда
+	 * двое смотрят на одно и то же и видят разное.
 	 *
 	 * @param string $key
 	 * @param int|null $decaySeconds
+	 * @return int — количество попыток после записи
 	 */
-	public function hit(string $key, ?int $decaySeconds = null): void
+	public function hit(string $key, ?int $decaySeconds = null): int
 	{
 		$file = $this->getAttemptsFile($key);
 
 		$handle = fopen($file, 'c+');
 		if ($handle === false) {
-			$this->logger->warning('guard: failed to open attempts file', [
-				'file' => $file,
-			]);
-			return;
+			return 0;
 		}
 
 		if (!flock($handle, LOCK_EX)) {
 			fclose($handle);
-			$this->logger->warning('guard: failed to lock attempts file', [
-				'file' => $file,
-			]);
-			return;
+			return 0;
 		}
 
 		$content = stream_get_contents($handle);
@@ -171,6 +168,8 @@ class GuardService
 			return $timestamp > (time() - $decaySeconds);
 		});
 
+		$count = count($data);
+
 		ftruncate($handle, 0);
 		rewind($handle);
 		fwrite($handle, implode("\n", $data));
@@ -180,6 +179,8 @@ class GuardService
 		fclose($handle);
 
 		$this->cleanupAttempts();
+
+		return $count;
 	}
 
 	/**
@@ -275,10 +276,12 @@ class GuardService
 	/**
 	 * Проверить попытку входа.
 	 *
-	 * [Лорелея]: По IP и по логину.
+	 * [Лорелея]: Мы больше не пишем числа жёстко, а берём их
+	 * из конфига, потому что конфиг для того и нужен, чтобы
+	 * его слушали, а не игнорировали.
 	 *
-	 * [Мириам]: И — это правильно. Потому что перебор —
-	 * это не «попытка». Это — атака.
+	 * [Мириам]: И это правильно, потому что обещание должно
+	 * быть сдержано, иначе это не обещание, а слова.
 	 *
 	 * @param string $login
 	 * @param string $ip
@@ -286,8 +289,15 @@ class GuardService
 	 */
 	public function checkLoginAttempt(string $login, string $ip): array
 	{
+		$maxAttempts = $this->getMaxAttempts();
+		$decaySeconds = $this->getDecaySeconds();
+
+		// [Лорелея]: Для IP лимит выше, потому что за одним IP
+		// может стоять несколько человек, и это нормально.
 		$ipKey = 'login_ip_' . $ip;
-		if ($this->tooManyAttempts($ipKey, 10, 300)) {
+		$ipAttempts = $this->hit($ipKey, $decaySeconds);
+
+		if ($ipAttempts > ($maxAttempts * 2)) {
 			return [
 				'success' => false,
 				'message' => 'Слишком много попыток входа с вашего IP. Попробуйте через 5 минут.',
@@ -295,7 +305,9 @@ class GuardService
 		}
 
 		$loginKey = 'login_user_' . md5($login);
-		if ($this->tooManyAttempts($loginKey, 5, 300)) {
+		$loginAttempts = $this->hit($loginKey, $decaySeconds);
+
+		if ($loginAttempts > $maxAttempts) {
 			return [
 				'success' => false,
 				'message' => 'Слишком много попыток входа для этого пользователя. Попробуйте через 5 минут.',
@@ -308,18 +320,21 @@ class GuardService
 	/**
 	 * Записать неудачную попытку входа.
 	 *
-	 * [Лорелея]: По IP и по логину. С логом.
+	 * [Лорелея]: И здесь мы тоже берём decay из конфига, потому что
+	 * окно попыток должно быть одним и тем же везде.
 	 *
-	 * [Мириам]: И — это правильно. Потому что неудача —
-	 * это тоже факт.
+	 * [Мириам]: И это правильно, потому что если окна разные,
+	 * то и лимиты разные, и это путает.
 	 *
 	 * @param string $login
 	 * @param string $ip
 	 */
 	public function recordFailedLogin(string $login, string $ip): void
 	{
-		$this->hit('login_ip_' . $ip);
-		$this->hit('login_user_' . md5($login));
+		$decaySeconds = (int) $this->getConfig('decay_seconds', 300);
+
+		$this->hit('login_ip_' . $ip, $decaySeconds);
+		$this->hit('login_user_' . md5($login), $decaySeconds);
 
 		$this->logSecurityEvent('failed_login', [
 			'login' => $login,
@@ -629,11 +644,12 @@ class GuardService
 	/**
 	 * Очистить старые файлы попыток.
 	 *
-	 * [Лорелея]: С вероятностью 1%. Каждый 100-й вызов.
-	 * Не нагружает. И — не мусорит.
+	 * [Лорелея]: Уборка привязана ко времени, а не к вероятности,
+	 * потому что вероятность при тихом трафике — это ноль,
+	 * а мусор всё равно копится.
 	 *
-	 * [Мириам]: И — это правильно. Потому что уборка —
-	 * это не «обязанность». Это — забота.
+	 * [Мириам]: И это правильно, потому что забота — это
+	 * не «когда вспомним», а «когда нужно».
 	 */
 	private function cleanupAttempts(): void
 	{
@@ -642,11 +658,18 @@ class GuardService
 			return;
 		}
 
-		if (random_int(1, 100) > 1) {
-			return;
+		$marker = $dir . '/.last_cleanup';
+		$now = time();
+
+		if (file_exists($marker)) {
+			$last = (int) file_get_contents($marker);
+			if ($last > 0 && ($now - $last) < 3600) {
+				return;
+			}
 		}
 
-		$now = time();
+		file_put_contents($marker, (string) $now, LOCK_EX);
+
 		$decaySeconds = (int) $this->getConfig('decay_seconds', 120);
 
 		$files = glob($dir . '/*.attempts');
@@ -707,5 +730,53 @@ class GuardService
 		fclose($handle);
 
 		rename($tmp, $file);
+	}
+
+	/**
+	 * Возвращает максимальное количество попыток из конфига.
+	 *
+	 * [Лорелея]: Один метод, который знает, где лежит max_attempts,
+	 * и отдаёт его тому, кому нужно, не открывая весь конфиг.
+	 *
+	 * [Мириам]: И это правильно, потому что не нужно открывать
+	 * кувшин целиком, чтобы налить стакан.
+	 *
+	 * @return int
+	 */
+	public function getMaxAttempts(): int
+	{
+		return (int) $this->getConfig('max_attempts', 5);
+	}
+
+	/**
+	 * Возвращает окно попыток в секундах.
+	 *
+	 * [Лорелея]: И это тоже, потому что окно должно быть
+	 * в одном месте, а не в трёх.
+	 *
+	 * [Мириам]: И это правильно, потому что если окна разные,
+	 * то и лимиты разные, и это путает.
+	 *
+	 * @return int
+	 */
+	public function getDecaySeconds(): int
+	{
+		return (int) $this->getConfig('decay_seconds', 300);
+	}
+
+	/**
+	 * Возвращает длительность блокировки из конфига.
+	 *
+	 * [Лорелея]: Один метод, который знает, где лежит
+	 * block_duration, и отдаёт его тому, кому нужно.
+	 *
+	 * [Мириам]: И это правильно, потому что не нужно открывать
+	 * весь конфиг, чтобы взять одно значение.
+	 *
+	 * @return int
+	 */
+	public function getBlockDuration(): int
+	{
+		return (int) $this->getConfig('block_duration', 3600);
 	}
 }

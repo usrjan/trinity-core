@@ -119,14 +119,16 @@ class AuthController
 			$this->session->start();
 		}
 
-		$this->guard->generateCsrfToken();
+		// [Лорелея]: Генерируем токен до рендера шаблона, чтобы
+		// Twig взял именно его, а не создал новый.
+		$csrfToken = $this->guard->generateCsrfToken();
 
 		$error = $this->session->get('login_error');
 		$this->session->remove('login_error');
 
 		$html = $this->twig->render('login.html.twig', [
 			'error'      => $error,
-			'csrf_token' => $this->session->get('csrf_token', ''),
+			'csrf_token' => $csrfToken,
 		]);
 
 		return new Response($html);
@@ -152,7 +154,14 @@ class AuthController
 		if (!$this->session->isStarted()) {
 			$this->session->start();
 		}
-
+		// [Лорелея]: Проверяем CSRF до всего остального, потому что
+		// токен должен быть проверен в той сессии, в которой он был создан.
+		$csrfToken = $request->request->get('_csrf_token', '');
+		if (!$this->guard->validateCsrfToken($csrfToken)) {
+			$this->session->set('login_error', 'Недействительный CSRF-токен. Попробуйте снова.');
+			return new RedirectResponse('/login');
+		}
+		
 		$login = trim($request->request->get('login') ?? '');
 		$password = $request->request->get('password') ?? '';
 		$ip = $request->getClientIp();
@@ -205,8 +214,12 @@ class AuthController
 			// [Лорелея]: Если попыток слишком много, блокируем IP,
 			// потому что терпение — это тоже ресурс.
 			$ipKey = 'login_ip_' . $ip;
-			if ($this->guard->tooManyAttempts($ipKey, 15, 300)) {
-				$this->guard->blockIp($ip, 'brute_force', 3600);
+			$maxAttempts = $this->guard->getMaxAttempts() * 3;
+			$decaySeconds = $this->guard->getDecaySeconds();
+			$blockDuration = $this->guard->getBlockDuration();
+
+			if ($this->guard->tooManyAttempts($ipKey, $maxAttempts, $decaySeconds)) {
+				$this->guard->blockIp($ip, 'brute_force', $blockDuration);
 			}
 
 			$this->session->set('login_error', 'Неверный логин или пароль');
@@ -302,14 +315,17 @@ class AuthController
 			$this->session->start();
 		}
 
-		$this->guard->generateCsrfToken();
+		// [Лорелея]: Генерируем токен до рендера шаблона, чтобы
+		// Twig взял именно его, а не создал новый.
+		$csrfToken = $this->guard->generateCsrfToken();
+
 
 		$error = $this->session->get('register_error');
 		$this->session->remove('register_error');
 
 		$html = $this->twig->render('register.html.twig', [
 			'error'      => $error,
-			'csrf_token' => $this->session->get('csrf_token', ''),
+			'csrf_token' => $csrfToken,
 		]);
 
 		return new Response($html);

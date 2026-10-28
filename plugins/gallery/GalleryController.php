@@ -31,6 +31,7 @@ use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
+use Jan\Trinity\Core\Trait\DebugTrait;
 use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -47,6 +48,7 @@ class GalleryController
 	use AuthMiddleware;
 	use ThumbnailTrait;
 	use BreadcrumbsTrait;
+	use DebugTrait;
 
 	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;

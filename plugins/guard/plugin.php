@@ -34,6 +34,7 @@ return function ($routes) {
 	$routes->add('guard_blocked_ips', new Route('/api/guard/blocked-ips', [
 		'_controller' => GuardController::class,
 		'_method'     => 'getBlockedIpsApi',
+		'_roles'      => ['role_admin'],
 	]));
 
 	// ============================================

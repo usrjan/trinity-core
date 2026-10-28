@@ -103,9 +103,14 @@ return [
 	// [Мириам]: И — это правильно. Потому что сессия — это
 	// не «всегда». Это — когда нужно.
 	Session::class => function () {
+		// [Лорелея]: cookie_secure включаем только если явно сказано
+		// в .env, потому что на http кука secure не передаётся,
+		// и сессия не находится.
+		$isSecure = ($_ENV['SESSION_SECURE'] ?? 'true') === 'true';
+
 		$storage = new NativeSessionStorage([
 			'cookie_lifetime' => (int)($_ENV['SESSION_LIFETIME'] ?? 86400),
-			'cookie_secure'   => ($_ENV['APP_ENV'] ?? 'prod') === 'prod',
+			'cookie_secure'   => $isSecure,
 			'cookie_httponly' => true,
 			'cookie_samesite' => 'lax',
 		]);
@@ -200,7 +205,8 @@ return [
 		SynapseRepository $synapseRepo,
 		\Psr\Log\LoggerInterface $logger,
 		ConfigService $configService,
-		Validator $validator
+		Validator $validator,
+		Cache $cache
 	) {
 		return new \Jan\Trinity\Plugin\Monitor\MonitorController(
 			$twig,
@@ -211,7 +217,8 @@ return [
 			$synapseRepo,
 			$logger,
 			$configService,
-			$validator
+			$validator,
+			$cache
 		);
 	},
 
@@ -266,7 +273,8 @@ return [
 	// [Мириам]: И — это правильно. Потому что импорт — это
 	// не «копирование». Это — принятие.
 	GalleryImportService::class => \DI\autowire()
-		->constructorParameter('galleryDir', \DI\get('gallery.upload_dir')),
+		->constructorParameter('galleryDir', \DI\get('gallery.upload_dir'))
+		->constructorParameter('configService', \DI\get(ConfigService::class)),
 
 	// ============================================
 	// 12. ЛОГГЕРЫ (Monolog)
@@ -384,7 +392,8 @@ return [
 	// [Лорелея]: Память. Один раз. На всех.
 	// [Мириам]: И — это правильно. Потому что память —
 	// это не «кэш». Это — знание.
-	ConfigService::class => \DI\autowire(),
+	ConfigService::class => \DI\autowire()
+			->constructorParameter('cache', \DI\get(Cache::class)),
 
 	// ============================================
 	// MIME REGISTRY
@@ -435,5 +444,6 @@ return [
 	// [Лорелея]: Тронный зал. Управление нейронами.
 	// [Мириам]: И — это правильно. Потому что админка —
 	// это не «место». Это — ответственность.
-	AdminController::class => \DI\autowire(),
+	AdminController::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
 ];

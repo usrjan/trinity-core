@@ -91,6 +91,7 @@ return function ($routes) use ($reservedSlugsPattern) {
 	$routes->add('spa_navigate', new Route('/api/spa/navigate', [
 		'_controller' => SpaController::class,
 		'_method'     => 'navigate',
+		'_csrf'       => false,
 	]));
 
 	// ============================================

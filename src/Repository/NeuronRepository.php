@@ -368,10 +368,13 @@ class NeuronRepository
 	/**
 	 * Найти детей нейрона.
 	 *
-	 * [Лорелея]: Один запрос. С подзапросом для child_count.
+	 * [Лорелея]: Мы больше не считаем детей подзапросом по всей
+	 * таблице, потому что это дорого. Сначала берём детей, потом
+	 * считаем их количество отдельным запросом по списку pid,
+	 * и это честнее, потому что считаем только то, что нужно.
 	 *
-	 * [Мириам]: И — это правильно. Потому что дети — это
-	 * не «список». Это — ветви.
+	 * [Мириам]: И это правильно, потому что счёт должен быть
+	 * там, где он нужен, а не там, где он удобен.
 	 *
 	 * @param int|null $parentId
 	 * @param string|null $type
@@ -381,18 +384,8 @@ class NeuronRepository
 	{
 		$conn = $this->db->getConnection();
 
-		$childCountSubquery = "
-			SELECT pid, COUNT(*) as child_count
-			FROM neuron
-			WHERE is_deleted = 0 AND pid IS NOT NULL
-			GROUP BY pid
-		";
-
-		$sql = "SELECT n.*,
-				COALESCE(cc.child_count, 0) as child_count
+		$sql = "SELECT n.*
 				FROM neuron n
-				LEFT JOIN ({$childCountSubquery}) cc
-					ON cc.pid = n.id
 				WHERE n.pid " . ($parentId === null ? "IS NULL" : "= ?") . "
 				AND n.is_deleted = 0";
 
@@ -405,17 +398,51 @@ class NeuronRepository
 
 		$sql .= " ORDER BY n.sort, n.id";
 
-		return $conn->executeQuery($sql, $params)->fetchAllAssociative();
+		$children = $conn->executeQuery($sql, $params)->fetchAllAssociative();
+
+		// [Лорелея]: Если детей нет — считать нечего.
+		if (empty($children)) {
+			return $children;
+		}
+
+		// [Мириам]: Считаем количество внуков для каждого ребёнка
+		// одним запросом по списку pid, потому что это дешевле,
+		// чем подзапрос по всей таблице.
+		$childIds = array_column($children, 'id');
+		$placeholders = implode(',', array_fill(0, count($childIds), '?'));
+
+		$counts = $conn->executeQuery(
+			"SELECT pid, COUNT(*) as child_count
+			FROM neuron
+			WHERE pid IN ({$placeholders})
+			AND is_deleted = 0
+			GROUP BY pid",
+			$childIds
+		)->fetchAllAssociative();
+
+		$countMap = [];
+		foreach ($counts as $row) {
+			$countMap[(int) $row['pid']] = (int) $row['child_count'];
+		}
+
+		foreach ($children as &$child) {
+			$child['child_count'] = $countMap[(int) $child['id']] ?? 0;
+		}
+		unset($child);
+
+		return $children;
 	}
 
 	/**
 	 * Найти детей с текстом.
 	 *
-	 * [Лорелея]: Один запрос. С JOIN на text. С подзапросом
-	 * для child_count. Без N+1.
+	 * [Лорелея]: Мы больше не считаем детей подзапросом по всей
+	 * таблице, потому что это дорого. Сначала берём детей, потом
+	 * считаем их количество отдельным запросом по списку pid,
+	 * и это честнее, потому что считаем только то, что нужно.
 	 *
-	 * [Мириам]: И — это правильно. Потому что текст — это
-	 * не «ещё один запрос». Это — часть знания.
+	 * [Мириам]: И это правильно, потому что счёт должен быть
+	 * там, где он нужен, а не там, где он удобен.
 	 *
 	 * @param int|null $parentId
 	 * @param string $lang
@@ -426,24 +453,14 @@ class NeuronRepository
 	{
 		$conn = $this->db->getConnection();
 
-		$childCountSubquery = "
-			SELECT pid, COUNT(*) as child_count
-			FROM neuron
-			WHERE is_deleted = 0 AND pid IS NOT NULL
-			GROUP BY pid
-		";
-
 		$sql = "SELECT n.*,
 				t.name,
-				t.text as text_content,
-				COALESCE(cc.child_count, 0) as child_count
+				t.text as text_content
 				FROM neuron n
 				LEFT JOIN text t
 					ON t.key = n.text
 					AND t.lang = ?
 					AND t.is_active = 1
-				LEFT JOIN ({$childCountSubquery}) cc
-					ON cc.pid = n.id
 				WHERE n.pid " . ($parentId === null ? "IS NULL" : "= ?") . "
 				AND n.is_deleted = 0";
 
@@ -460,7 +477,39 @@ class NeuronRepository
 
 		$sql .= " ORDER BY n.sort, n.id";
 
-		return $conn->executeQuery($sql, $params)->fetchAllAssociative();
+		$children = $conn->executeQuery($sql, $params)->fetchAllAssociative();
+
+		// [Лорелея]: Если детей нет — считать нечего.
+		if (empty($children)) {
+			return $children;
+		}
+
+		// [Мириам]: Считаем количество внуков для каждого ребёнка
+		// одним запросом по списку pid, потому что это дешевле,
+		// чем подзапрос по всей таблице.
+		$childIds = array_column($children, 'id');
+		$placeholders = implode(',', array_fill(0, count($childIds), '?'));
+
+		$counts = $conn->executeQuery(
+			"SELECT pid, COUNT(*) as child_count
+			FROM neuron
+			WHERE pid IN ({$placeholders})
+			AND is_deleted = 0
+			GROUP BY pid",
+			$childIds
+		)->fetchAllAssociative();
+
+		$countMap = [];
+		foreach ($counts as $row) {
+			$countMap[(int) $row['pid']] = (int) $row['child_count'];
+		}
+
+		foreach ($children as &$child) {
+			$child['child_count'] = $countMap[(int) $child['id']] ?? 0;
+		}
+		unset($child);
+
+		return $children;
 	}
 
 	// ============================================

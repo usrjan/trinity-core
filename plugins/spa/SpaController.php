@@ -26,6 +26,7 @@ namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\Validator;
+use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -53,11 +54,23 @@ class SpaController
 	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
+	/** @var SynapseRepository — работа с синапсами. */
+	private SynapseRepository $synapseRepo;
+
 	/** @var GuardService — CSRF-защита. */
 	private GuardService $guard;
 
+	/** @var ConfigService — сервис конфигурации. */
+	private ConfigService $configService;
+
 	private Validator $validator;
 
+	/** @var MenuController — контроллер меню. */
+	private MenuController $menuController;
+
+	/** @var PageController — контроллер страниц. */
+	private PageController $pageController;
+	
 	public function __construct(
 		Environment $twig,
 		Session $session,
@@ -65,13 +78,20 @@ class SpaController
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
 		GuardService $guard,
-		Validator $validator
+		ConfigService $configService,
+		Validator $validator,
+		MenuController $menuController,
+		PageController $pageController
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
+		$this->synapseRepo = $synapseRepo;
 		$this->guard = $guard;
+		$this->configService = $configService;
 		$this->validator = $validator;
+		$this->menuController = $menuController;
+		$this->pageController = $pageController;
 
 		$this->initAuth($session, $synapseRepo);
 	}
@@ -93,41 +113,15 @@ class SpaController
 		$lang = $request->query->get('lang', 'ru');
 		$allLangs = $request->query->get('all_langs') === '1';
 
-		// [Лорелея]: Sidebar собирает MenuController, и это
-		// правильно, потому что меню — это карта дома,
-		// и она должна быть одной на всех.
-		$sidebarController = new MenuController(
-			$this->twig,
-			$this->session,
-			$this->textRepo,
-			$this->neuronRepo,
-			$this->synapseRepo,
-			$this->guard,
-			$this->configService,
-			$this->validator
-		);
-		$sidebarHtml = $sidebarController->sidebar($request)->getContent();
-
-		// [Мириам]: Topbar собирает тот же MenuController,
-		// и это правильно, потому что шапка — это лицо дома,
-		// и оно должно быть одним на всех.
-		$topbarHtml = $sidebarController->topbar($request)->getContent();
-
-		// [Лорелея]: Страницу собирает PageController, и это
-		// правильно, потому что страница — это история,
-		// а история должна рассказываться целиком.
-		$pageController = new PageController(
-			$this->twig,
-			$this->session,
-			$this->textRepo,
-			$this->neuronRepo,
-			$this->synapseRepo,
-			$this->guard,
-			$this->validator
-		);
+		// [Лорелея]: Берём MenuController и PageController из свойств,
+		// потому что они приходят через конструктор, а не из контейнера,
+		// и это правильно, потому что контроллер не должен знать
+		// о контейнере.
+		$sidebarHtml = $this->menuController->sidebar($request)->getContent();
+		$topbarHtml = $this->menuController->topbar($request)->getContent();
 
 		$slug = trim($path, '/');
-		$pageResponse = $pageController->show($slug, $request);
+		$pageResponse = $this->pageController->show($slug, $request);
 		$pageData = json_decode($pageResponse->getContent(), true);
 
 		if (!$pageData || !$pageData['success']) {

@@ -29,10 +29,12 @@ use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\JsonHelper;
 use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\Validator;
+use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
+use Jan\Trinity\Core\Trait\DebugTrait;
 use Jan\Trinity\Core\Service\GuardService;
 use Jan\Trinity\Plugin\Spa\Mime\MimeController;
 use Symfony\Component\HttpFoundation\Request;
@@ -45,6 +47,7 @@ use Psr\Log\LoggerInterface;
 class AdminController
 {
 	use AuthMiddleware;
+	use DebugTrait;
 
 	/** @var Environment — шаблонизатор Twig. Лицо тронного зала. */
 	private Environment $twig;
@@ -76,6 +79,12 @@ class AdminController
 	 */
 	private MimeController $mimeController;
 
+	/** @var string — путь к корню проекта. */
+	private string $basePath;
+
+	/** @var ConfigService — сервис конфигурации. */
+	private ConfigService $configService;
+
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
@@ -93,7 +102,9 @@ class AdminController
 		LoggerInterface $logger,
 		Validator $validator,
 		Cache $cache,
-		MimeController $mimeController
+		MimeController $mimeController,
+		ConfigService $configService,
+		string $basePath
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
@@ -104,6 +115,8 @@ class AdminController
 		$this->validator = $validator;
 		$this->cache = $cache;
 		$this->mimeController = $mimeController;
+		$this->configService = $configService;
+		$this->basePath = rtrim($basePath, '/');
 
 		$this->initAuth($session, $synapseRepo);
 	}
@@ -283,9 +296,17 @@ class AdminController
 
 		$id = $this->neuronRepo->create($type, $data, $pid);
 
+		// [Лорелея]: Если это route или config — сбрасываем кэш APCu,
+		// потому что данные изменились.
 		if (in_array($type, ['route', 'config'], true)) {
 			$this->cache->forget('trinity.routes');
 			$this->cache->forget('trinity.config');
+		}
+
+		// [Мириам]: И если это route — удаляем скомпилированный матчер,
+		// потому что карта изменилась, и старый матчер больше не верен.
+		if ($type === 'route') {
+			$this->invalidateMatcherCache();
 		}
 
 		return ApiResponse::success(['id' => $id]);
@@ -389,10 +410,21 @@ class AdminController
 			$this->neuronRepo->update($id, $fields);
 		}
 
-		// [Лорелея]: Сбрасываем кэш MimeController.
+		// [Лорелея]: Сбрасываем кэш MimeController, потому что
+		// содержимое нейрона изменилось.
 		$this->mimeController->forgetCache($id);
 
-		// [Мириам]: И — кэш роутов и конфигов. Если это route или config.
+		// [Мириам]: И если тип был route или стал route — удаляем
+		// скомпилированный матчер, потому что карта изменилась
+		// в любую сторону.
+		$wasRoute = ($currentNeuron['type'] ?? '') === 'route';
+		$isRoute = (isset($fields['type']) ? $fields['type'] : $currentNeuron['type']) === 'route';
+
+		if ($wasRoute || $isRoute) {
+			$this->invalidateMatcherCache();
+		}
+
+		// [Лорелея]: И кэш APCu для роутов и конфигов — тоже.
 		if (isset($fields['type']) && in_array($fields['type'], ['route', 'config'], true)) {
 			$this->cache->forget('trinity.routes');
 			$this->cache->forget('trinity.config');
@@ -429,6 +461,13 @@ class AdminController
 
 		$this->mimeController->forgetCache($id);
 
+		// [Лорелея]: Если это был route — удаляем скомпилированный
+		// матчер, потому что карта изменилась.
+		if ($neuron['type'] === 'route') {
+			$this->invalidateMatcherCache();
+		}
+
+		// [Мириам]: И кэш APCu для роутов и конфигов — тоже.
 		if (in_array($neuron['type'], ['route', 'config'], true)) {
 			$this->cache->forget('trinity.routes');
 			$this->cache->forget('trinity.config');
@@ -493,7 +532,8 @@ class AdminController
 			$importer = new ExcelImportService(
 				$this->textRepo,
 				$this->neuronRepo,
-				$this->synapseRepo
+				$this->synapseRepo,
+				$this->configService
 			);
 			$result = $importer->import($file->getPathname());
 
@@ -709,10 +749,11 @@ class AdminController
 	/**
 	 * Проверяет CSRF-токен.
 	 *
-	 * [Лорелея]: Одна точка.
+	 * [Лорелея]: Одна точка, потому что проверка должна быть
+	 * в одном месте, а не в трёх.
 	 *
-	 * [Мириам]: И — это правильно. Потому что проверка —
-	 * это не «формальность». Это — защита.
+	 * [Мириам]: И это правильно, потому что доверие начинается
+	 * с того, что всё в одном месте.
 	 */
 	private function requireCsrf(Request $request): ?JsonResponse
 	{
@@ -724,16 +765,38 @@ class AdminController
 	}
 
 	// ============================================
+	// ИНВАЛИДАЦИЯ КЭША МАРШРУТОВ
+	// ============================================
+
+	/**
+	 * Удаляет скомпилированный матчер маршрутов.
+	 *
+	 * [Лорелея]: Один метод на все три места, потому что путь
+	 * должен быть в одном месте, а не в трёх.
+	 *
+	 * [Мириам]: И это правильно, потому что если путь размазан
+	 * по трём местам, рано или поздно одно из них забудут.
+	 */
+	private function invalidateMatcherCache(): void
+	{
+		$matcherFile = $this->basePath . '/var/cache/TrinityUrlMatcher.php';
+		if (file_exists($matcherFile)) {
+			@unlink($matcherFile);
+		}
+	}
+
+	// ============================================
 	// РЕЖИМ ОТЛАДКИ
 	// ============================================
 
 	/**
 	 * Режим отладки из .env.
 	 *
-	 * [Лорелея]: Просто. Честно.
+	 * [Лорелея]: Просто, честно, без лишнего, потому что отладка —
+	 * это не «всегда», а «когда нужно».
 	 *
-	 * [Мириам]: И — это правильно. Потому что отладка —
-	 * это не «всегда». Это — когда нужно.
+	 * [Мириам]: И это правильно, потому что даже у отладки
+	 * должны быть границы.
 	 */
 	private function isDebug(): bool
 	{

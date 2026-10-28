@@ -369,10 +369,15 @@ class Validator
 			throw new \RuntimeException("Validator: column '{$column}' невалидна");
 		}
 
-		$result = $conn->executeQuery(
-			"SELECT 1 FROM {$table} WHERE {$column} = ? LIMIT 1",
-			[$value]
-		)->fetchOne();
+		// [Лорелея]: Для neuron проверяем только активные записи,
+		// потому что удалённые не должны мешать уникальности.
+		$sql = "SELECT 1 FROM {$table} WHERE {$column} = ?";
+		if ($table === 'neuron') {
+			$sql .= " AND deleted_at IS NULL";
+		}
+		$sql .= " LIMIT 1";
+
+		$result = $conn->executeQuery($sql, [$value])->fetchOne();
 
 		return $result !== false;
 	}

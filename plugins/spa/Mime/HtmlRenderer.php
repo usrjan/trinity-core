@@ -64,13 +64,12 @@ class HtmlRenderer implements MimeRendererInterface
 	/**
 	 * Возвращает очиститель, создавая его только при первой необходимости.
 	 *
-	 * [Лорелея]: Вот здесь вся суть: один раз, и навсегда,
-	 * потому что Purifier тяжёлый, и держать его в готовности
-	 * дешевле, чем собирать заново.
+	 * [Лорелея]: Мы задаём cacheDir и CacheDefinition, потому что
+	 * без них Purifier пересобирает определения HTML на каждый
+	 * purify(), а это сотни миллисекунд на каждую страницу.
 	 *
-	 * [Мириам]: И это правильно, потому что подготовка инструмента
-	 * — это не работа, а работа начинается, когда инструмент
-	 * уже в руках.
+	 * [Мириам]: И это правильно, потому что русло должно быть
+	 * проложено один раз, а потом только проверяться.
 	 *
 	 * @return \HTMLPurifier
 	 */
@@ -78,6 +77,18 @@ class HtmlRenderer implements MimeRendererInterface
 	{
 		if ($this->purifier === null) {
 			$config = \HTMLPurifier_Config::createDefault();
+
+			// [Лорелея]: Кэш определений HTML — в var/cache/htmlpurifier,
+			// чтобы Purifier не пересобирал их на каждый вызов.
+			$cacheDir = dirname(__DIR__, 3) . '/var/cache/htmlpurifier';
+			if (!is_dir($cacheDir)) {
+				mkdir($cacheDir, 0775, true);
+			}
+
+			$config->set('Cache.DefinitionImpl', 'Serializer');
+			$config->set('Cache.SerializerPath', $cacheDir);
+			$config->set('CSS.CacheDir', $cacheDir);
+
 			$this->purifier = new \HTMLPurifier($config);
 		}
 

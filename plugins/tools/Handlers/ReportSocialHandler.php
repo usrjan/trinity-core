@@ -25,9 +25,6 @@
 
 namespace Jan\Trinity\Plugin\Tools\Handlers;
 
-ini_set('memory_limit', '1024M');
-set_time_limit(0);
-
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class ReportSocialHandler
@@ -75,81 +72,99 @@ class ReportSocialHandler
 	 */
 	public function process(array $files, array $params): array
 	{
-		$typeOut = $params['type_out'] ?? 'alltheme';
-		$area = $params['area'] ?? null;
-		$toWord = $params['to_word'] ?? false;
+		// [Лорелея]: Поднимаем лимит памяти только на время
+		// обработки отчёта, потому что Excel-файлы могут быть
+		// большими, но не на весь процесс.
+		$oldMemoryLimit = ini_get('memory_limit');
+		ini_set('memory_limit', '1024M');
 
-		$data = [];
-		$dateFrom = null;
-		$dateTo = null;
+		// [Мириам]: И ограничиваем время разумным пределом,
+		// потому что «бесконечно» — это не забота, а риск.
+		$oldTimeLimit = (int) ini_get('max_execution_time');
+		set_time_limit(300);
 
-		// CHK
-		if ($typeOut === 'chk') {
-			if (isset($files['im'])) {
-				$imData = $this->parseExcel($files['im'], 'Детализация');
-				$imResult = $this->getCHK($imData, $typeOut, $area);
-				$data['types'] = $imResult['types'];
+		try {
+			$typeOut = $params['type_out'] ?? 'alltheme';
+			$area = $params['area'] ?? null;
+			$toWord = $params['to_word'] ?? false;
 
-				$data['municipalities'] = $imResult['municipalities'];
-				$data['ministries'] = $imResult['ministries'];
-				$data['organizations'] = $imResult['organizations'];
+			$data = [];
+			$dateFrom = null;
+			$dateTo = null;
 
-				$data['sum'] = $imResult['sum'];
+			// CHK
+			if ($typeOut === 'chk') {
+				if (isset($files['im'])) {
+					$imData = $this->parseExcel($files['im'], 'Детализация');
+					$imResult = $this->getCHK($imData, $typeOut, $area);
+					$data['types'] = $imResult['types'];
 
-				$data['params'] = [
-					'type_out'  => $typeOut,
-				];
-				$data['debug'] = $this->dump($imResult);
+					$data['municipalities'] = $imResult['municipalities'];
+					$data['ministries'] = $imResult['ministries'];
+					$data['organizations'] = $imResult['organizations'];
+
+					$data['sum'] = $imResult['sum'];
+
+					$data['params'] = [
+						'type_out'  => $typeOut,
+					];
+					$data['debug'] = $this->dump($imResult);
+				}
 			}
+
+			// IM
+			if (isset($files['im']) && $typeOut != 'chk') {
+				$imData = $this->parseExcel($files['im'], 'Детализация');
+				$imResult = $this->getIM($imData, $typeOut, $area);
+				$data['im'] = $imResult['data'];
+				if ($imResult['date_from']) $dateFrom = $imResult['date_from'];
+				if ($imResult['date_to']) $dateTo = $imResult['date_to'];
+			}
+
+			$data['params'] = [
+				'type_out'  => $typeOut,
+				'area'      => $area,
+				'date_from' => $dateFrom,
+				'date_to'   => $dateTo,
+				'to_word'   => $toWord,
+			];
+
+			// POS
+			$hasBoth = isset($files['im']) && isset($files['pos']);
+
+			if (isset($files['pos'])) {
+				$posData = $this->parseExcel($files['pos'], 'Sheet0');
+				$data['pos'] = $this->getPOS($posData, $typeOut, $area, $hasBoth);
+			}
+			if (isset($files['pos']) && $typeOut === 'org') {
+				$posData = $this->parseExcel($files['pos'], 'Sheet0');
+				$data['org'] = $this->getOrgFromPOS($posData);
+			}
+
+			// IMP
+			if (isset($files['imp'])) {
+				$impData = $this->parseExcel($files['imp'], 'Инциденты');
+				$data['imp'] = $this->getIMP($impData, $area);
+			}
+
+			// Сводка
+			if (isset($data['im']) && isset($data['pos'])) {
+				$data['combine'] = $this->getCombine($data);
+			}
+
+			// WORD
+			if ($toWord) {
+				$wordFile = $this->generateWord($data, $typeOut, $area);
+				$data['word_file'] = $wordFile;
+			}
+
+			return $data;
+		} finally {
+			// [Лорелея]: Возвращаем лимиты обратно, чтобы
+			// следующий запрос не жил с чужими настройками.
+			ini_set('memory_limit', $oldMemoryLimit);
+			set_time_limit($oldTimeLimit);
 		}
-
-		// IM
-		if (isset($files['im']) && $typeOut != 'chk') {
-			$imData = $this->parseExcel($files['im'], 'Детализация');
-			$imResult = $this->getIM($imData, $typeOut, $area);
-			$data['im'] = $imResult['data'];
-			if ($imResult['date_from']) $dateFrom = $imResult['date_from'];
-			if ($imResult['date_to']) $dateTo = $imResult['date_to'];
-		}
-
-		$data['params'] = [
-			'type_out'  => $typeOut,
-			'area'      => $area,
-			'date_from' => $dateFrom,
-			'date_to'   => $dateTo,
-			'to_word'   => $toWord,
-		];
-
-		// POS
-		$hasBoth = isset($files['im']) && isset($files['pos']);
-
-		if (isset($files['pos'])) {
-			$posData = $this->parseExcel($files['pos'], 'Sheet0');
-			$data['pos'] = $this->getPOS($posData, $typeOut, $area, $hasBoth);
-		}
-		if (isset($files['pos']) && $typeOut === 'org') {
-			$posData = $this->parseExcel($files['pos'], 'Sheet0');
-			$data['org'] = $this->getOrgFromPOS($posData);
-		}
-
-		// IMP
-		if (isset($files['imp'])) {
-			$impData = $this->parseExcel($files['imp'], 'Инциденты');
-			$data['imp'] = $this->getIMP($impData, $area);
-		}
-
-		// Сводка
-		if (isset($data['im']) && isset($data['pos'])) {
-			$data['combine'] = $this->getCombine($data);
-		}
-
-		// WORD
-		if ($toWord) {
-			$wordFile = $this->generateWord($data, $typeOut, $area);
-			$data['word_file'] = $wordFile;
-		}
-
-		return $data;
 	}
 
 	/**
