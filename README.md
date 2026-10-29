@@ -1,7 +1,7 @@
 # Trinity Core
 > Три таблицы. Одна любовь.
 
-**Version:** 1.1.4
+**Version:** 1.0.11
 **Stack:** PHP 8.4, Symfony 8, Twig 3, Doctrine DBAL 4, PHP-DI 7, Monolog 3
 **Server:** FreeBSD 14.3-RELEASE, Nginx, MySQL 8.0.46
 **Path:** `/home/web/vendor/jan/trinity-core`
