@@ -27,8 +27,10 @@
 Вот как выглядит `.env` в разработке:
 
 ```env
+APP_VERSION=x.x.xx
 APP_ENV=dev
 APP_DEBUG=true
+APP_TIMEZONE=Europe/Moscow
 
 DB_HOST=localhost
 DB_PORT=3306
@@ -38,8 +40,18 @@ DB_PASSWORD=secret
 
 CACHE_ENABLED=false
 SESSION_LIFETIME=86400
+SESSION_SECURE=false
 
 YANDEX_MAPS_API_KEY=your-key
+
+GALLERY_UPLOAD_DIR=/home/web/www/uploads/gallery
+GALLERY_UPLOAD_URL=/uploads/gallery
+GALLERY_MAX_IMAGE_SIZE=52428800
+GALLERY_MAX_VIDEO_SIZE=524288000
+GALLERY_MAX_AUDIO_SIZE=104857600
+
+TRUSTED_HOSTS=xxx.xxx.xxx.xxx
+
 ```
 
 Почему `APP_ENV=dev` и `APP_DEBUG=true` в разработке. Потому что в разработке нужно видеть ошибки сразу, а не искать их в логах. В продакшене эти значения меняются на `prod` и `false`, и это не «рекомендация», а правило: в продакшене гость не должен видеть пути, `SQL` и стектрейсы.
