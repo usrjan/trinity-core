@@ -278,7 +278,7 @@ http {
 
 В продакшене дом должен быть настроен строго, потому что ошибки в продакшене стоят дороже, чем в разработке.
 
-``` env
+```env
 APP_ENV=prod
 APP_DEBUG=false
 CACHE_ENABLED=true
@@ -295,7 +295,7 @@ CACHE_ENABLED=true
 ## 7. Samba
 Samba — это мост между хостом и виртуальной машиной, чтобы можно было редактировать файлы с хостовой машины, не заходя в консоль FreeBSD.
 
-``` ini
+```ini
 [global]
 unix charset = UTF-8
 workgroup = WORKGROUP
@@ -329,7 +329,7 @@ Trinity проверяет размер файла в коде, но `php.ini` �
 
 Рекомендуемые значения:
 
-``` ini
+```ini
 upload_max_filesize = 512M
 post_max_size = 512M
 max_execution_time = 300
