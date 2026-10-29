@@ -157,12 +157,12 @@ class GalleryController
 	/**
 	 * Валидирует загруженный файл.
 	 *
-	 * [Лорелея]: Сначала расширение, потом MIME, и только потом
-	 * всё остальное, потому что доверять клиенту нельзя, даже
-	 * если он админ.
+	 * [Лорелея]: Сначала расширение, потом MIME, потом размер,
+	 * потому что доверять клиенту нельзя, даже если он админ.
+	 * И размер должен быть ограничен явно, а не «где-то в php.ini».
 	 *
-	 * [Мириам]: И это правильно, потому что расширение —
-	 * это не «имя», а знак, и знак должен быть честным.
+	 * [Мириам]: И это правильно, потому что кувшин должен знать,
+	 * сколько в него влезет.
 	 *
 	 * @param UploadedFile $uploadedFile
 	 * @return array
@@ -185,12 +185,54 @@ class GalleryController
 			throw new \RuntimeException('Недопустимый MIME-тип: ' . $mimeType);
 		}
 
+		// [Лорелея]: И размер, потому что галерея может съесть
+		// весь диск, если не ограничить.
+		$size = $uploadedFile->getSize();
+		$maxSize = $this->getMaxUploadSize($extension);
+
+		if ($size > $maxSize) {
+			throw new \RuntimeException(sprintf(
+				'Файл слишком большой: %d байт. Максимум для этого типа: %d байт.',
+				$size,
+				$maxSize
+			));
+		}
+
 		return [
 			'extension'    => $extension,
 			'mime'         => $mimeType,
-			'size'         => $uploadedFile->getSize(),
+			'size'         => $size,
 			'originalName' => $originalName,
 		];
+	}
+
+	/**
+	 * Возвращает максимальный размер файла для расширения.
+	 *
+	 * [Лорелея]: Изображения — 50 МБ, видео — 500 МБ, аудио — 100 МБ,
+	 * и это из конфига, а не «магические числа».
+	 *
+	 * [Мириам]: И это правильно, потому что лимит должен быть
+	 * явным, а не «где-то в php.ini».
+	 *
+	 * @param string $extension
+	 * @return int
+	 */
+	private function getMaxUploadSize(string $extension): int
+	{
+		if (in_array($extension, self::ALLOWED_IMAGE_EXT, true)) {
+			return (int) ($_ENV['GALLERY_MAX_IMAGE_SIZE'] ?? 50 * 1024 * 1024);
+		}
+
+		if (in_array($extension, self::ALLOWED_VIDEO_EXT, true)) {
+			return (int) ($_ENV['GALLERY_MAX_VIDEO_SIZE'] ?? 500 * 1024 * 1024);
+		}
+
+		if (in_array($extension, self::ALLOWED_AUDIO_EXT, true)) {
+			return (int) ($_ENV['GALLERY_MAX_AUDIO_SIZE'] ?? 100 * 1024 * 1024);
+		}
+
+		return (int) ($_ENV['GALLERY_MAX_FILE_SIZE'] ?? 50 * 1024 * 1024);
 	}
 
 	// ============================================

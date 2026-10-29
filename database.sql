@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS `neuron` (
 	`sort` INT GENERATED ALWAYS AS (COALESCE(JSON_EXTRACT(`data`, '$.sort'), 999999)) STORED,
 	`is_deleted` TINYINT(1) GENERATED ALWAYS AS (CASE WHEN JSON_EXTRACT(`data`, '$.deleted_at') IS NOT NULL THEN 1 ELSE 0 END) STORED,
 	`deleted_at` DATETIME GENERATED ALWAYS AS (JSON_EXTRACT(`data`, '$.deleted_at')) STORED,
-	`hash` VARCHAR(64) GENERATED ALWAYS AS (SHA2(CONCAT(CAST(COALESCE(`pid`, '') AS CHAR), `type`, CAST(COALESCE(`data`, '') AS CHAR)), 256)) STORED,
+	`hash` VARCHAR(64) GENERATED ALWAYS AS (SHA2(CONCAT(CAST(COALESCE(`pid`, '') AS CHAR), `type`, CAST(COALESCE(`data`, '') AS CHAR)), 256)) VIRTUAL,
+	`status` VARCHAR(20) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.status'))) STORED,
 
 	`job_class` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.job_class'))) STORED,
 	`job_queue` VARCHAR(50) GENERATED ALWAYS AS (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.queue_name')), 'default')) STORED,
@@ -114,6 +115,7 @@ CREATE TABLE IF NOT EXISTS `neuron` (
 	INDEX `idx_tree` (`tree`),
 	INDEX `idx_text` (`text`),
 	INDEX `idx_date` (`date`),
+	INDEX `idx_status` (`status`),
 	INDEX `idx_pid_type` (`pid`, `type`),
 	INDEX `idx_pid_sort` (`pid`, `sort`),
 	INDEX `idx_tree_type` (`tree`, `type`),

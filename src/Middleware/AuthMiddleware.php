@@ -310,7 +310,7 @@ trait AuthMiddleware
 		// [Мириам]: Проверяем, когда последний раз обновляли.
 		// Если прошло меньше часа — не трогаем. Если больше — обновляем.
 		$lastRefresh = $this->session->get('roles_refreshed_at', 0);
-		if (time() - $lastRefresh < 3600) {
+		if (time() - $lastRefresh < 300) {
 			// [Лорелея]: Даже если не обновляли из базы — помечаем,
 			// что проверили. Чтобы не проверять снова в этом запросе.
 			$this->rolesRefreshed = true;

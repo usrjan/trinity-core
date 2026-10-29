@@ -27,7 +27,38 @@
 
 namespace Jan\Trinity\Core;
 
-class Cache
+interface CacheInterface
+{
+	public function remember(string $key, callable $callback, int $ttl = 300): mixed;
+	public function forget(string $key): void;
+	public function forgetByPrefix(string $prefix): void;
+	public function isEnabled(): bool;
+}
+
+class NullCache implements CacheInterface
+{
+	public function remember(string $key, callable $callback, int $ttl = 300): mixed
+	{
+		return $callback();
+	}
+
+	public function forget(string $key): void
+	{
+		// ничего не делаем
+	}
+
+	public function forgetByPrefix(string $prefix): void
+	{
+		// ничего не делаем
+	}
+
+	public function isEnabled(): bool
+	{
+		return false;
+	}
+}
+
+class Cache implements CacheInterface
 {
 	/** @var bool Включен ли кэш. Из .env. */
 	private bool $enabled;
@@ -82,27 +113,20 @@ class Cache
 			return $callback();
 		}
 
-		if (apcu_exists($key)) {
-			$value = apcu_fetch($key);
-			// [Лорелея]: apcu_fetch возвращает false при промахе,
-			// но также возвращает false, если значение — false.
-			// Поэтому проверяем на false, но 0 и [] проходят,
-			// потому что 0 !== false и [] !== false.
-			if ($value !== false) {
-				return $value;
-			}
+		// [Лорелея]: Один атом вместо двух, потому что между
+		// apcu_exists() и apcu_fetch() ключ может протухнуть.
+		$success = false;
+		$wrapped = apcu_fetch($key, $success);
+
+		if ($success && is_array($wrapped) && array_key_exists('v', $wrapped)) {
+			return $wrapped['v'];
 		}
 
 		$value = $callback();
 
-		// [Мириам]: null и false не кэшируем, потому что apcu_fetch
-		// возвращает false при промахе, и значение false не отличить
-		// от промаха. А [] и 0 кэшируются, потому что они не false.
-		if ($value === null || $value === false) {
-			return $value;
-		}
-
-		apcu_store($key, $value, $ttl);
+		// [Мириам]: Оборачиваем значение в массив, чтобы и null,
+		// и false кэшировались, и двойного чтения не было.
+		apcu_store($key, ['v' => $value], $ttl);
 
 		return $value;
 	}
@@ -135,5 +159,28 @@ class Cache
 	public function isEnabled(): bool
 	{
 		return $this->enabled;
+	}
+
+	/**
+	 * Удаляет все ключи кэша с заданным префиксом.
+	 *
+	 * [Лорелея]: APCu умеет это через итератор. Без перебора
+	 * известных ключей. Без «почти всех».
+	 *
+	 * [Мириам]: И это правильно, потому что префикс —
+	 * это не догадка. Это — точное знание.
+	 *
+	 * @param string $prefix
+	 */
+	public function forgetByPrefix(string $prefix): void
+	{
+		if (!$this->enabled || !$this->apcuAvailable) {
+			return;
+		}
+
+		$iterator = new \APCUIterator('/^' . preg_quote($prefix, '/') . '/');
+		foreach ($iterator as $item) {
+			apcu_delete($item['key']);
+		}
 	}
 }

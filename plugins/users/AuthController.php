@@ -198,7 +198,9 @@ class AuthController
 		$authMethod = $userData['auth_method'] ?? 'local';
 		if ($authMethod !== 'local') {
 			$this->guard->recordFailedLogin($login, $ip);
-			$this->session->set('login_error', 'Используйте вход через ' . $authMethod);
+			// [Лорелея]: Сообщение то же, что и при неверном пароле,
+			// чтобы не было утечки существования аккаунта.
+			$this->session->set('login_error', 'Неверный логин или пароль');
 			return new RedirectResponse('/login');
 		}
 
@@ -206,15 +208,9 @@ class AuthController
 		if (!password_verify($password, $hash)) {
 			$this->guard->recordFailedLogin($login, $ip);
 
-			// [Лорелея]: Если попыток слишком много, блокируем IP,
-			// потому что терпение — это тоже ресурс.
 			$ipKey = 'login_ip_' . $ip;
-			$maxAttempts = $this->guard->getMaxAttempts() * 3;
-			$decaySeconds = $this->guard->getDecaySeconds();
-			$blockDuration = $this->guard->getBlockDuration();
-
-			if ($this->guard->tooManyAttempts($ipKey, $maxAttempts, $decaySeconds)) {
-				$this->guard->blockIp($ip, 'brute_force', $blockDuration);
+			if ($this->guard->tooManyAttempts($ipKey, $this->guard->getMaxAttempts() * 3, $this->guard->getDecaySeconds())) {
+				$this->guard->blockIp($ip, 'brute_force', $this->guard->getBlockDuration());
 			}
 
 			$this->session->set('login_error', 'Неверный логин или пароль');

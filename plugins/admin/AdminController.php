@@ -72,6 +72,9 @@ class AdminController
 	/** @var Cache — кэш. */
 	private Cache $cache;
 
+	/** @var array|null — скомпилированные маршруты в памяти воркера. */
+	private static ?array $matcherCompiled = null;
+
 	/**
 	 * @var MimeController — контроллер mime.
 	 * [Лорелея]: Нужен для сброса кэша при обновлении/удалении.
@@ -306,7 +309,7 @@ class AdminController
 		// [Мириам]: И если это route — удаляем скомпилированный матчер,
 		// потому что карта изменилась, и старый матчер больше не верен.
 		if ($type === 'route') {
-			$this->invalidateMatcherCache();
+			\Jan\Trinity\Core\Kernel::invalidateMatcherCacheStatic($this->basePath);
 		}
 
 		return ApiResponse::success(['id' => $id]);
@@ -581,20 +584,41 @@ class AdminController
 	{
 		$conn = $this->neuronRepo->getConnection();
 
-		$totalNeurons = $conn->executeQuery("SELECT COUNT(*) FROM neuron WHERE is_deleted = 0")->fetchOne();
-		$totalSynapses = $conn->executeQuery("SELECT COUNT(*) FROM synapse WHERE is_deleted = 0")->fetchOne();
-		$totalTexts = $conn->executeQuery("SELECT COUNT(*) FROM text WHERE is_active = 1")->fetchOne();
-		$totalUsers = $conn->executeQuery("SELECT COUNT(*) FROM neuron WHERE type = 'user' AND is_deleted = 0")->fetchOne();
-		$totalFiles = $conn->executeQuery("SELECT COUNT(*) FROM neuron WHERE type = 'file' AND is_deleted = 0")->fetchOne();
+		// [Лорелея]: Один запрос вместо пяти COUNT(*), потому что
+		// пять запросов — это пять раз ждать, а гость должен видеть
+		// цифры сразу.
+		$counts = $conn->executeQuery(
+			"SELECT
+				COUNT(*) as total_neurons,
+				SUM(CASE WHEN type = 'user' THEN 1 ELSE 0 END) as total_users,
+				SUM(CASE WHEN type = 'file' THEN 1 ELSE 0 END) as total_files
+			FROM neuron WHERE is_deleted = 0"
+		)->fetchAssociative();
+
+		$totalNeurons = (int) ($counts['total_neurons'] ?? 0);
+		$totalUsers = (int) ($counts['total_users'] ?? 0);
+		$totalFiles = (int) ($counts['total_files'] ?? 0);
+
+		$totalSynapses = (int) $conn->executeQuery(
+			"SELECT COUNT(*) FROM synapse WHERE is_deleted = 0"
+		)->fetchOne();
+
+		$totalTexts = (int) $conn->executeQuery(
+			"SELECT COUNT(*) FROM text WHERE is_active = 1"
+		)->fetchOne();
 
 		$byType = $conn->executeQuery(
 			"SELECT type, COUNT(*) as cnt FROM neuron WHERE is_deleted = 0 GROUP BY type ORDER BY cnt DESC"
 		)->fetchAllAssociative();
 
+		// [Мириам]: Имя берём через LEFT JOIN, а не подзапросом
+		// на каждую строку, потому что подзапрос — это N+1.
 		$latest = $conn->executeQuery(
-			"SELECT n.id, n.type, n.date,
-				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as name
-			FROM neuron n WHERE n.is_deleted = 0 ORDER BY n.id DESC LIMIT 8"
+			"SELECT n.id, n.type, n.date, t.name
+			FROM neuron n
+			LEFT JOIN text t ON t.key = n.text AND t.lang = 'ru' AND t.is_active = 1
+			WHERE n.is_deleted = 0
+			ORDER BY n.id DESC LIMIT 8"
 		)->fetchAllAssociative();
 
 		$html = '<div class="p-3">';
@@ -659,7 +683,7 @@ class AdminController
 			"SELECT id, data, date FROM neuron
 			WHERE type = 'user'
 			AND is_deleted = 0
-			AND JSON_EXTRACT(data, '$.status') = 'pending'
+			AND status = 'pending'
 			ORDER BY date DESC"
 		)->fetchAllAssociative();
 
@@ -775,20 +799,22 @@ class AdminController
 	// ============================================
 
 	/**
-	 * Удаляет скомпилированный матчер маршрутов.
+	 * Сбрасывает кэш матчера: и файл, и статическую переменную.
 	 *
-	 * [Лорелея]: Один метод на все три места, потому что путь
-	 * должен быть в одном месте, а не в трёх.
+	 * [Лорелея]: Если маршруты изменились, то и файл, и память
+	 * должны быть сброшены, иначе кэш в памяти останется старым.
 	 *
-	 * [Мириам]: И это правильно, потому что если путь размазан
-	 * по трём местам, рано или поздно одно из них забудут.
+	 * [Мириам]: И это правильно, потому что кэш должен отражать
+	 * реальность, а не то, что было раньше.
 	 */
-	private function invalidateMatcherCache(): void
+	public function invalidateMatcherCache(): void
 	{
 		$matcherFile = $this->basePath . '/var/cache/TrinityUrlMatcher.php';
 		if (file_exists($matcherFile)) {
 			@unlink($matcherFile);
 		}
+
+		self::$matcherCompiled = null;
 	}
 
 	// ============================================

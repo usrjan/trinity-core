@@ -170,4 +170,23 @@ class GuardController
 		$this->guardService->unblockIp($ip);
 		return ApiResponse::success(null, 'IP разблокирован');
 	}
+
+	/**
+	 * GET /api/csrf-token
+	 *
+	 * [Лорелея]: Токен отдаётся по запросу, а не лежит в window,
+	 * потому что если появится XSS-посредник, то CSRF-защита
+	 * обнулится, а так — токен доступен только тому, кто его
+	 * запросил, и только на время.
+	 *
+	 * [Мириам]: И это правильно, потому что кувшин должен быть
+	 * у двери, а не на площади.
+	 *
+	 * @return JsonResponse
+	 */
+	public function csrfTokenApi(): JsonResponse
+	{
+		$token = $this->guardService->getOrCreateCsrfToken();
+		return ApiResponse::success(['csrf_token' => $token]);
+	}
 }

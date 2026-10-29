@@ -67,4 +67,9 @@ return function ($routes) {
 		'_controller' => GuardController::class,
 		'_method'     => 'unblockIpApi',
 	], [], [], '', [], ['POST']));
+
+	$routes->add('guard_csrf_token', new Route('/api/csrf-token', [
+		'_controller' => GuardController::class,
+		'_method'     => 'csrfTokenApi',
+	]));
 };

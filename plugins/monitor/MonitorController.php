@@ -36,6 +36,7 @@ use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Service\GuardService;
+use Jan\Trinity\Core\Trait\DebugTrait;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -46,6 +47,7 @@ use Twig\Environment;
 class MonitorController implements ErrorHandlerInterface
 {
 	use AuthMiddleware;
+	use DebugTrait;
 
 	/** @var Environment — шаблонизатор. */
 	private Environment $twig;
@@ -59,9 +61,6 @@ class MonitorController implements ErrorHandlerInterface
 	 * Без этого мы бы читали конфиг на каждый запрос.
 	 */
 	private ?bool $enabled = null;
-
-	/** @var bool — режим отладки из .env. */
-	private bool $isDebug;
 
 	/** @var NeuronRepository — работа с настройками из базы. */
 	private NeuronRepository $neuronRepo;
@@ -115,7 +114,6 @@ class MonitorController implements ErrorHandlerInterface
 		$this->logger = $logger;
 		$this->configService = $configService;
 		$this->validator = $validator;
-		$this->isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 		$this->cache = $cache;
 
 		$this->initAuth($session, $synapseRepo);
@@ -147,14 +145,14 @@ class MonitorController implements ErrorHandlerInterface
 
 		$this->logError($code, $fullMessage, $debug);
 
-		$displayMessage = $this->isDebug ? $message : 'Внутренняя ошибка сервера';
+		$displayMessage = $this->isDebug() ? $message : 'Внутренняя ошибка сервера';
 
 		$html = $this->twig->render('error.html.twig', [
 			'code'        => $code,
 			'message'     => $displayMessage,
 			'description' => $this->getDescription($code),
-			'debug'       => $this->isDebug ? $debug : [],
-			'show_debug'  => $this->isDebug,
+			'debug'       => $this->isDebug() ? $debug : [],
+			'show_debug'  => $this->isDebug(),
 		]);
 
 		return new Response($html, $code);
@@ -179,6 +177,7 @@ class MonitorController implements ErrorHandlerInterface
 			405 => 'Этот метод не поддерживается.',
 			429 => 'Слишком много запросов. Попробуйте позже.',
 			500 => 'Что-то пошло не так в глубинах системы. Но я здесь.',
+			503 => 'Сервис временно недоступен. Попробуйте позже.',
 		];
 
 		return $descriptions[$code] ?? 'Произошла непредвиденная ошибка.';

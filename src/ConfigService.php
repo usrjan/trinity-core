@@ -216,20 +216,15 @@ class ConfigService
 	{
 		$cacheFile = $this->basePath . '/var/cache/config.php';
 
-		// [Лорелея]: Если файл кэша есть и не устарел — берём из него.
 		if (file_exists($cacheFile) && !$this->isConfigCacheStale($cacheFile)) {
 			$cached = require $cacheFile;
 			if (is_array($cached)) {
 				return $cached;
 			}
 
-			// [Мириам]: Если файл вернул не массив — значит, он битый.
-			// Удаляем его и идём в базу.
 			@unlink($cacheFile);
 		}
 
-		// [Лорелея]: Идём в базу и записываем файл, чтобы следующий
-		// запрос был быстрым.
 		$rawConfig = $this->neuronRepo->findAllConfigValues();
 
 		$code = '<?php' . "\n\n" . 'return ' . var_export($rawConfig, true) . ';' . "\n";

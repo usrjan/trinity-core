@@ -59,7 +59,7 @@
 			.then(function(r) { return r.json(); })
 			.then(function(d) {
 				if (d.success && neuronPanel) {
-					neuronPanel.innerHTML = d.data.html;
+					neuronPanel.innerHTML = sanitizeHtml(d.data.html);
 				}
 			});
 	}
@@ -158,7 +158,7 @@
 		tree.forEach(function(node) {
 			html += renderNode(node, 0);
 		});
-		treePanel.innerHTML = html;
+		treePanel.innerHTML = sanitizeHtml(html);
 	}
 
 	/**
@@ -355,7 +355,7 @@
 			html += '</div></div>';
 		}
 
-		neuronPanel.innerHTML = html;
+		neuronPanel.innerHTML = sanitizeHtml(html);
 	}
 
 	function getDisplayName(node) {
@@ -632,6 +632,14 @@
 		if (!text) return '';
 		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
 		return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
+	}
+
+	function sanitizeHtml(html) {
+		if (typeof DOMPurify !== 'undefined') {
+			return DOMPurify.sanitize(html);
+		}
+
+		return html;
 	}
 
 	// [Лорелея]: Старт. Когда DOM готов.

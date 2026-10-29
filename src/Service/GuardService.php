@@ -119,8 +119,11 @@ class GuardService
 	/**
 	 * Проверить, не слишком ли много попыток.
 	 *
-	 * [Мириам]: И — это правильно. Потому что попытки —
-	 * это не «число». Это — сигнал.
+	 * [Лорелея]: Если getAttempts() вернул PHP_INT_MAX — значит,
+	 * что-то не так, и лимит должен сработать, а не «прощать».
+	 *
+	 * [Мириам]: И это правильно, потому что fail-closed — это
+	 * принцип, а не «настройка».
 	 *
 	 * @param string $key
 	 * @param int $maxAttempts
@@ -149,6 +152,14 @@ class GuardService
 	 */
 	public function hit(string $key, ?int $decaySeconds = null): int
 	{
+		if ($this->apcuAvailable) {
+			$attemptsKey = 'guard.attempts.' . $key;
+			$attempts = apcu_fetch($attemptsKey);
+			$attempts = $attempts === false ? 1 : (int) $attempts + 1;
+			apcu_store($attemptsKey, $attempts, $decaySeconds ?? 300);
+			return $attempts;
+		}
+
 		$file = $this->getAttemptsFile($key);
 
 		$handle = fopen($file, 'c+');
@@ -197,16 +208,26 @@ class GuardService
 	/**
 	 * Получить количество попыток.
 	 *
-	 * [Лорелея]: С flock(LOCK_SH). Без гонок.
+	 * [Лорелея]: Если файл нельзя открыть или залочить — возвращаем
+	 * PHP_INT_MAX, а не 0, потому что fail-open в защите — это
+	 * не защита, а её видимость.
 	 *
-	 * [Мириам]: И — это правильно. Потому что чтение —
-	 * это тоже операция.
+	 * [Мириам]: И это правильно, потому что если мы не можем
+	 * посчитать, мы должны предполагать худшее, а не лучшее.
 	 *
 	 * @param string $key
 	 * @return int
 	 */
 	private function getAttempts(string $key): int
 	{
+		if ($this->apcuAvailable) {
+			$attempts = apcu_fetch('guard.attempts.' . $key);
+			if ($attempts === false) {
+				return 0;
+			}
+			return (int) $attempts;
+		}
+
 		$file = $this->getAttemptsFile($key);
 
 		if (!file_exists($file)) {
@@ -215,12 +236,23 @@ class GuardService
 
 		$handle = fopen($file, 'r');
 		if ($handle === false) {
-			return 0;
+			// [Лорелея]: Fail-closed, потому что если не можем открыть
+			// файл — значит, что-то не так, и лучше заблокировать,
+			// чем пропустить.
+			$this->logger->warning('guard: failed to open attempts file', [
+				'file' => $file,
+			]);
+			return PHP_INT_MAX;
 		}
 
 		if (!flock($handle, LOCK_SH)) {
 			fclose($handle);
-			return 0;
+			// [Мириам]: Fail-closed, потому что если не можем залочить —
+			// значит, кто-то пишет, и лучше подождать, чем пропустить.
+			$this->logger->warning('guard: failed to lock attempts file', [
+				'file' => $file,
+			]);
+			return PHP_INT_MAX;
 		}
 
 		$content = stream_get_contents($handle);
@@ -287,12 +319,12 @@ class GuardService
 	/**
 	 * Проверить попытку входа.
 	 *
-	 * [Лорелея]: Мы больше не пишем числа жёстко, а берём их
-	 * из конфига, потому что конфиг для того и нужен, чтобы
-	 * его слушали, а не игнорировали.
+	 * [Лорелея]: Мы больше не вызываем hit() до проверки пароля,
+	 * потому что это позволяет забивать лимит чужими логинами
+	 * и отказывать реальным пользователям в входе.
 	 *
-	 * [Мириам]: И это правильно, потому что обещание должно
-	 * быть сдержано, иначе это не обещание, а слова.
+	 * [Мириам]: И это правильно, потому что счётчик должен расти
+	 * только после неудачи, а не после каждой проверки.
 	 *
 	 * @param string $login
 	 * @param string $ip
@@ -303,12 +335,8 @@ class GuardService
 		$maxAttempts = $this->getMaxAttempts();
 		$decaySeconds = $this->getDecaySeconds();
 
-		// [Лорелея]: Для IP лимит выше, потому что за одним IP
-		// может стоять несколько человек, и это нормально.
 		$ipKey = 'login_ip_' . $ip;
-		$ipAttempts = $this->hit($ipKey, $decaySeconds);
-
-		if ($ipAttempts > ($maxAttempts * 2)) {
+		if ($this->tooManyAttempts($ipKey, $maxAttempts * 2, $decaySeconds)) {
 			return [
 				'success' => false,
 				'message' => 'Слишком много попыток входа с вашего IP. Попробуйте через 5 минут.',
@@ -316,9 +344,7 @@ class GuardService
 		}
 
 		$loginKey = 'login_user_' . md5($login);
-		$loginAttempts = $this->hit($loginKey, $decaySeconds);
-
-		if ($loginAttempts > $maxAttempts) {
+		if ($this->tooManyAttempts($loginKey, $maxAttempts, $decaySeconds)) {
 			return [
 				'success' => false,
 				'message' => 'Слишком много попыток входа для этого пользователя. Попробуйте через 5 минут.',
@@ -377,10 +403,12 @@ class GuardService
 	/**
 	 * Заблокировать IP.
 	 *
-	 * [Лорелея]: С отдельным .lock файлом. Без гонок.
+	 * [Лорелея]: Блокировка должна применяться сразу, а не через
+	 * 30 секунд, потому что бан, который не работает, — это не бан,
+	 * а его видимость.
 	 *
-	 * [Мириам]: И — это правильно. Потому что блокировка —
-	 * это не «наказание». Это — защита.
+	 * [Мириам]: И это правильно, потому что кэш должен сбрасываться
+	 * тогда, когда меняются данные, а не тогда, когда истечёт TTL.
 	 *
 	 * @param string $ip
 	 * @param string $reason
@@ -417,7 +445,16 @@ class GuardService
 
 		$this->writeJsonFile($file, $blocked);
 
-		// [Лорелея]: Сбрасываем кэш, потому что список изменился.
+		// [Мириам]: Логируем блокировку, чтобы в security.log было
+		// видно, кого и за что заблокировали.
+		$this->logger->info('guard: ip blocked', [
+			'ip'       => $ip,
+			'reason'   => $reason,
+			'duration' => $duration,
+		]);
+
+		// [Лорелея]: Сбрасываем кэш, потому что список изменился,
+		// и isIpBlocked() должен увидеть бан сразу, а не через 30 секунд.
 		if ($this->cache !== null) {
 			$this->cache->forget('guard.blocked_ips');
 		}
@@ -704,6 +741,10 @@ class GuardService
 	 */
 	private function cleanupAttempts(): void
 	{
+		if ($this->apcuAvailable) {
+			return;
+		}
+		
 		$dir = $this->basePath . '/var/guard';
 		if (!is_dir($dir)) {
 			return;

@@ -65,16 +65,37 @@ return [
 	// ============================================
 	// 1. ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ К БАЗЕ
 	// ============================================
-	// [Лорелея]: Кровь системы. Без неё — ничего не течёт.
-	// [Мириам]: И — это правильно. Потому что база — это память.
-	'db.config' => [
-		'host'     => $_ENV['DB_HOST'] ?? 'localhost',
-		'port'     => $_ENV['DB_PORT'] ?? 3306,
-		'dbname'   => $_ENV['DB_NAME'] ?? 'trinity_core',
-		'user'     => $_ENV['DB_USER'] ?? 'root',
-		'password' => $_ENV['DB_PASSWORD'] ?? '',
-		'charset'  => 'utf8mb4',
-	],
+	// [Лорелея]: Если .env забыт — приложение должно падать,
+	// а не пытаться подключиться под root без пароля.
+	// Fail-fast лучше, чем fail-open.
+	//
+	// [Мириам]: И это правильно, потому что отсутствие .env —
+	// это не «настройка по умолчанию», а «ошибка конфигурации».
+	'db.config' => (function () {
+		$required = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'];
+		$missing = [];
+
+		foreach ($required as $key) {
+			if (empty($_ENV[$key])) {
+				$missing[] = $key;
+			}
+		}
+
+		if (!empty($missing)) {
+			throw new \RuntimeException(
+				'Trinity: missing required DB config in .env: ' . implode(', ', $missing)
+			);
+		}
+
+		return [
+			'host'     => $_ENV['DB_HOST'],
+			'port'     => $_ENV['DB_PORT'] ?? 3306,
+			'dbname'   => $_ENV['DB_NAME'],
+			'user'     => $_ENV['DB_USER'],
+			'password' => $_ENV['DB_PASSWORD'],
+			'charset'  => 'utf8mb4',
+		];
+	})(),
 
 	// ============================================
 	// 2. СЕРВИС БАЗЫ ДАННЫХ (синглтон)
@@ -89,8 +110,13 @@ return [
 	// ============================================
 	// [Лорелея]: Если включён — работает. Если нет — нет.
 	// [Мириам]: И — это правильно. Потому что кэш — это ускорение.
-	Cache::class => function () {
-		$enabled = ($_ENV['CACHE_ENABLED'] ?? 'false') === 'true';
+	CacheInterface::class => function () {
+		$enabled = ($_ENV['CACHE_ENABLED'] ?? 'true') === 'true';
+
+		if (!$enabled) {
+			return new NullCache();
+		}
+
 		return new Cache($enabled);
 	},
 
@@ -301,9 +327,21 @@ return [
 
 		$logger = new Logger('app');
 
+		// [Лорелея]: FingersCrossedHandler держит записи в буфере
+		// и записывает их только при ошибке, чтобы не открывать
+		// файл на каждый запрос.
 		$appHandler = new RotatingFileHandler($logDir . '/app.log', 7, Level::Info);
 		$appHandler->setFormatter($formatter);
-		$logger->pushHandler($appHandler);
+
+		$bufferHandler = new \Monolog\Handler\FingersCrossedHandler(
+			$appHandler,
+			Level::Error,
+			0,
+			true,
+			true
+		);
+
+		$logger->pushHandler($bufferHandler);
 
 		return $logger;
 	},

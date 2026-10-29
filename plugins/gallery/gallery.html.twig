@@ -270,7 +270,7 @@ function renderContent(html) {
 
 	breadcrumb += '</div>';
 
-	document.getElementById('galleryContent').innerHTML = breadcrumb + html;
+	document.getElementById('galleryContent').innerHTML = sanitizeHtml(breadcrumb + html);
 
 	document.querySelectorAll('#galleryBreadcrumb .breadcrumb-link').forEach(function(link) {
 		link.addEventListener('click', function(e) {
@@ -322,7 +322,7 @@ function loadItem(id, name) {
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
 			if (d.success) {
-				document.getElementById('galleryContent').innerHTML = d.data.html;
+				document.getElementById('galleryContent').innerHTML = sanitizeHtml(d.data.html);
 			}
 		})
 		.catch(function() {
@@ -343,7 +343,7 @@ function loadFileItem(id) {
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
 			if (d.success) {
-				document.getElementById('galleryContent').innerHTML = d.data.html;
+				document.getElementById('galleryContent').innerHTML = sanitizeHtml(d.data.html);
 			}
 		})
 		.catch(function() {
@@ -653,6 +653,48 @@ document.addEventListener('contextmenu', function(e) {
 		}, { once: true });
 	}, 50);
 });
+
+function sanitizeHtml(html) {
+	if (typeof DOMPurify !== 'undefined') {
+		return DOMPurify.sanitize(html);
+	}
+
+	var doc = new DOMParser().parseFromString(html, 'text/html');
+	var allowed = ['DIV', 'SPAN', 'P', 'BR', 'STRONG', 'EM', 'UL', 'OL', 'LI', 'A', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'PRE', 'CODE', 'BLOCKQUOTE', 'IMG', 'HR', 'I', 'B', 'U', 'S', 'SMALL'];
+
+	function walk(node) {
+		var children = Array.from(node.childNodes);
+		children.forEach(function (child) {
+			if (child.nodeType === Node.ELEMENT_NODE) {
+				if (!allowed.includes(child.tagName)) {
+					child.replaceWith(document.createTextNode(child.textContent));
+					return;
+				}
+				Array.from(child.attributes).forEach(function (attr) {
+					if (attr.name.startsWith('on') || attr.name === 'style') {
+						child.removeAttribute(attr.name);
+					}
+					if (child.tagName === 'A' && attr.name === 'href') {
+						var href = attr.value.trim().toLowerCase();
+						if (href.startsWith('javascript:') || href.startsWith('data:')) {
+							child.removeAttribute('href');
+						}
+					}
+					if (child.tagName === 'IMG' && attr.name === 'src') {
+						var src = attr.value.trim().toLowerCase();
+						if (src.startsWith('javascript:') || src.startsWith('data:')) {
+							child.removeAttribute('src');
+						}
+					}
+				});
+				walk(child);
+			}
+		});
+	}
+
+	walk(doc.body);
+	return doc.body.innerHTML;
+}
 </script>
 
 <style>

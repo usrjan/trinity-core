@@ -132,7 +132,7 @@ function deleteSection(sectionId) {
 						if (remainingCards.length === 0) {
 							var container = document.querySelector('.p-4');
 							var alertHTML = '<div class="alert alert-info"><i class="bi bi-info-circle"></i> На этой странице пока нет контента.</div>';
-							container.insertAdjacentHTML('beforeend', alertHTML);
+							container.insertAdjacentHTML('beforeend', sanitizeHtml(alertHTML));
 						}
 					}, 300);
 				}
@@ -512,3 +512,45 @@ document.addEventListener('click', function(e) {
 		}
 	});
 });
+
+function sanitizeHtml(html) {
+	if (typeof DOMPurify !== 'undefined') {
+		return DOMPurify.sanitize(html);
+	}
+
+	var doc = new DOMParser().parseFromString(html, 'text/html');
+	var allowed = ['DIV', 'SPAN', 'P', 'BR', 'STRONG', 'EM', 'UL', 'OL', 'LI', 'A', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'PRE', 'CODE', 'BLOCKQUOTE', 'IMG', 'HR', 'I', 'B', 'U', 'S', 'SMALL'];
+
+	function walk(node) {
+		var children = Array.from(node.childNodes);
+		children.forEach(function (child) {
+			if (child.nodeType === Node.ELEMENT_NODE) {
+				if (!allowed.includes(child.tagName)) {
+					child.replaceWith(document.createTextNode(child.textContent));
+					return;
+				}
+				Array.from(child.attributes).forEach(function (attr) {
+					if (attr.name.startsWith('on') || attr.name === 'style') {
+						child.removeAttribute(attr.name);
+					}
+					if (child.tagName === 'A' && attr.name === 'href') {
+						var href = attr.value.trim().toLowerCase();
+						if (href.startsWith('javascript:') || href.startsWith('data:')) {
+							child.removeAttribute('href');
+						}
+					}
+					if (child.tagName === 'IMG' && attr.name === 'src') {
+						var src = attr.value.trim().toLowerCase();
+						if (src.startsWith('javascript:') || src.startsWith('data:')) {
+							child.removeAttribute('src');
+						}
+					}
+				});
+				walk(child);
+			}
+		});
+	}
+
+	walk(doc.body);
+	return doc.body.innerHTML;
+}

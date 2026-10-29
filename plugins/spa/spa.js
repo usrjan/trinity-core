@@ -104,7 +104,7 @@ var userLang = document.documentElement.lang || 'ru';
 
 				// [Лорелея]: Страница приходит из ответа, и скрипты
 				// в ней выполняются через executeScripts.
-				main.innerHTML = data.data.html;
+				main.innerHTML = sanitizeHtml(data.data.html);
 				executeScripts(main);
 
 				// [Мириам]: Хлебные крошки — из ответа, чтобы гость
@@ -162,7 +162,7 @@ var userLang = document.documentElement.lang || 'ru';
 			.then(function (r) { return r.json(); })
 			.then(function (data) {
 				if (data.success) {
-					main.innerHTML = data.data.html;
+					main.innerHTML = sanitizeHtml(data.data.html);
 					executeScripts(main);
 					if (data.data.breadcrumbs) {
 						updateBreadcrumbFromData(data.data.breadcrumbs);
@@ -237,7 +237,7 @@ var userLang = document.documentElement.lang || 'ru';
 		fetch('/api/menu/sidebar?current_url=' + encodeURIComponent(window.location.pathname) + '&lang=' + userLang)
 			.then(function (r) { return r.text(); })
 			.then(function (html) {
-				sidebar.innerHTML = html;
+				sidebar.innerHTML = sanitizeHtml(html);
 				updateActiveMenuItem(window.location.pathname);
 			});
 	}
@@ -248,7 +248,7 @@ var userLang = document.documentElement.lang || 'ru';
 		fetch('/api/menu/topbar')
 			.then(function (r) { return r.text(); })
 			.then(function (html) {
-				topBar.innerHTML = html;
+				topBar.innerHTML = sanitizeHtml(html);
 				setTimeout(initUserDropdown, 50);
 			});
 	}
@@ -332,6 +332,66 @@ var userLang = document.documentElement.lang || 'ru';
 		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
 		return String(text).replace(/[&<>"']/g, function (m) { return map[m]; });
 	}
+
+	/**
+	 * Санитизирует HTML перед вставкой в innerHTML.
+	 *
+	 * [Лорелея]: Мы не доверяем HTML, даже если он пришёл с сервера,
+	 * потому что серверная сборка — это хрупкая схема. Лучше
+	 * проверить на вставке, чем надеяться на сборку.
+	 *
+	 * [Мириам]: И это правильно, потому что вода не должна
+	 * приносить камни, даже если её набрали в чистом месте.
+	 *
+	 * @param {string} html
+	 * @return {string}
+	 */
+	function sanitizeHtml(html) {
+		if (typeof DOMPurify !== 'undefined') {
+			return DOMPurify.sanitize(html);
+		}
+
+		return html;
+	}
+
+	// [Лорелея]: originalFetch объявлен в том же замыкании,
+	// что и window.fetch, потому что иначе он не виден.
+	var originalFetch = window.fetch.bind(window);
+
+	var csrfTokenCache = null;
+
+	function getCsrfToken() {
+		if (csrfTokenCache !== null) {
+			return Promise.resolve(csrfTokenCache);
+		}
+
+		return fetch('/api/csrf-token')
+			.then(function (r) { return r.json(); })
+			.then(function (d) {
+				if (d.success && d.data.csrf_token) {
+					csrfTokenCache = d.data.csrf_token;
+					return csrfTokenCache;
+				}
+				return '';
+			});
+	}
+
+	window.fetch = function (url, options) {
+		options = options || {};
+		var method = (options.method || 'GET').toUpperCase();
+
+		if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+			return getCsrfToken().then(function (token) {
+				options.headers = options.headers || {};
+				if (token && !options.headers['X-CSRF-Token']) {
+					options.headers['X-CSRF-Token'] = token;
+				}
+				return originalFetch(url, options);
+			});
+		}
+
+		return originalFetch(url, options);
+	};
 
 	window.loadPage = loadPage;
 	window.loadPageById = loadPageById;

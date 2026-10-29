@@ -22,7 +22,6 @@ namespace Jan\Trinity\Core;
 
 use DI\ContainerBuilder;
 use Symfony\Component\Dotenv\Dotenv;
-use Symfony\Component\Routing\Matcher\UrlMatcher;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\Exception\ResourceNotFoundException;
 use Symfony\Component\Routing\Exception\MethodNotAllowedException;
@@ -61,6 +60,29 @@ class Kernel
 	 * @var ConfigService|null — сервис конфигурации.
 	 */
 	private ?ConfigService $configService = null;
+
+	/**
+	 * @var array|null — скомпилированные маршруты в памяти воркера.
+	 *
+	 * [Лорелея]: Первый уровень кэша матчера. Живёт в памяти,
+	 * не инвалидируется без перезапуска, но быстрее файла.
+	 *
+	 * [Мириам]: И это правильно, потому что у каждого сосуда
+	 * своё время.
+	 */
+	private static ?array $matcherCompiled = null;
+
+	/** @var string — разрешённые методы для CORS. */
+	private const CORS_ALLOW_METHODS = 'GET, POST, PUT, DELETE, OPTIONS';
+
+	/** @var string — разрешённые заголовки для CORS. */
+	private const CORS_ALLOW_HEADERS = 'Content-Type, Authorization, X-CSRF-Token';
+
+	/** @var int — время кэширования preflight в секундах. */
+	private const CORS_MAX_AGE = 86400;
+
+	/** @var array — кэш спецификаций параметров методов. */
+	private static array $paramSpecCache = [];
 
 	// ============================================
 	// РОЖДЕНИЕ
@@ -112,8 +134,18 @@ class Kernel
 			$this->configService = $this->container->get(ConfigService::class);
 			$this->configService->load();
 		} catch (\Throwable $e) {
-			// [Лорелея]: Если ConfigService нет — ничего не делаем.
-			// Потому что — это — «пиздец». Но — не падаем.
+			// [Лорелея]: Логируем, потому что молчаливая потеря
+			// конфигурации хуже, чем явная ошибка. CORS пустой,
+			// guard-лимиты дефолтные, и никто не узнает почему.
+			if ($this->logger !== null) {
+				$this->logger->error('ConfigService load failed', [
+					'message' => $e->getMessage(),
+					'file'    => $e->getFile() . ':' . $e->getLine(),
+				]);
+			} else {
+				error_log('[Trinity] ConfigService load failed: ' . $e->getMessage());
+			}
+
 			$this->configService = null;
 		}
 	}
@@ -228,8 +260,8 @@ class Kernel
 	private function respond(Request $request, Response $response): void
 	{
 		$this->applyCorsHeaders($request, $response);
-		$response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-		$response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+		$response->headers->set('Access-Control-Allow-Methods', self::CORS_ALLOW_METHODS);
+		$response->headers->set('Access-Control-Allow-Headers', self::CORS_ALLOW_HEADERS);
 		$response->send();
 	}
 
@@ -250,9 +282,10 @@ class Kernel
 		if ($origin && $acrm) {
 			$response = new Response('', 204);
 			$this->applyCorsHeaders($request, $response);
-			$response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-			$response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
-			$response->headers->set('Access-Control-Max-Age', '86400');
+			$response->headers->set('Access-Control-Allow-Methods', self::CORS_ALLOW_METHODS);
+			$response->headers->set('Access-Control-Allow-Headers', self::CORS_ALLOW_HEADERS);
+			$response->headers->set('Access-Control-Max-Age', (string) self::CORS_MAX_AGE);
+			$response->headers->set('Vary', 'Origin');
 			$response->send();
 			return;
 		}
@@ -273,6 +306,10 @@ class Kernel
 	 */
 	private function dispatch(Request $request): Response
 	{
+		// [Лорелея]: Получаем сессию из контейнера, потому что она
+		// нужна для refreshUserRoles() и для проверки ролей.
+		$session = $this->container->get(Session::class);
+
 		// EARLY-CHECK: ЗАБЛОКИРОВАННЫЙ IP
 		$ip = $request->getClientIp();
 		if ($ip && $this->container->has(GuardService::class)) {
@@ -282,24 +319,22 @@ class Kernel
 			}
 		}
 
-		// START SESSION — BEFORE CONTROLLER
-		$session = $this->container->get(Session::class);
-		if (!$session->isStarted()) {
-			$session->start();
-		}
-
 		$routes = require $this->basePath . '/config/routes.php';
 
 		foreach ($this->plugins as $plugin) {
 			try {
 				$plugin($routes);
 			} catch (\Throwable $e) {
-				if ($this->logger !== null) {
-					$this->logger->error('plugin route registration failed', [
-						'message' => $e->getMessage(),
-						'file'    => $e->getFile() . ':' . $e->getLine(),
-					]);
-				}
+				[$code, $message] = match (true) {
+					$e instanceof ResourceNotFoundException => [404, 'Страница не найдена'],
+					$e instanceof MethodNotAllowedException => [405, 'Метод не поддерживается'],
+					$e instanceof UnauthorizedException => [401, $e->getMessage()],
+					$e instanceof ForbiddenException => [403, $e->getMessage()],
+					$e instanceof \RuntimeException && $e->getCode() === 503 => [503, 'Сервис временно недоступен'],
+					default => [500, $this->safeErrorMessage($e, 500)],
+				};
+
+				$response = $this->renderError($code, $message, $e);
 			}
 		}
 
@@ -311,7 +346,7 @@ class Kernel
 		// [Лорелея]: Передаём собранную коллекцию в getMatcher(),
 		// потому что пересобирать её там — это дважды вызывать
 		// каждый плагин.
-		$matcher = $this->getMatcher($routes);
+		$matcher = $this->getMatcher($routes, $context);
 		$parameters = $matcher->match($context->getPathInfo());
 
 		$controllerClass = $parameters['_controller'];
@@ -342,6 +377,11 @@ class Kernel
 
 		// Авторизация
 		if (!empty($requiredRoles)) {
+			// [Лорелея]: Обновляем роли из базы, если TTL истёк,
+			// потому что доверять устаревшему состоянию — это не
+			// проверка, а надежда.
+			$this->refreshUserRoles($session);
+
 			$userRoles = $session->get('user_roles', []);
 			$hasAccess = false;
 
@@ -385,6 +425,11 @@ class Kernel
 		if (!$origin) {
 			return;
 		}
+
+		// [Лорелея]: Vary: Origin нужен всегда, когда мы играем с CORS,
+		// потому что иначе CDN или прокси может закэшировать ответ
+		// с одним Allow-Origin и отдать его другому origin.
+		$response->headers->set('Vary', 'Origin');
 
 		$allowedOrigins = array_map('trim', explode(',', $allowed));
 
@@ -492,12 +537,16 @@ class Kernel
 			}
 
 		} catch (\Throwable $e) {
+			// [Лорелея]: Если БД упала — это 503, а не 404, потому что
+			// сервис недоступен, а не страница не найдена.
 			if ($this->logger !== null) {
-				$this->logger->warning('routes load failed', [
+				$this->logger->error('routes load failed', [
 					'message' => $e->getMessage(),
-					'file' => $e->getFile() . ':' . $e->getLine(),
+					'file'    => $e->getFile() . ':' . $e->getLine(),
 				]);
 			}
+
+			throw new \RuntimeException('Сервис временно недоступен', 503);
 		}
 	}
 
@@ -528,13 +577,13 @@ class Kernel
 	/**
 	 * Разрешает аргументы для метода контроллера.
 	 *
-	 * [Лорелея]: Мы поддерживаем только Request и скалярные
-	 * параметры маршрута, потому что этого достаточно для
-	 * всех текущих плагинов, а делать вид, что умеем больше,
-	 * — это мина для будущих.
+	 * [Лорелея]: Кэшируем спецификацию параметров, потому что рефлексия
+	 * на каждый запрос — это дёшево, но не бесплатно. И приводим
+	 * скаляры по типу, потому что строка "42" не должна притворяться
+	 * числом 42.
 	 *
-	 * [Мириам]: И это правильно, потому что ошибка должна быть
-	 * понятной, а не загадочной.
+	 * [Мириам]: И это правильно, потому что тип должен совпадать,
+	 * а не почти совпадать.
 	 *
 	 * @param object $controller
 	 * @param string $method
@@ -548,31 +597,41 @@ class Kernel
 		array $urlParams,
 		Request $request
 	): array {
-		$reflection = new \ReflectionMethod($controller, $method);
+		$cacheKey = get_class($controller) . '::' . $method;
+
+		if (!isset(self::$paramSpecCache[$cacheKey])) {
+			$reflection = new \ReflectionMethod($controller, $method);
+			$spec = [];
+
+			foreach ($reflection->getParameters() as $param) {
+				$type = $param->getType();
+				$spec[] = [
+					'name'     => $param->getName(),
+					'type'     => $type instanceof \ReflectionNamedType ? $type->getName() : null,
+					'optional' => $param->isOptional(),
+					'default'  => $param->isOptional() ? $param->getDefaultValue() : null,
+				];
+			}
+
+			self::$paramSpecCache[$cacheKey] = $spec;
+		}
+
+		$spec = self::$paramSpecCache[$cacheKey];
 		$args = [];
 
-		foreach ($reflection->getParameters() as $param) {
-			$type = $param->getType();
-
-			if ($type && $type instanceof \ReflectionNamedType && $type->getName() === Request::class) {
+		foreach ($spec as $param) {
+			if ($param['type'] === Request::class) {
 				$args[] = $request;
-			} elseif (isset($urlParams[$param->getName()])) {
-				$args[] = $urlParams[$param->getName()];
-			} elseif ($param->isOptional()) {
-				$args[] = $param->getDefaultValue();
+			} elseif (isset($urlParams[$param['name']])) {
+				$args[] = $this->castScalar($urlParams[$param['name']], $param['type']);
+			} elseif ($param['optional']) {
+				$args[] = $param['default'];
 			} else {
-				// [Лорелея]: Понятная ошибка со списком поддерживаемых
-				// типов, чтобы тот, кто пишет новый плагин, знал,
-				// что можно, а что нельзя.
-				$typeName = $type instanceof \ReflectionNamedType
-					? $type->getName()
-					: 'mixed';
-
 				throw new \RuntimeException(sprintf(
 					"Cannot resolve parameter '%s' of type '%s' in %s::%s(). " .
 					"Supported: %s, scalar route parameters, optional defaults.",
-					$param->getName(),
-					$typeName,
+					$param['name'],
+					$param['type'] ?? 'mixed',
 					get_class($controller),
 					$method,
 					Request::class
@@ -583,9 +642,32 @@ class Kernel
 		return $args;
 	}
 
-	public function getBasePath(): string
+	/**
+	 * Приводит скаляр к типу параметра.
+	 *
+	 * [Лорелея]: Строка "42" не должна притворяться числом 42,
+	 * потому что strict_types в плагинах даст TypeError.
+	 *
+	 * [Мириам]: И это правильно, потому что тип должен совпадать,
+	 * а не почти совпадать.
+	 *
+	 * @param mixed $value
+	 * @param string|null $type
+	 * @return mixed
+	 */
+	private function castScalar(mixed $value, ?string $type): mixed
 	{
-		return $this->basePath;
+		if ($type === null) {
+			return $value;
+		}
+
+		return match ($type) {
+			'int'    => (int) $value,
+			'float'  => (float) $value,
+			'bool'   => filter_var($value, FILTER_VALIDATE_BOOLEAN),
+			'string' => (string) $value,
+			default  => $value,
+		};
 	}
 
 	/**
@@ -609,29 +691,30 @@ class Kernel
 	/**
 	 * Загружает скомпилированный матчер маршрутов.
 	 *
-	 * [Лорелея]: Мы не проверяем устаревание на каждом запросе,
-	 * потому что это лишний SQL-запрос. Вместо этого кэш
-	 * инвалидируется явно из AdminController при изменении маршрута.
+	 * [Лорелея]: dump() с опцией class создаёт класс без namespace,
+	 * если namespace не указан, и это проще, чем помнить полное
+	 * имя с namespace.
 	 *
-	 * [Мириам]: И это правильно, потому что кэш должен экономить
-	 * запросы, а не добавлять их.
+	 * [Мириам]: И это правильно, потому что имя должно совпадать,
+	 * а не почти совпадать.
 	 *
+	 * @param \Symfony\Component\Routing\RouteCollection $routes
 	 * @return \Symfony\Component\Routing\Matcher\UrlMatcherInterface
 	 */
 	/**
 	 * Загружает скомпилированный матчер маршрутов.
 	 *
-	 * [Лорелея]: Коллекция маршрутов приходит параметром, потому что
-	 * пересобирать её здесь — это дважды вызывать каждый плагин,
-	 * а плагин может делать не только маршруты.
+	 * [Лорелея]: Контекст приходит параметром, потому что создавать
+	 * его заново из globals — это лишняя работа.
 	 *
-	 * [Мириам]: И это правильно, потому что русло должно быть
-	 * проложено один раз, а не дважды.
+	 * [Мириам]: И это правильно, потому что контекст должен быть
+	 * один, и он должен быть там, где его создали.
 	 *
 	 * @param \Symfony\Component\Routing\RouteCollection $routes
+	 * @param RequestContext $context
 	 * @return \Symfony\Component\Routing\Matcher\UrlMatcherInterface
 	 */
-	private function getMatcher(\Symfony\Component\Routing\RouteCollection $routes): \Symfony\Component\Routing\Matcher\UrlMatcherInterface
+	private function getMatcher(\Symfony\Component\Routing\RouteCollection $routes, RequestContext $context): \Symfony\Component\Routing\Matcher\UrlMatcherInterface
 	{
 		$cacheDir = $this->basePath . '/var/cache';
 		if (!is_dir($cacheDir)) {
@@ -640,11 +723,6 @@ class Kernel
 
 		$matcherFile = $cacheDir . '/TrinityUrlMatcher.php';
 
-		$context = new RequestContext();
-		$context->fromRequest(Request::createFromGlobals());
-
-		// [Лорелея]: Если файл кэша есть — забираем результат require
-		// в переменную и проверяем, что это массив.
 		if (file_exists($matcherFile)) {
 			$compiled = require $matcherFile;
 
@@ -652,22 +730,14 @@ class Kernel
 				return new \Symfony\Component\Routing\Matcher\CompiledUrlMatcher($compiled, $context);
 			}
 
-			// [Мириам]: Если файл вернул не массив — значит, он битый.
-			// Удаляем его и строим заново.
 			@unlink($matcherFile);
 		}
 
-		// [Лорелея]: Строим матчер из переданной коллекции, а не
-		// из buildRoutes(), потому что buildRoutes() снова вызвал бы
-		// каждый плагин.
 		$dumper = new \Symfony\Component\Routing\Matcher\Dumper\CompiledUrlMatcherDumper($routes);
-		$code = $dumper->dump();
+		$compiled = $dumper->getCompiledRoutes();
 
+		$code = '<?php' . "\n\n" . 'return ' . var_export($compiled, true) . ';' . "\n";
 		file_put_contents($matcherFile, $code, LOCK_EX);
-
-		// [Мириам]: И сразу забираем массив из файла, потому что
-		// матчеру нужен массив, а не строка с кодом.
-		$compiled = require $matcherFile;
 
 		return new \Symfony\Component\Routing\Matcher\CompiledUrlMatcher($compiled, $context);
 	}
@@ -769,7 +839,59 @@ class Kernel
 			405 => 'Метод не поддерживается',
 			419 => 'Недействительный CSRF-токен',
 			429 => 'Слишком много запросов',
+			503 => 'Сервис временно недоступен',
 			default => 'Внутренняя ошибка сервера',
 		};
+	}
+
+	/**
+	 * Обновляет роли пользователя в сессии, если TTL истёк.
+	 *
+	 * [Лорелея]: Короткий TTL — 5 минут, потому что роли должны
+	 * обновляться часто, а не раз в сутки.
+	 *
+	 * [Мириам]: И это правильно, потому что вода должна быть
+	 * свежей, а не застоявшейся.
+	 *
+	 * @param Session $session
+	 */
+	private function refreshUserRoles(Session $session): void
+	{
+		// [Мириам]: Сессия запустится сама, когда мы прочитаем
+		// или запишем в неё, потому что Symfony Session это умеет.
+		$userId = $session->get('user_id');
+		if (!$userId) {
+			return;
+		}
+
+		$lastRefresh = $session->get('roles_refreshed_at', 0);
+		if (time() - $lastRefresh < 300) {
+			return;
+		}
+
+		try {
+			$synapseRepo = $this->container->get(\Jan\Trinity\Core\Repository\SynapseRepository::class);
+			$roles = $synapseRepo->findRolesByUser($userId);
+
+			$session->set('user_roles', $roles);
+			$session->set('roles_refreshed_at', time());
+		} catch (\Throwable $e) {
+			if ($this->logger !== null) {
+				$this->logger->warning('refreshUserRoles failed', [
+					'message' => $e->getMessage(),
+					'file'    => $e->getFile() . ':' . $e->getLine(),
+				]);
+			}
+		}
+	}
+
+	public static function invalidateMatcherCacheStatic(string $basePath): void
+	{
+		$matcherFile = rtrim($basePath, '/') . '/var/cache/TrinityUrlMatcher.php';
+		if (file_exists($matcherFile)) {
+			@unlink($matcherFile);
+		}
+
+		self::$matcherCompiled = null;
 	}
 }
