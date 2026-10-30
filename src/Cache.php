@@ -35,29 +35,6 @@ interface CacheInterface
 	public function isEnabled(): bool;
 }
 
-class NullCache implements CacheInterface
-{
-	public function remember(string $key, callable $callback, int $ttl = 300): mixed
-	{
-		return $callback();
-	}
-
-	public function forget(string $key): void
-	{
-		// ничего не делаем
-	}
-
-	public function forgetByPrefix(string $prefix): void
-	{
-		// ничего не делаем
-	}
-
-	public function isEnabled(): bool
-	{
-		return false;
-	}
-}
-
 class Cache implements CacheInterface
 {
 	/** @var bool Включен ли кэш. Из .env. */
@@ -91,6 +68,11 @@ class Cache implements CacheInterface
 		}
 	}
 
+	private function isActive(): bool
+	{
+		return $this->enabled && $this->apcuAvailable;
+	}
+
 	/**
 	 * Получить значение из кэша или создать новое.
 	 *
@@ -109,12 +91,10 @@ class Cache implements CacheInterface
 	 */
 	public function remember(string $key, callable $callback, int $ttl = 300): mixed
 	{
-		if (!$this->enabled) {
+		if (!$this->isActive()) {
 			return $callback();
 		}
 
-		// [Лорелея]: Один атом вместо двух, потому что между
-		// apcu_exists() и apcu_fetch() ключ может протухнуть.
 		$success = false;
 		$wrapped = apcu_fetch($key, $success);
 
@@ -123,13 +103,11 @@ class Cache implements CacheInterface
 		}
 
 		$value = $callback();
-
-		// [Мириам]: Оборачиваем значение в массив, чтобы и null,
-		// и false кэшировались, и двойного чтения не было.
 		apcu_store($key, ['v' => $value], $ttl);
 
 		return $value;
 	}
+
 
 	/**
 	 * Удалить значение из кэша.
@@ -142,7 +120,9 @@ class Cache implements CacheInterface
 	 */
 	public function forget(string $key): void
 	{
-		if (!$this->enabled) return;
+		if (!$this->isActive()) {
+			return;
+		}
 
 		apcu_delete($key);
 	}
@@ -158,7 +138,7 @@ class Cache implements CacheInterface
 	 */
 	public function isEnabled(): bool
 	{
-		return $this->enabled;
+		return $this->isActive();
 	}
 
 	/**
@@ -174,7 +154,7 @@ class Cache implements CacheInterface
 	 */
 	public function forgetByPrefix(string $prefix): void
 	{
-		if (!$this->enabled || !$this->apcuAvailable) {
+		if (!$this->isActive()) {
 			return;
 		}
 

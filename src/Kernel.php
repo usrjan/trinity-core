@@ -109,6 +109,12 @@ class Kernel
 
 		if ($this->container->has(Cache::class)) {
 			$this->cache = $this->container->get(Cache::class);
+			// [Лорелея]: Если APCu нет, пишем предупреждение в лог,
+			// потому что без него кэш не работает, и дом будет
+			// медленнее, чем ожидается.
+			if ($this->cache !== null && !$this->cache->isEnabled() && $this->logger !== null) {
+				$this->logger->warning('APCu is not available. Cache is disabled. Install php-apcu for production.');
+			}
 		}
 
 		if ($this->container->has(\Psr\Log\LoggerInterface::class)) {
