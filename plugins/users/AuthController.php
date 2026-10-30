@@ -122,8 +122,11 @@ class AuthController
 		$error = $this->session->get('login_error');
 		$this->session->remove('login_error');
 
+		$captchaQuestion = $this->session->get('captcha_question', null);
+
 		$html = $this->twig->render('login.html.twig', [
-			'error'      => $error,
+			'error'            => $error,
+			'captcha_question' => $captchaQuestion,
 		]);
 
 		return new Response($html);
@@ -137,30 +140,28 @@ class AuthController
 	 * POST /login
 	 *
 	 * [Лорелея]: Здесь мы проверяем гостя. Сначала валидация,
-	 * потом блокировка IP, потом попытки входа, потом поиск
-	 * пользователя, и только потом пароль.
+	 * потом блокировка IP, потом captcha, потом попытки входа,
+	 * потом поиск пользователя, потом пароль, потом статус.
 	 *
 	 * [Мириам]: И это правильно, потому что каждый шаг — это
 	 * ещё одна дверь, и каждая должна быть закрыта для тех,
 	 * кто пришёл не с добром.
+	 *
+	 * @param Request $request
+	 * @return Response
 	 */
 	public function login(Request $request): Response
 	{
 		if (!$this->session->isStarted()) {
 			$this->session->start();
 		}
-		// [Лорелея]: Проверяем CSRF до всего остального, потому что
-		// токен должен быть проверен в той сессии, в которой он был создан.
-		$csrfToken = $request->request->get('_csrf_token', '');
-		if (!$this->guard->validateCsrfToken($csrfToken)) {
-			$this->session->set('login_error', 'Недействительный CSRF-токен. Попробуйте снова.');
-			return new RedirectResponse('/login');
-		}
 
 		$login = trim($request->request->get('login') ?? '');
 		$password = $request->request->get('password') ?? '';
 		$ip = $request->getClientIp();
 
+		// [Лорелея]: Валидация — это не «формальность», а забота
+		// о том, чтобы данные были честными.
 		if (!$this->validator->validate([
 			'login'    => $login,
 			'password' => $password,
@@ -172,13 +173,45 @@ class AuthController
 			return new RedirectResponse('/login');
 		}
 
+		// [Мириам]: Проверяем, не заблокирован ли IP. Если да —
+		// не пускаем, но не говорим, что именно заблокирован.
+		// Без «пиздеца».
 		if ($this->guard->isIpBlocked($ip)) {
 			$this->session->set('login_error', 'Ваш IP-адрес заблокирован. Попробуйте позже.');
 			return new RedirectResponse('/login');
 		}
 
-		$check = $this->guard->checkLoginAttempt($login, $ip);
+		// [Лорелея]: Проверяем captcha, если она была запрошена.
+		// Captcha отличает человека от бота, не наказывая всю сеть.
+		$captchaRequired = (bool) $this->session->get('captcha_required', false);
+		$captchaSolved = false;
+
+		if ($captchaRequired) {
+			$captchaAnswer = trim($request->request->get('captcha') ?? '');
+			$captchaExpected = $this->session->get('captcha_expected', '');
+
+			if (!$this->guard->validateCaptcha($captchaAnswer, $captchaExpected)) {
+				$this->session->set('login_error', 'Неверный ответ на капчу.');
+				return new RedirectResponse('/login');
+			}
+
+			$captchaSolved = true;
+			$this->session->remove('captcha_required');
+			$this->session->remove('captcha_expected');
+			$this->session->remove('captcha_question');
+		}
+
+		// [Мириам]: Проверяем попытки входа. Если лимит исчерпан
+		// и captcha не решена — показываем captcha, а не блокируем.
+		$check = $this->guard->checkLoginAttempt($login, $ip, $captchaSolved);
 		if (!$check['success']) {
+			if (!empty($check['captcha'])) {
+				$captcha = $this->guard->generateCaptcha();
+				$this->session->set('captcha_required', true);
+				$this->session->set('captcha_expected', $captcha['expected']);
+				$this->session->set('captcha_question', $captcha['question']);
+			}
+
 			$this->session->set('login_error', $check['message']);
 			return new RedirectResponse('/login');
 		}
@@ -204,20 +237,28 @@ class AuthController
 			return new RedirectResponse('/login');
 		}
 
-		$hash = $userData['password_hash'] ?? '';
+		$hash = $user['hash'] ?? '';
 		if (!password_verify($password, $hash)) {
 			$this->guard->recordFailedLogin($login, $ip);
 
-			$ipKey = 'login_ip_' . $ip;
-			if ($this->guard->tooManyAttempts($ipKey, $this->guard->getMaxAttempts() * 3, $this->guard->getDecaySeconds())) {
-				$this->guard->blockIp($ip, 'brute_force', $this->guard->getBlockDuration());
+			// [Лорелея]: Блокируем IP только если captcha была решена
+			// и попыток всё равно слишком много.
+			if ($captchaSolved) {
+				$ipKey = 'login_ip_' . $ip;
+				$maxAttempts = $this->guard->getMaxAttempts() * 3;
+				$decaySeconds = $this->guard->getDecaySeconds();
+				$blockDuration = $this->guard->getBlockDuration();
+
+				if ($this->guard->tooManyAttempts($ipKey, $maxAttempts, $decaySeconds)) {
+					$this->guard->blockIp($ip, 'brute_force', $blockDuration);
+				}
 			}
 
 			$this->session->set('login_error', 'Неверный логин или пароль');
 			return new RedirectResponse('/login');
 		}
 
-		// [Мириам]: Если хеш устарел, обновляем его, потому что
+		// [Лорелея]: Если хеш устарел, обновляем его, потому что
 		// безопасность — это не «однажды настроил», а «поддерживаю».
 		if (password_needs_rehash($hash, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS)) {
 			$newHash = password_hash($password, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS);
@@ -233,13 +274,11 @@ class AuthController
 
 		$this->guard->clearLoginAttempts($login, $ip);
 
-		// [Лорелея]: Мигрируем сессию, чтобы старый ID не остался
+		// [Мириам]: Мигрируем сессию, чтобы старый ID не остался
 		// в браузере, и это правильно, потому что вход — это
 		// новый этап, а не продолжение старого.
 		$this->session->migrate(true);
 
-		// [Лорелея]: После миграции сессии старый токен уже
-		// недействителен, поэтому генерируем новый.
 		$this->guard->generateCsrfToken();
 
 		$this->session->set('user_id', $user['id']);
@@ -333,11 +372,14 @@ class AuthController
 	 *
 	 * [Лорелея]: Здесь мы регистрируем гостя. Сначала блокировка IP,
 	 * потом попытки регистрации, потом валидация, потом уникальность,
-	 * и только потом создание.
+	 * потом энтропия пароля, и только потом создание.
 	 *
-	 * [Мириам]: И это правильно, потому что каждый шаг — это
-	 * ещё одна дверь, и каждая должна быть закрыта для тех,
-	 * кто пришёл не с добром.
+	 * [Мириам]: И это правильно, потому что каждый шаг — это ещё
+	 * одна дверь, и каждая должна быть закрыта для тех, кто пришёл
+	 * не с добром.
+	 *
+	 * @param Request $request
+	 * @return Response
 	 */
 	public function register(Request $request): Response
 	{
@@ -365,6 +407,8 @@ class AuthController
 
 		$email = strtolower($email);
 
+		// [Лорелея]: Валидация — это не «формальность», а забота
+		// о том, чтобы данные были честными.
 		if (!$this->validator->validate([
 			'login'    => $login,
 			'email'    => $email,
@@ -378,6 +422,8 @@ class AuthController
 			return new RedirectResponse('/register');
 		}
 
+		// [Мириам]: Проверяем уникальность логина и email, чтобы
+		// не создавать дубликаты. Без «пиздеца».
 		if (!$this->validator->validate(['login' => $login], [
 			'login' => ['unique:neuron,login'],
 		])) {
@@ -392,16 +438,72 @@ class AuthController
 			return new RedirectResponse('/register');
 		}
 
-		$this->neuronRepo->create('user', [
-			'login'         => $login,
-			'email'         => $email,
-			'password_hash' => password_hash($password, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS),
-			'auth_method'   => 'local',
-			'status'        => 'pending',
-			'ip'            => $request->getClientIp(),
-			'registered_at' => date('Y-m-d H:i:s'),
-		]);
+		// [Лорелея]: Проверяем энтропию пароля, потому что min:8
+		// пропускает «aaaaaaaa». Это не «идеал», а минимум.
+		if (!$this->isPasswordStrong($password)) {
+			$this->session->set('register_error', 'Пароль слишком простой. Используйте буквы, цифры и символы.');
+			return new RedirectResponse('/register');
+		}
+
+		// [Мириам]: Ловим гонку на unique. Если два запроса одновременно
+		// прошли проверку, база спасёт один, а второй получит 500.
+		// Мы превращаем это в 409 и понятное сообщение.
+		try {
+			$this->neuronRepo->create('user', [
+				'login'         => $login,
+				'email'         => $email,
+				'auth_method'   => 'local',
+				'status'        => 'pending',
+				'ip'            => $request->getClientIp(),
+				'registered_at' => date('Y-m-d H:i:s'),
+			], null, null, null, password_hash($password, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS));
+		} catch (\Doctrine\DBAL\Exception\UniqueConstraintViolationException $e) {
+			// [Лорелея]: Гонка на unique. База спасла один, второй
+			// получил бы 500. Теперь — 409 и понятное сообщение.
+			$this->session->set('register_error', 'Логин или email уже занят');
+			return new RedirectResponse('/register');
+		} catch (\Throwable $e) {
+			// [Мириам]: Всё остальное — логируем и отдаём общую ошибку.
+			if ($this->logger !== null) {
+				$this->logger->error('registration failed', [
+					'message' => $e->getMessage(),
+					'file'    => $e->getFile() . ':' . $e->getLine(),
+				]);
+			}
+
+			$this->session->set('register_error', 'Ошибка регистрации. Попробуйте позже.');
+			return new RedirectResponse('/register');
+		}
 
 		return new RedirectResponse('/login');
+	}
+
+	/**
+	 * Проверяет, что пароль достаточно сложный.
+	 *
+	 * [Лорелея]: Это не «идеал», а минимум. Пароль должен содержать
+	 * хотя бы три из четырёх классов символов: строчные, заглавные,
+	 * цифры, спецсимволы. И не быть из blacklist.
+	 *
+	 * [Мириам]: И это правильно, потому что слабый пароль — это дыра,
+	 * даже если он длинный.
+	 *
+	 * @param string $password
+	 * @return bool
+	 */
+	private function isPasswordStrong(string $password): bool
+	{
+		$blacklist = ['password', '12345678', 'qwerty123', 'aaaaaaaa', 'admin123'];
+		if (in_array(strtolower($password), $blacklist, true)) {
+			return false;
+		}
+
+		$classes = 0;
+		if (preg_match('/[a-z]/', $password)) $classes++;
+		if (preg_match('/[A-Z]/', $password)) $classes++;
+		if (preg_match('/[0-9]/', $password)) $classes++;
+		if (preg_match('/[^a-zA-Z0-9]/', $password)) $classes++;
+
+		return $classes >= 3;
 	}
 }

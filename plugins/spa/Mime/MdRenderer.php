@@ -71,6 +71,11 @@ class MdRenderer implements MimeRendererInterface
 		$environment->addExtension(new StrikethroughExtension());
 		$environment->addExtension(new TaskListExtension());
 
+		// [Лорелея]: Добавляем DisallowRawHtml, потому что html_input: 'strip'
+		// не всегда убирает inline HTML, а через редактируемые страницы
+		// можно пронести XSS.
+		$environment->addExtension(new \League\CommonMark\Extension\DisallowedRawHtml\DisallowedRawHtmlExtension());
+
 		$this->converter = new MarkdownConverter($environment);
 	}
 

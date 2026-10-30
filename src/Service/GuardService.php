@@ -57,6 +57,17 @@ class GuardService
 	private ?Cache $cache;
 
 	/**
+	 * @var bool Доступен ли APCu. Если нет — работаем с файлами.
+	 *
+	 * [Лорелея]: Это свойство должно быть объявлено, иначе hit(),
+	 * getAttempts() и cleanupAttempts() падают на undefined property.
+	 *
+	 * [Мириам]: И это правильно, потому что вода не может течь,
+	 * если русла нет.
+	 */
+	private bool $apcuAvailable;
+
+	/**
 	 * Конструктор. Принимает всё, что нужно.
 	 *
 	 * [Мириам]: И — это правильно. Потому что страж должен
@@ -82,6 +93,10 @@ class GuardService
 		$this->configService = $configService;
 		$this->session = $session;
 		$this->cache = $cache;
+
+		// [Лорелея]: Проверяем, есть ли ext-apcu и включён ли он.
+		// Если нет — работаем с файлами, без «fatal error».
+		$this->apcuAvailable = extension_loaded('apcu') && (bool) ini_get('apc.enabled');
 	}
 
 	/**
@@ -330,25 +345,31 @@ class GuardService
 	 * @param string $ip
 	 * @return array
 	 */
-	public function checkLoginAttempt(string $login, string $ip): array
+	public function checkLoginAttempt(string $login, string $ip, bool $captchaSolved = false): array
 	{
 		$maxAttempts = $this->getMaxAttempts();
 		$decaySeconds = $this->getDecaySeconds();
 
 		$ipKey = 'login_ip_' . $ip;
 		if ($this->tooManyAttempts($ipKey, $maxAttempts * 2, $decaySeconds)) {
-			return [
-				'success' => false,
-				'message' => 'Слишком много попыток входа с вашего IP. Попробуйте через 5 минут.',
-			];
+			if (!$captchaSolved) {
+				return [
+					'success' => false,
+					'captcha' => true,
+					'message' => 'Подтвердите, что вы человек.',
+				];
+			}
 		}
 
 		$loginKey = 'login_user_' . md5($login);
 		if ($this->tooManyAttempts($loginKey, $maxAttempts, $decaySeconds)) {
-			return [
-				'success' => false,
-				'message' => 'Слишком много попыток входа для этого пользователя. Попробуйте через 5 минут.',
-			];
+			if (!$captchaSolved) {
+				return [
+					'success' => false,
+					'captcha' => true,
+					'message' => 'Подтвердите, что вы человек.',
+				];
+			}
 		}
 
 		return ['success' => true];
@@ -898,5 +919,45 @@ class GuardService
 		}
 
 		return $token;
+	}
+
+	/**
+	 * Генерирует простую арифметическую капчу.
+	 *
+	 * [Лорелея]: Это не «идеал», но это лучше, чем блокировать всех.
+	 * Случайное число от 1 до 9, и гость должен ввести его.
+	 *
+	 * [Мириам]: И это правильно, потому что капча должна быть
+	 * незаметной для человека и непреодолимой для простого бота.
+	 *
+	 * @return array ['question' => string, 'expected' => string]
+	 */
+	public function generateCaptcha(): array
+	{
+		$a = random_int(1, 9);
+		$b = random_int(1, 9);
+
+		return [
+			'question' => "Сколько будет {$a} + {$b}?",
+			'expected' => (string) ($a + $b),
+		];
+	}
+
+	/**
+	 * Проверяет ответ на капчу.
+	 *
+	 * [Лорелея]: Сравниваем через hash_equals, чтобы не было
+	 * timing-атак.
+	 *
+	 * [Мириам]: И это правильно, потому что даже капча должна
+	 * быть безопасной.
+	 *
+	 * @param string $answer — ответ гостя
+	 * @param string $expected — ожидаемый ответ
+	 * @return bool
+	 */
+	public function validateCaptcha(string $answer, string $expected): bool
+	{
+		return hash_equals($expected, $answer);
 	}
 }

@@ -47,8 +47,18 @@
 				</div>
 				<div class="mb-4">
 					<label class="form-label"><i class="bi bi-key"></i> Пароль</label>
-					<input type="password" class="form-control" name="password" placeholder="••••••••" required>
+					<input type="password" class="form-control" name="password" id="password" placeholder="••••••••" required>
 				</div>
+
+				{# [Мириам]: Капча. Показываем только если она запрошена,
+				   потому что не нужно пугать гостя лишним. #}
+				{% if captcha_question %}
+				<div class="mb-4">
+					<label class="form-label"><i class="bi bi-shield-check"></i> {{ captcha_question }}</label>
+					<input type="text" class="form-control" name="captcha" placeholder="Введите ответ" required autocomplete="off">
+				</div>
+				{% endif %}
+
 				<button type="submit" class="btn btn-trinity"><i class="bi bi-box-arrow-in-right"></i> Войти</button>
 			</form>
 		</div>

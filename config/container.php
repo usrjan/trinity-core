@@ -32,7 +32,7 @@ use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Service\GuardService;
-
+use Jan\Trinity\Core\Service\CacheInvalidator;
 use Jan\Trinity\Plugin\Admin\AdminController;
 use Jan\Trinity\Plugin\Users\AuthController;
 use Jan\Trinity\Plugin\Users\ProfileController;
@@ -119,6 +119,17 @@ return [
 		$enabled = ($_ENV['CACHE_ENABLED'] ?? 'true') === 'true';
 		return new Cache($enabled);
 	},
+
+	// ============================================
+	// CACHE INVALIDATOR
+	// ============================================
+	// [Лорелея]: CacheInvalidator получает Cache и basePath,
+	// потому что он знает, где лежит файл матчера и файл конфигов.
+	//
+	// [Мириам]: И это правильно, потому что инвалидатор должен
+	// знать, что сбрасывать, но не должен знать о Kernel.
+	CacheInvalidator::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
 
 	// ============================================
 	// 4. СЕССИЯ
@@ -321,7 +332,7 @@ return [
 		$formatter = new LineFormatter(
 			"[%datetime%] %channel%.%level_name%: %message% %context%\n",
 			'Y-m-d H:i:s',
-			true,
+			false,
 			true
 		);
 
@@ -337,7 +348,7 @@ return [
 			$appHandler,
 			Level::Error,
 			0,
-			true,
+			false,
 			true
 		);
 
@@ -356,7 +367,7 @@ return [
 		$formatter = new LineFormatter(
 			"[%datetime%] %channel%.%level_name%: %message% %context%\n",
 			'Y-m-d H:i:s',
-			true,
+			false,
 			true
 		);
 
@@ -379,7 +390,7 @@ return [
 		$formatter = new LineFormatter(
 			"[%datetime%] %channel%.%level_name%: %message% %context%\n",
 			'Y-m-d H:i:s',
-			true,
+			false,
 			true
 		);
 
@@ -402,7 +413,7 @@ return [
 		$formatter = new LineFormatter(
 			"[%datetime%] %channel%.%level_name%: %message% %context%\n",
 			'Y-m-d H:i:s',
-			true,
+			false,
 			true
 		);
 

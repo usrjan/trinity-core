@@ -50,6 +50,7 @@ return function ($routes) {
 	$routes->add('gallery_update_item', new Route('/api/gallery/item/{id}/update', [
 		'_controller' => GalleryController::class,
 		'_method'     => 'updateItem',
+		'_roles'      => ['role_admin'],
 	], ['id' => '\d+'], [], '', [], ['POST']));
 
 	// ============================================
@@ -62,6 +63,7 @@ return function ($routes) {
 	$routes->add('gallery_upload_to_item', new Route('/api/gallery/item/{id}/upload', [
 		'_controller' => GalleryController::class,
 		'_method'     => 'uploadToItem',
+		'_roles'      => ['role_admin'],
 	], ['id' => '\d+'], [], '', [], ['POST']));
 
 	// ============================================
@@ -74,6 +76,7 @@ return function ($routes) {
 	$routes->add('gallery_delete_file', new Route('/api/gallery/file/{id}', [
 		'_controller' => GalleryController::class,
 		'_method'     => 'deleteFile',
+		'_roles'      => ['role_admin'],
 	], ['id' => '\d+'], [], '', [], ['DELETE']));
 
 	// ============================================
@@ -86,6 +89,7 @@ return function ($routes) {
 	$routes->add('gallery_delete_item', new Route('/api/gallery/item/{id}', [
 		'_controller' => GalleryController::class,
 		'_method'     => 'deleteItem',
+		'_roles'      => ['role_admin'],
 	], ['id' => '\d+'], [], '', [], ['DELETE']));
 
 	// ============================================
@@ -122,6 +126,7 @@ return function ($routes) {
 	$routes->add('gallery_set_thumb', new Route('/api/gallery/section/{id}/set-thumb', [
 		'_controller' => GalleryController::class,
 		'_method'     => 'setSectionThumb',
+		'_roles'      => ['role_admin'],
 	], ['id' => '\d+'], [], '', [], ['POST']));
 
 	// ============================================
@@ -134,6 +139,7 @@ return function ($routes) {
 	$routes->add('gallery_create_section', new Route('/api/gallery/section/create', [
 		'_controller' => GalleryController::class,
 		'_method'     => 'createSection',
+		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['POST']));
 
 	// ============================================
@@ -158,6 +164,7 @@ return function ($routes) {
 	$routes->add('gallery_upload', new Route('/api/gallery/upload', [
 		'_controller' => GalleryController::class,
 		'_method'     => 'upload',
+		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['POST']));
 
 	// ============================================
@@ -170,5 +177,6 @@ return function ($routes) {
 	$routes->add('gallery_import', new Route('/api/gallery/import', [
 		'_controller' => GalleryController::class,
 		'_method'     => 'import',
+		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['POST']));
 };

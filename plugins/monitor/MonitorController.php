@@ -256,21 +256,41 @@ class MonitorController implements ErrorHandlerInterface
 			'type'    => $body['type'] ?? 'error',
 			'line'    => $body['line'] ?? 0,
 			'url'     => $body['url'] ?? null,
+			'file'    => $body['file'] ?? null,
+			'user'    => $body['user'] ?? null,
 		], [
 			'message' => ['required', 'string', 'min:1', 'max:2048'],
 			'type'    => ['nullable', 'string', 'max:50'],
 			'line'    => ['nullable', 'int', 'min:0'],
 			'url'     => ['nullable', 'string', 'max:2048', 'url'],
+			'file'    => ['nullable', 'string', 'max:1024'],
+			'user'    => ['nullable', 'string', 'max:255'],
 		])) {
 			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
-		$this->logger->warning($body['message'], [
-			'type' => $body['type'] ?? 'error',
-			'file' => $body['file'] ?? 'unknown',
-			'line' => $body['line'] ?? 0,
-			'url'  => $body['url'] ?? 'unknown',
-			'user' => $body['user'] ?? 'guest',
+		// [Лорелея]: Убираем \r и \n, чтобы аноним не мог вставить
+		// фальшивую строку в лог. Режем по длине — второй раз, после
+		// валидатора, потому что валидатор проверяет, а не режет.
+		$sanitize = static function (?string $value, int $max): string {
+			if ($value === null) return '';
+			$value = str_replace(["\r", "\n", "\t"], ' ', $value);
+			return mb_substr($value, 0, $max);
+		};
+
+		$safeMessage = $sanitize($body['message'], 2048);
+		$safeType    = $sanitize($body['type'] ?? 'error', 50);
+		$safeFile    = $sanitize($body['file'] ?? 'unknown', 1024);
+		$safeUser    = $sanitize($body['user'] ?? 'guest', 255);
+		$safeUrl     = $sanitize($body['url'] ?? 'unknown', 2048);
+		$safeLine    = (int) ($body['line'] ?? 0);
+
+		$this->logger->warning($safeMessage, [
+			'type' => $safeType,
+			'file' => $safeFile,
+			'line' => $safeLine,
+			'url'  => $safeUrl,
+			'user' => $safeUser,
 			'ip'   => $ip,
 		]);
 

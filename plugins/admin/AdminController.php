@@ -36,6 +36,7 @@ use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Trait\DebugTrait;
 use Jan\Trinity\Core\Service\GuardService;
+use Jan\Trinity\Core\Service\CacheInvalidator;
 use Jan\Trinity\Plugin\Spa\Mime\MimeController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -82,11 +83,14 @@ class AdminController
 	 */
 	private MimeController $mimeController;
 
+	/** @var ConfigService — сервис конфигурации. */
+	private ConfigService $configService;
+
 	/** @var string — путь к корню проекта. */
 	private string $basePath;
 
-	/** @var ConfigService — сервис конфигурации. */
-	private ConfigService $configService;
+	/** @var CacheInvalidator — инвалидатор кэша. */
+	private CacheInvalidator $cacheInvalidator;
 
 	/**
 	 * Конструктор.
@@ -107,7 +111,8 @@ class AdminController
 		Cache $cache,
 		MimeController $mimeController,
 		ConfigService $configService,
-		string $basePath
+		string $basePath,
+		CacheInvalidator $cacheInvalidator
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
@@ -120,6 +125,7 @@ class AdminController
 		$this->mimeController = $mimeController;
 		$this->configService = $configService;
 		$this->basePath = rtrim($basePath, '/');
+		$this->cacheInvalidator = $cacheInvalidator;
 
 		$this->initAuth($session, $synapseRepo);
 	}
@@ -415,7 +421,7 @@ class AdminController
 
 		// [Лорелея]: Сбрасываем кэш MimeController, потому что
 		// содержимое нейрона изменилось.
-		$this->mimeController->forgetCache($id);
+		$this->cacheInvalidator->invalidateMimeCache($id);
 
 		// [Мириам]: И если тип был route или стал route — удаляем
 		// скомпилированный матчер, потому что карта изменилась
@@ -429,8 +435,8 @@ class AdminController
 
 		// [Лорелея]: И кэш APCu для роутов и конфигов — тоже.
 		if (isset($fields['type']) && in_array($fields['type'], ['route', 'config'], true)) {
-			$this->cache->forget('trinity.routes');
-			$this->cache->forget('trinity.config');
+			$this->cacheInvalidator->invalidateRouteCache();
+			$this->cacheInvalidator->invalidateConfigCache();
 		}
 
 		return ApiResponse::success(['id' => $id]);
@@ -462,24 +468,14 @@ class AdminController
 
 		$this->neuronRepo->delete($id);
 
-		$this->mimeController->forgetCache($id);
+		// [Лорелея]: Сбрасываем кэш Mime, потому что нейрон удалён.
+		$this->cacheInvalidator->invalidateMimeCache($id);
 
-		// [Лорелея]: Если это был route — удаляем скомпилированный
-		// матчер, потому что карта изменилась.
-		if ($neuron['type'] === 'route') {
-			$this->invalidateMatcherCache();
-		}
-
-		// [Лорелея]: Если это config — инвалидируем файловый кэш,
-		// потому что конфиги изменились.
-		if (isset($fields['type']) && $fields['type'] === 'config') {
-			$this->invalidateConfigCache();
-		}
-
-		// [Мириам]: И кэш APCu для роутов и конфигов — тоже.
+		// [Мириам]: Смотрим на $neuron['type'], а не на $fields['type'],
+		// потому что $fields в delete() нет, и мёртвый код прятал баг.
 		if (in_array($neuron['type'], ['route', 'config'], true)) {
-			$this->cache->forget('trinity.routes');
-			$this->cache->forget('trinity.config');
+			$this->cacheInvalidator->invalidateRouteCache();
+			$this->cacheInvalidator->invalidateConfigCache();
 		}
 
 		return ApiResponse::success(['id' => $id]);

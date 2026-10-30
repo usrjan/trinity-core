@@ -50,6 +50,7 @@ return function ($routes) {
 	$routes->add('guard_block_ip', new Route('/api/guard/block-ip', [
 		'_controller' => GuardController::class,
 		'_method'     => 'blockIpApi',
+		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['POST']));
 
 	// ============================================
@@ -66,10 +67,12 @@ return function ($routes) {
 	$routes->add('guard_unblock_ip', new Route('/api/guard/unblock-ip', [
 		'_controller' => GuardController::class,
 		'_method'     => 'unblockIpApi',
+		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['POST']));
 
 	$routes->add('guard_csrf_token', new Route('/api/csrf-token', [
 		'_controller' => GuardController::class,
 		'_method'     => 'csrfTokenApi',
+		'_roles'      => ['role_admin'],
 	]));
 };

@@ -106,19 +106,27 @@ if (!empty($trustedProxies)) {
 // ============================================
 // TRUSTED HOSTS
 // ============================================
-// [Лорелея]: Включаем setTrustedHosts, если в .env есть список,
-// потому что заголовок Host тоже можно подделать, и это уже
-// не «мелочь», а дыра.
+// [Лорелея]: В prod fail-fast, потому что без trusted hosts
+// Symfony принимает любой Host, и это — cache poisoning.
+// В dev можно оставить пустым, но это осознанный компромисс.
 //
-// [Мириам]: И это правильно, потому что хост должен быть тем,
-// кем он представился.
+// [Мириам]: И это правильно, потому что защита должна быть
+// защитой, а не надеждой.
 $trustedHosts = $_ENV['TRUSTED_HOSTS'] ?? '';
+$appEnv = $_ENV['APP_ENV'] ?? 'prod';
+
 if (!empty($trustedHosts)) {
 	$hosts = array_map('trim', explode(',', $trustedHosts));
 	Request::setTrustedHosts($hosts);
+} elseif ($appEnv === 'prod') {
+	// [Лорелея]: Fail-fast. Если в prod нет trusted hosts —
+	// дом не должен работать, потому что это дыра.
+	http_response_code(500);
+	echo 'Trinity: TRUSTED_HOSTS is empty in production. Set it in .env.';
+	exit(1);
 } else {
-	// [Лорелея]: Если список пуст — предупреждаем, но не падаем,
-	// потому что на dev это нормально, а на prod — повод задуматься.
+	// [Мириам]: В dev можно без trusted hosts, но это осознанный
+	// компромисс, и мы пишем предупреждение, чтобы не забыть.
 	error_log('[Trinity] TRUSTED_HOSTS is empty. Host header spoofing is possible.');
 }
 

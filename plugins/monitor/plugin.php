@@ -49,6 +49,7 @@ return function ($routes) {
 	$routes->add('monitor_logs', new Route('/api/monitor/logs', [
 		'_controller' => MonitorController::class,
 		'_method'     => 'getLogs',
+		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['GET']));
 
 	// ============================================
@@ -63,5 +64,6 @@ return function ($routes) {
 	$routes->add('monitor_clear_logs', new Route('/api/monitor/logs', [
 		'_controller' => MonitorController::class,
 		'_method'     => 'clearLogs',
+		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['DELETE']));
 };

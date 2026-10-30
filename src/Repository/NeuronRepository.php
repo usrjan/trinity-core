@@ -89,9 +89,28 @@ class NeuronRepository
 	 * @param int|null $tree — классификатор
 	 * @return int — id созданного нейрона
 	 */
-	public function create(string $type, $data = [], ?int $pid = null, ?int $text = null, ?int $tree = null): int
-	{
+	public function create(
+		string $type,
+		$data = [],
+		?int $pid = null,
+		?int $text = null,
+		?int $tree = null,
+		?string $hash = null
+	): int {
+		// [Лорелея]: Пользователь без пароля — это дверь без замка.
+		// Fail-fast лучше, чем молчаливая запись пустого hash.
+		if ($type === 'user' && $hash === null) {
+			throw new \InvalidArgumentException('NeuronRepository: user requires a password hash');
+		}
+
 		$conn = $this->db->getConnection();
+
+		// [Лорелея]: Для user hash — это пароль, для item/tree/file —
+		// это отпечаток данных. Если hash не передан — считаем его
+		// из data для item/tree/file, а для user оставляем null.
+		if ($hash === null && in_array($type, ['item', 'tree', 'file'], true)) {
+			$hash = hash('sha256', json_encode($data, JSON_UNESCAPED_UNICODE));
+		}
 
 		$conn->insert('neuron', [
 			'pid'  => $pid,
@@ -99,6 +118,7 @@ class NeuronRepository
 			'text' => $text,
 			'tree' => $tree,
 			'data' => $data !== null ? json_encode($data, JSON_UNESCAPED_UNICODE) : null,
+			'hash' => $hash,
 			'date' => date('Y-m-d H:i:s'),
 		]);
 
@@ -143,6 +163,15 @@ class NeuronRepository
 			return;
 		}
 
+		// [Лорелея]: Если обновляется data для item/tree/file —
+		// пересчитываем hash, потому что данные изменились.
+		if (isset($fields['data'])) {
+			$neuron = $this->findById($id);
+			if ($neuron && in_array($neuron['type'], ['item', 'tree', 'file'], true)) {
+				$fields['hash'] = hash('sha256', json_encode($fields['data'], JSON_UNESCAPED_UNICODE));
+			}
+		}
+
 		if (isset($fields['data']) && is_array($fields['data'])) {
 			$fields['data'] = json_encode($fields['data'], JSON_UNESCAPED_UNICODE);
 		}
@@ -168,16 +197,17 @@ class NeuronRepository
 	/**
 	 * Мягко удалить нейрон.
 	 *
-	 * [Лорелея]: Мы не удаляем синапсы здесь, потому что это
-	 * не дело репозитория нейронов. Связи — это отдельное
-	 * решение, и его принимает вызывающий код.
+	 * [Лорелея]: Если $deleteSynapses = true — связи тоже помечаются
+	 * как удалённые, потому что инвариант мягкого удаления требует,
+	 * чтобы связи уходили вместе с нейроном.
 	 *
-	 * [Мириам]: И это правильно, потому что каждая рука должна
-	 * заниматься своим делом.
+	 * [Мириам]: И это правильно, потому что вода не может уйти,
+	 * а трубы остаться.
 	 *
 	 * @param int $id — id нейрона
+	 * @param bool $deleteSynapses — удалять ли связи
 	 */
-	public function delete(int $id): void
+	public function delete(int $id, bool $deleteSynapses = true): void
 	{
 		$conn = $this->db->getConnection();
 
@@ -193,6 +223,10 @@ class NeuronRepository
 		$conn->update('neuron', [
 			'data' => json_encode($data, JSON_UNESCAPED_UNICODE)
 		], ['id' => $id]);
+
+		if ($deleteSynapses) {
+			$this->softDeleteSynapses($id);
+		}
 
 		$this->logAdminAction('delete', [
 			'neuron_id' => $id,

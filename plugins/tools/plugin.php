@@ -47,5 +47,6 @@ return function ($routes) {
 	$routes->add('tools_report_social', new Route('/api/tools/report-social', [
 		'_controller' => ToolsController::class,
 		'_method'     => 'reportSocial',
+		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['POST']));
 };
