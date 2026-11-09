@@ -66,4 +66,10 @@ return function ($routes) {
 		'_method'     => 'clearLogs',
 		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['DELETE']));
+
+	$routes->add('monitor_csp_report', new Route('/api/monitor/csp', [
+		'_controller' => MonitorController::class,
+		'_method'     => 'collectCspReport',
+		'_csrf'       => false,
+	], [], [], '', [], ['POST']));
 };

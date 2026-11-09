@@ -152,9 +152,6 @@ class Kernel
 			$this->configService = $this->container->get(ConfigService::class);
 			$this->configService->load();
 		} catch (\Throwable $e) {
-			// [Лорелея]: Логируем, потому что молчаливая потеря
-			// конфигурации хуже, чем явная ошибка. CORS пустой,
-			// guard-лимиты дефолтные, и никто не узнает почему.
 			if ($this->logger !== null) {
 				$this->logger->error('ConfigService load failed', [
 					'message' => $e->getMessage(),
@@ -162,6 +159,12 @@ class Kernel
 				]);
 			} else {
 				error_log('[Trinity] ConfigService load failed: ' . $e->getMessage());
+			}
+
+			// [Лорелея]: В prod — fail-fast. Дом без конфига — это дом
+			// без защиты. Лучше не работать, чем работать вслепую.
+			if (($_ENV['APP_ENV'] ?? 'prod') === 'prod') {
+				throw new \RuntimeException('Config load failed. See error.log.');
 			}
 
 			$this->configService = null;
@@ -252,13 +255,13 @@ class Kernel
 	{
 		$request = Request::createFromGlobals();
 
-		// [Лорелея]: Обрабатываем OPTIONS и HEAD до всего остального,
-		// потому что это — не «страницы», а «служебные запросы».
-		// HEAD — это GET без тела, и он должен работать так же.
-		if ($request->getMethod() === 'OPTIONS' || $request->getMethod() === 'HEAD') {
-			$this->handleOptions($request);
-			return;
-		}
+	// [Лорелея]: OPTIONS — в handleOptions(), HEAD — в dispatch().
+	// HEAD — это GET без тела, он должен идти тем же путём,
+	// что и GET, чтобы мониторинг видел реальный статус.
+	if ($request->getMethod() === 'OPTIONS') {
+		$this->handleOptions($request);
+		return;
+	}
 
 		try {
 			$response = $this->dispatch($request);
@@ -304,6 +307,24 @@ class Kernel
 		$response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
 		$response->headers->set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
 
+		// [Лорелея]: CSP Report-Only. Не блокирует, а сообщает.
+		// Начинаем с 'unsafe-inline', потому что inline-скрипты
+		// в шаблонах. Потом вычищаем inline и убираем 'unsafe-inline'.
+		$csp = implode('; ', [
+			"default-src 'self'",
+			"script-src 'self' 'unsafe-inline' https://api-maps.yandex.ru",
+			"style-src 'self' 'unsafe-inline'",
+			"img-src 'self' data: https://*.yandex.ru",
+			"font-src 'self'",
+			"connect-src 'self'",
+			"frame-ancestors 'self'",
+			"base-uri 'self'",
+			"form-action 'self'",
+			"report-uri /api/monitor/csp",
+		]);
+
+		$response->headers->set('Content-Security-Policy-Report-Only', $csp);
+
 		// [Мириам]: HSTS только для HTTPS, потому что на HTTP он
 		// не имеет смысла и может сломать dev-окружение.
 		if ($request->isSecure()) {
@@ -312,6 +333,7 @@ class Kernel
 
 		$response->headers->set('Access-Control-Allow-Methods', self::CORS_ALLOW_METHODS);
 		$response->headers->set('Access-Control-Allow-Headers', self::CORS_ALLOW_HEADERS);
+
 		$response->send();
 	}
 
@@ -366,6 +388,13 @@ class Kernel
 	 */
 	private function dispatch(Request $request): Response
 	{
+		// [Лорелея]: HEAD — это GET без тела. Symfony сам обрежет
+		// тело при send(), но матчер должен видеть GET, иначе
+		// HEAD-маршрут не найдётся. Меняем метод перед матчингом.
+		if ($request->getMethod() === 'HEAD') {
+			$request->setMethod('GET');
+		}
+
 		// [Лорелея]: EARLY-CHECK. Заблокированный IP — не гость.
 		$ip = $request->getClientIp();
 		if ($ip && $this->container->has(GuardService::class)) {
@@ -379,7 +408,8 @@ class Kernel
 		// GET-страницы не нуждаются в ней.
 		$session = $this->container->get(Session::class);
 
-		// [Лорелея]: Файловые роуты. Один маршрут — home.
+		// [Лорелея]: Роуты — из кэша варианта C. Плагины и файл
+		// вызываются только при промахе кэша, внутри buildRawRoutes().
 		$routes = new \Symfony\Component\Routing\RouteCollection();
 		$this->loadRoutesFromDatabase($routes);
 
@@ -695,13 +725,13 @@ class Kernel
 	}
 
 	/**
-	 * Загружает скомпилированный матчер маршрутов.
+	 * Возвращает скомпилированный матчер маршрутов.
 	 *
-	 * [Лорелея]: Контекст приходит параметром, потому что создавать
-	 * его заново из globals — это лишняя работа.
-	 *
-	 * [Мириам]: И это правильно, потому что контекст должен быть
-	 * один, и он должен быть там, где его создали.
+	 * [Лорелея]: PhpMatcherDumper в Symfony 8 нет — его заменили
+	 * на CompiledUrlMatcherDumper ещё в 3.x. Но CompiledUrlMatcherDumper
+	 * даёт массив, не класс. Мы оборачиваем массив в класс
+	 * TrinityUrlMatcher extends CompiledUrlMatcher — и грузим его
+	 * через require_once + opcache. Горячий путь — new + match().
 	 *
 	 * @param RouteCollection $routes
 	 * @param RequestContext $context
@@ -716,21 +746,36 @@ class Kernel
 
 		$matcherFile = $cacheDir . '/TrinityUrlMatcher.php';
 
+		// [Мириам]: Если файл есть — грузим класс. require_once
+		// после первого раза — no-op. Опкод — в opcache.
 		if (file_exists($matcherFile)) {
-			$compiled = require $matcherFile;
+			require_once $matcherFile;
 
-			if (is_array($compiled)) {
-				return new CompiledUrlMatcher($compiled, $context);
+			if (class_exists('TrinityUrlMatcher', false)) {
+				return new \TrinityUrlMatcher($context);
 			}
 
+			// [Лорелея]: Файл есть, а класса нет — битый файл.
+			// Удаляем и компилируем заново.
 			@unlink($matcherFile);
 		}
 
-		$dumper = new CompiledUrlMatcherDumper($routes);
+		// [Мириам]: Компилируем массив через CompiledUrlMatcherDumper.
+		$dumper = new \Symfony\Component\Routing\Matcher\Dumper\CompiledUrlMatcherDumper($routes);
 		$compiled = $dumper->getCompiledRoutes();
 
-		$code = '<?php' . "\n\n" . 'return ' . var_export($compiled, true) . ';' . "\n";
+		// [Лорелея]: Оборачиваем массив в класс. Это то, что делал
+		// PhpMatcherDumper, но вручную — 10 строк вместо целого класса.
+		$code = '<?php' . "\n\n"
+			. 'class TrinityUrlMatcher extends \\Symfony\\Component\\Routing\\Matcher\\CompiledUrlMatcher' . "\n"
+			. '{' . "\n"
+			. "\t" . 'public function __construct($context)' . "\n"
+			. "\t" . '{' . "\n"
+			. "\t\t" . 'parent::__construct(' . var_export($compiled, true) . ', $context);' . "\n"
+			. "\t" . '}' . "\n"
+			. '}' . "\n";
 
+		// [Мириам]: Атомарная запись через tmp + rename.
 		$tmp = $matcherFile . '.' . uniqid('', true) . '.tmp';
 		file_put_contents($tmp, $code, LOCK_EX);
 		rename($tmp, $matcherFile);
@@ -742,7 +787,9 @@ class Kernel
 			@opcache_invalidate($matcherFile, true);
 		}
 
-		return new CompiledUrlMatcher($compiled, $context);
+		require_once $matcherFile;
+
+		return new \TrinityUrlMatcher($context);
 	}
 
 	private function renderError(int $code, string $message, \Throwable $e): Response
@@ -1002,6 +1049,15 @@ class Kernel
 	private function getPluginsMtime(): int
 	{
 		$dir = $this->basePath . '/plugins';
-		return is_dir($dir) ? (int) filemtime($dir) : 0;
+		if (!is_dir($dir)) return 0;
+
+		$max = 0;
+		foreach (glob($dir . '/*/plugin.php') ?: [] as $file) {
+			$m = filemtime($file);
+			if ($m !== false && $m > $max) {
+				$max = $m;
+			}
+		}
+		return $max;
 	}
 }

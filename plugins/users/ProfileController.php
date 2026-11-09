@@ -37,6 +37,7 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Twig\Environment;
+use Psr\Log\LoggerInterface;
 
 class ProfileController
 {
@@ -68,6 +69,9 @@ class ProfileController
 
 	private Validator $validator;
 
+	/** @var LoggerInterface — логгер. */
+	private LoggerInterface $logger;
+
 	/**
 	 * Конструктор.
 	 *
@@ -84,7 +88,8 @@ class ProfileController
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
 		GuardService $guard,
-		Validator $validator
+		Validator $validator,
+		LoggerInterface $logger
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
@@ -92,6 +97,7 @@ class ProfileController
 		$this->synapseRepo = $synapseRepo;
 		$this->guard = $guard;
 		$this->validator = $validator;
+		$this->logger = $logger;
 
 		$this->initAuth($session, $synapseRepo);
 	}
@@ -297,7 +303,18 @@ class ProfileController
 			$data['password_hash'] = password_hash($newPassword, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS);
 		}
 
-		$this->neuronRepo->update($userId, ['data' => $data]);
+		try {
+			$this->neuronRepo->update($userId, ['data' => $data]);
+		} catch (\Throwable $e) {
+			$this->logger->error('profile update failed', [
+				'message' => $e->getMessage(),
+				'file'    => $e->getFile() . ':' . $e->getLine(),
+				'user_id' => $userId,
+			]);
+
+			$this->session->set('profile_error', 'Ошибка сохранения. Попробуйте позже.');
+			return new RedirectResponse('/profile/edit');
+		}
 
 		return new RedirectResponse('/profile');
 	}

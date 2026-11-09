@@ -76,13 +76,11 @@ class Cache implements CacheInterface
 	/**
 	 * Получить значение из кэша или создать новое.
 	 *
-	 * [Лорелея]: null и false не кэшируем, потому что apcu_fetch
-	 * возвращает false и при промахе, и при значении false.
-	 * А вот [] и 0 кэшируются нормально, потому что 0 !== false,
-	 * и промах от значения отличается.
-	 *
-	 * [Мириам]: И это правильно, потому что пустой массив — это
-	 * не «ничего», а «пусто», и это разные вещи.
+	 * [Лорелея]: apcu_entry блокирует APCu на время колбэка.
+	 * Только один воркер выполняет его, остальные ждут.
+	 * Stampede нет. Для buildRawRoutes — десятки миллисекунд,
+	 * это терпимо. Для тяжёлых колбэков — не подходит, но
+	 * у нас таких нет.
 	 *
 	 * @param string $key — ключ кэша
 	 * @param callable $callback — функция для создания значения
@@ -95,17 +93,11 @@ class Cache implements CacheInterface
 			return $callback();
 		}
 
-		$success = false;
-		$wrapped = apcu_fetch($key, $success);
+		$wrapped = apcu_entry($key, function () use ($callback) {
+			return ['v' => $callback()];
+		}, $ttl);
 
-		if ($success && is_array($wrapped) && array_key_exists('v', $wrapped)) {
-			return $wrapped['v'];
-		}
-
-		$value = $callback();
-		apcu_store($key, ['v' => $value], $ttl);
-
-		return $value;
+		return $wrapped['v'] ?? null;
 	}
 
 

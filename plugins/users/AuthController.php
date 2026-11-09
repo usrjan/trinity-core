@@ -36,6 +36,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Twig\Environment;
+use Psr\Log\LoggerInterface;
 
 class AuthController
 {
@@ -67,6 +68,9 @@ class AuthController
 
 	private Validator $validator;
 
+	/** @var LoggerInterface — логгер. */
+	private LoggerInterface $logger;
+
 	/**
 	 * Конструктор.
 	 *
@@ -83,7 +87,8 @@ class AuthController
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
 		GuardService $guard,
-		Validator $validator
+		Validator $validator,
+		LoggerInterface $logger
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
@@ -91,6 +96,7 @@ class AuthController
 		$this->synapseRepo = $synapseRepo;
 		$this->guard = $guard;
 		$this->validator = $validator;
+		$this->logger = $logger;
 
 		$this->initAuth($session, $synapseRepo);
 	}

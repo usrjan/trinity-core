@@ -350,26 +350,37 @@ class GuardService
 		$maxAttempts = $this->getMaxAttempts();
 		$decaySeconds = $this->getDecaySeconds();
 
-		$ipKey = 'login_ip_' . $ip;
-		if ($this->tooManyAttempts($ipKey, $maxAttempts * 2, $decaySeconds)) {
+		$pairKey = 'login_pair_' . md5($ip . '|' . strtolower($login));
+
+		// [Лорелея]: Лимит по паре (ip+login) — основной.
+		// Капча не отменяет его, а только позволяет продолжить,
+		// если лимит ещё не исчерпан.
+		if ($this->tooManyAttempts($pairKey, $maxAttempts, $decaySeconds)) {
 			if (!$captchaSolved) {
+				// [Мириам]: Капча не решена — считаем попытку,
+				// чтобы нельзя было слать бесконечно.
+				$this->hit($pairKey, $decaySeconds);
 				return [
 					'success' => false,
 					'captcha' => true,
 					'message' => 'Подтвердите, что вы человек.',
 				];
 			}
+
+			return [
+				'success' => false,
+				'message' => 'Слишком много попыток. Попробуйте позже.',
+			];
 		}
 
-		$loginKey = 'login_user_' . md5($login);
-		if ($this->tooManyAttempts($loginKey, $maxAttempts, $decaySeconds)) {
-			if (!$captchaSolved) {
-				return [
-					'success' => false,
-					'captcha' => true,
-					'message' => 'Подтвердите, что вы человек.',
-				];
-			}
+		// [Лорелея]: IP-лимит — только для явного brute-force
+		// (много разных логинов с одного IP). Не для «капчи».
+		$ipKey = 'login_ip_' . $ip;
+		if ($this->tooManyAttempts($ipKey, $maxAttempts * 10, $decaySeconds)) {
+			return [
+				'success' => false,
+				'message' => 'Слишком много попыток с вашего IP. Попробуйте позже.',
+			];
 		}
 
 		return ['success' => true];
@@ -391,8 +402,9 @@ class GuardService
 	{
 		$decaySeconds = (int) $this->getConfig('decay_seconds', 300);
 
+		$pairKey = 'login_pair_' . md5($ip . '|' . strtolower($login));
+		$this->hit($pairKey, $decaySeconds);
 		$this->hit('login_ip_' . $ip, $decaySeconds);
-		$this->hit('login_user_' . md5($login), $decaySeconds);
 
 		$this->logSecurityEvent('failed_login', [
 			'login' => $login,
@@ -413,8 +425,9 @@ class GuardService
 	 */
 	public function clearLoginAttempts(string $login, string $ip): void
 	{
+		$pairKey = 'login_pair_' . md5($ip . '|' . strtolower($login));
+		$this->clear($pairKey);
 		$this->clear('login_ip_' . $ip);
-		$this->clear('login_user_' . md5($login));
 	}
 
 	// ============================================

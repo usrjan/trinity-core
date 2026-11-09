@@ -77,6 +77,9 @@ class MonitorController implements ErrorHandlerInterface
 	/** @var LoggerInterface — логгер. */
 	private LoggerInterface $logger;
 
+	/** @var LoggerInterface — логгер безопасности. Для CSP. */
+	private LoggerInterface $securityLogger;
+
 	/** @var ConfigService — сервис конфигурации. */
 	private ConfigService $configService;
 
@@ -102,6 +105,7 @@ class MonitorController implements ErrorHandlerInterface
 		GuardService $guard,
 		SynapseRepository $synapseRepo,
 		LoggerInterface $logger,
+		LoggerInterface $securityLogger,
 		ConfigService $configService,
 		Validator $validator,
 		?Cache $cache = null
@@ -112,6 +116,7 @@ class MonitorController implements ErrorHandlerInterface
 		$this->guard = $guard;
 		$this->synapseRepo = $synapseRepo;
 		$this->logger = $logger;
+		$this->securityLogger = $securityLogger;
 		$this->configService = $configService;
 		$this->validator = $validator;
 		$this->cache = $cache;
@@ -506,5 +511,54 @@ class MonitorController implements ErrorHandlerInterface
 		$result = array_slice($result, -$lines);
 
 		return array_values(array_filter($result, fn($l) => $l !== ''));
+	}
+
+	/**
+	 * POST /api/monitor/csp
+	 *
+	 * [Лорелея]: Здесь дом принимает отчёты CSP. Браузер шлёт их
+	 * без CSRF, поэтому маршрут объявлен с _csrf => false.
+	 * Отчёт — JSON, но Content-Type может быть application/csp-report
+	 * или application/json. Читаем как есть, не доверяя Content-Type.
+	 *
+	 * [Мириам]: И режем по длине, потому что аноним может прислать
+	 * что угодно, а лог — не место для мегабайтов.
+	 */
+	public function collectCspReport(Request $request): JsonResponse
+	{
+		if (!$this->isEnabled()) {
+			return ApiResponse::success(null, 'Plugin disabled');
+		}
+
+		$ip = $request->getClientIp() ?? 'unknown';
+		$rateLimitKey = 'csp_report_' . $ip;
+
+		if ($this->guard->tooManyAttempts($rateLimitKey, 20, 60)) {
+			return ApiResponse::error('Слишком много отчётов. Попробуйте позже.', 429);
+		}
+		$this->guard->hit($rateLimitKey);
+
+		$raw = $request->getContent();
+		if (strlen($raw) > 8192) {
+			$raw = substr($raw, 0, 8192);
+		}
+
+		$data = json_decode($raw, true);
+		if (!is_array($data)) {
+			return ApiResponse::error('Невалидный отчёт', 400);
+		}
+
+		$report = $data['csp-report'] ?? $data;
+
+		$this->securityLogger->warning('csp_violation', [
+			'blocked_uri'        => mb_substr((string)($report['blocked-uri'] ?? ''), 0, 2048),
+			'violated_directive' => mb_substr((string)($report['violated-directive'] ?? ''), 0, 255),
+			'document_uri'       => mb_substr((string)($report['document-uri'] ?? ''), 0, 2048),
+			'source_file'        => mb_substr((string)($report['source-file'] ?? ''), 0, 2048),
+			'line_number'        => (int)($report['line-number'] ?? 0),
+			'ip'                 => $ip,
+		]);
+
+		return ApiResponse::success(null, 'Report logged');
 	}
 }

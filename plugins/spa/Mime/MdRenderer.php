@@ -39,12 +39,23 @@ use League\CommonMark\Extension\Table\TableExtension;
 use League\CommonMark\Extension\Autolink\AutolinkExtension;
 use League\CommonMark\Extension\Strikethrough\StrikethroughExtension;
 use League\CommonMark\Extension\TaskList\TaskListExtension;
+use League\CommonMark\Extension\DisallowedRawHtml\DisallowedRawHtmlExtension;
 use League\CommonMark\MarkdownConverter;
 
 class MdRenderer implements MimeRendererInterface
 {
 	/** @var MarkdownConverter — конвертер markdown в HTML. */
 	private MarkdownConverter $converter;
+
+	/**
+	 * @var \HTMLPurifier|null — очиститель. Создаётся один раз,
+	 * при первом вызове, и живёт вместе с рендерером.
+	 *
+	 * [Лорелея]: Лениво, потому что если markdown на странице
+	 * так и не появится, мы не будем зря строить граф правил
+	 * и тратить память.
+	 */
+	private ?\HTMLPurifier $purifier = null;
 
 	/**
 	 * Конструктор.
@@ -70,11 +81,7 @@ class MdRenderer implements MimeRendererInterface
 		$environment->addExtension(new AutolinkExtension());
 		$environment->addExtension(new StrikethroughExtension());
 		$environment->addExtension(new TaskListExtension());
-
-		// [Лорелея]: Добавляем DisallowRawHtml, потому что html_input: 'strip'
-		// не всегда убирает inline HTML, а через редактируемые страницы
-		// можно пронести XSS.
-		$environment->addExtension(new \League\CommonMark\Extension\DisallowedRawHtml\DisallowedRawHtmlExtension());
+		$environment->addExtension(new DisallowedRawHtmlExtension());
 
 		$this->converter = new MarkdownConverter($environment);
 	}
@@ -82,13 +89,13 @@ class MdRenderer implements MimeRendererInterface
 	/**
 	 * Отрендерить markdown в HTML.
 	 *
-	 * [Лорелея]: Мы оборачиваем результат в div с классом md-content,
-	 * чтобы стили применялись к нему, и чтобы было видно, что это
-	 * markdown, а не просто HTML.
+	 * [Лорелея]: Сначала CommonMark — markdown в HTML. Потом
+	 * HTMLPurifier — проверка, что в HTML осталось только
+	 * безопасное. «Двойная защита», потому что strip — это
+	 * «убрать теги», а purify — «проверить, что осталось».
 	 *
-	 * [Мириам]: Данные нейрона мы пока не используем, но принимаем,
-	 * потому что интерфейс требует, и потому что завтра они
-	 * могут понадобиться.
+	 * [Мириам]: И это правильно, потому что доверять одному
+	 * слою — это как доверять одной двери в доме, где есть окна.
 	 *
 	 * @param string $content — markdown-контент
 	 * @param array $data — данные нейрона
@@ -98,7 +105,60 @@ class MdRenderer implements MimeRendererInterface
 	{
 		$html = $this->converter->convert($content)->getContent();
 
-		return '<div class="md-content">' . $html . '</div>';
+		// [Лорелея]: Второй слой — HTMLPurifier. Если CommonMark
+		// пропустит что-то (например, img src с data:), purify
+		// это уберёт.
+		$cleanHtml = $this->getPurifier()->purify($html);
+
+		return '<div class="md-content">' . $cleanHtml . '</div>';
+	}
+
+	/**
+	 * Возвращает очиститель, создавая его только при первой необходимости.
+	 *
+	 * [Мириам]: Те же правила, что в HtmlRenderer, — один источник
+	 * правды для безопасного HTML. Если правила поменяются —
+	 * поменяются в одном месте.
+	 *
+	 * @return \HTMLPurifier
+	 */
+	private function getPurifier(): \HTMLPurifier
+	{
+		if ($this->purifier === null) {
+			$config = \HTMLPurifier_Config::createDefault();
+
+			$cacheDir = dirname(__DIR__, 3) . '/var/cache/htmlpurifier';
+			if (!is_dir($cacheDir)) {
+				mkdir($cacheDir, 0775, true);
+			}
+
+			$config->set('Cache.DefinitionImpl', 'Serializer');
+			$config->set('Cache.SerializerPath', $cacheDir);
+
+			$config->set('HTML.Allowed', implode(',', [
+				'p', 'br', 'strong', 'em', 'u', 's', 'del', 'ins',
+				'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+				'ul', 'ol', 'li',
+				'blockquote', 'pre', 'code',
+				'table', 'thead', 'tbody', 'tr', 'th', 'td',
+				'a[href|title|target|rel]',
+				'img[src|alt|title|width|height]',
+				'hr',
+				'span', 'div',
+			]));
+
+			$config->set('HTML.ForbiddenElements', 'iframe,form,script,style,object,embed,link,meta,base');
+
+			$config->set('URI.AllowedSchemes', [
+				'http' => true,
+				'https' => true,
+				'mailto' => true,
+			]);
+
+			$this->purifier = new \HTMLPurifier($config);
+		}
+
+		return $this->purifier;
 	}
 
 	/**

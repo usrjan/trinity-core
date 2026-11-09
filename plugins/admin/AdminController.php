@@ -620,6 +620,10 @@ class AdminController
 		$html = '<div class="p-3">';
 		$html .= '<h5 class="gold-text mb-3"><i class="bi bi-speedometer2"></i> Дашборд</h5>';
 
+		if ($this->configService !== null && !$this->configService->isLoaded()) {
+			$html .= '<div class="alert alert-danger">Конфиг не загружен. Дом работает с дефолтами. Смотри error.log.</div>';
+		}
+
 		$html .= '<div class="row g-2 mb-3">';
 		$cards = [
 			['icon' => 'diagram-3', 'value' => $totalNeurons, 'label' => 'Нейронов'],

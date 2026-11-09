@@ -231,34 +231,16 @@ return [
 	// ============================================
 	// 8. КОНТРОЛЛЕРЫ ПЛАГИНОВ
 	// ============================================
-	// [Лорелея]: ГЛАВНОЕ. MonitorController получает всё, что нужно.
+	// [Лорелея]: MonitorController получает всё, что нужно.
+	// autowire подставит по типу, а securityLogger — явно
+	// logger.security, потому что двух LoggerInterface
+	// autowire не различит.
 	//
-	// [Мириам]: И — это правильно. Потому что контроллер — это
-	// не «класс». Это — рука.
-	MonitorController::class => function (
-		Environment $twig,
-		Session $session,
-		NeuronRepository $neuronRepo,
-		GuardService $guard,
-		SynapseRepository $synapseRepo,
-		\Psr\Log\LoggerInterface $logger,
-		ConfigService $configService,
-		Validator $validator,
-		Cache $cache
-	) {
-		return new \Jan\Trinity\Plugin\Monitor\MonitorController(
-			$twig,
-			$session,
-			dirname(__DIR__),
-			$neuronRepo,
-			$guard,
-			$synapseRepo,
-			$logger,
-			$configService,
-			$validator,
-			$cache
-		);
-	},
+	// [Мириам]: И это правильно, потому что догадка — это
+	// не знание. А constructorParameter — это знание.
+	MonitorController::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path'))
+		->constructorParameter('securityLogger', \DI\get('logger.security')),
 
 	// [Лорелея]: GuardService получает Session. Чтобы
 	// generateCsrfToken и validateCsrfToken работали с Symfony Session.
