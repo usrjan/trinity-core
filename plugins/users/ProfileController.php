@@ -112,7 +112,9 @@ class ProfileController
 	 */
 	public function view(): Response
 	{
-		$this->requireAuth();
+		if (!$this->isAuthenticated()) {
+			return new RedirectResponse('/login?redirect=' . urlencode('/profile'));
+		}
 
 		// [Лорелея]: user_id берётся строго из сессии, а не из запроса,
 		// потому что IDOR — это когда пользователь подставляет чужой id,
@@ -163,7 +165,9 @@ class ProfileController
 	 */
 	public function editForm(): Response
 	{
-		$this->requireAuth();
+		if (!$this->isAuthenticated()) {
+			return new RedirectResponse('/login?redirect=' . urlencode('/profile/edit'));
+		}
 
 		$userId = $this->session->get('user_id');
 		$user = $this->neuronRepo->findById($userId);
@@ -224,7 +228,9 @@ class ProfileController
 	 */
 	public function edit(Request $request): Response
 	{
-		$this->requireAuth();
+		if (!$this->isAuthenticated()) {
+			return new RedirectResponse('/login?redirect=' . urlencode('/profile/edit'));
+		}
 
 		// [Лорелея]: user_id берётся строго из сессии, а не из запроса,
 		// потому что IDOR — это когда пользователь подставляет чужой id,

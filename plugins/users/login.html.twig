@@ -41,6 +41,9 @@
 				   и это правильно, потому что доверие начинается
 				   с проверки. #}
 				<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+				{% if redirect %}
+				<input type="hidden" name="redirect" value="{{ redirect }}">
+				{% endif %}
 				<div class="mb-3">
 					<label class="form-label"><i class="bi bi-person"></i> Логин или Email</label>
 					<input type="text" class="form-control" name="login" placeholder="jan" required autofocus>

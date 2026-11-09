@@ -154,9 +154,7 @@ class Cache implements CacheInterface
 	 */
 	public function forgetByPrefix(string $prefix): void
 	{
-		if (!$this->isActive()) {
-			return;
-		}
+		if (!$this->isActive()) return;
 
 		$iterator = new \APCUIterator('/^' . preg_quote($prefix, '/') . '/');
 		foreach ($iterator as $item) {

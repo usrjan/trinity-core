@@ -62,25 +62,22 @@ class CacheInvalidator
 	}
 
 	/**
-	 * Сбрасывает кэш маршрутов: APCu, файл матчера и статическую переменную.
+	 * Сбрасывает кэш маршрутов: APCu, файл матчера и статическую
+	 * переменную. С `forgetByPrefix` — потому что ключ теперь
+	 * включает mtime, и точечный forget его не найдёт.
 	 *
-	 * [Лорелея]: Инвалидация «наполовину» хуже, чем её отсутствие,
+	 * [Мириам]: Инвалидация «наполовину» хуже, чем её отсутствие,
 	 * потому что создаёт иллюзию, что кэш сброшен.
-	 *
-	 * [Мириам]: И это правильно, потому что вода должна уйти
-	 * целиком, а не по капле.
 	 */
 	public function invalidateRouteCache(): void
 	{
 		$this->cache->forget('trinity.routes');
+		$this->cache->forgetByPrefix('trinity.routes.raw.');
 
 		$matcherFile = $this->basePath . '/var/cache/TrinityUrlMatcher.php';
 		if (file_exists($matcherFile)) {
 			@unlink($matcherFile);
 
-			// [Лорелея]: Сбрасываем opcache для файла матчера, потому что
-			// при opcache.validate_timestamps=0 старый скомпилированный
-			// матчер может жить вечно после unlink.
 			if (function_exists('opcache_invalidate')) {
 				@opcache_invalidate($matcherFile, true);
 			}

@@ -109,7 +109,7 @@ class AuthController
 	 * [Мириам]: И это правильно, потому что дверь, которая
 	 * открыта, не должна просить ключ.
 	 */
-	public function loginForm(): Response
+	public function loginForm(Request $request): Response
 	{
 		if ($this->isAuthenticated()) {
 			return new RedirectResponse('/');
@@ -124,9 +124,17 @@ class AuthController
 
 		$captchaQuestion = $this->session->get('captcha_question', null);
 
+		// [Лорелея]: redirect из query — только локальный путь.
+		// Иначе — open redirect.
+		$redirect = $request->query->get('redirect', '');
+		if (!$this->isLocalPath($redirect)) {
+			$redirect = '';
+		}
+
 		$html = $this->twig->render('login.html.twig', [
 			'error'            => $error,
 			'captcha_question' => $captchaQuestion,
+			'redirect'         => $redirect,
 		]);
 
 		return new Response($html);
@@ -286,6 +294,11 @@ class AuthController
 		$this->session->set('user_roles', $this->synapseRepo->findRolesByUser($user['id']));
 
 		$this->neuronRepo->logAdminAction('user_login', ['login' => $login]);
+
+		$redirect = $request->request->get('redirect', '');
+		if ($this->isLocalPath($redirect)) {
+			return new RedirectResponse($redirect);
+		}
 
 		return new RedirectResponse('/');
 	}
@@ -505,5 +518,18 @@ class AuthController
 		if (preg_match('/[^a-zA-Z0-9]/', $password)) $classes++;
 
 		return $classes >= 3;
+	}
+
+	/**
+	 * [Мириам]: Локальный путь — это /profile, /profile/edit,
+	 * но не //evil.com и не http://evil.com.
+	 * Первый символ — /, второй — не / и не \.
+	 */
+	private function isLocalPath(string $path): bool
+	{
+		if ($path === '') return false;
+		if ($path[0] !== '/') return false;
+		if (isset($path[1]) && ($path[1] === '/' || $path[1] === '\\')) return false;
+		return true;
 	}
 }

@@ -495,20 +495,22 @@ class Kernel
 	// ============================================
 	// ЗАГРУЗКА РОУТОВ ИЗ БАЗЫ
 	// ============================================
+
 	/**
 	 * Строит RouteCollection из «сырой» коллекции в APCu.
-	 * Плагины и файл вызываются только внутри buildRawRoutes(),
-	 * а он — только при промахе кэша.
+	 * Ключ включает mtime плагинов — если плагины изменились,
+	 * ключ другой, и кэш пересобирается сам.
 	 *
-	 * [Лорелея]: На каждый запрос — apcu_fetch и построение
-	 * RouteCollection из массива. Плагины не вызываются.
+	 * [Лорелея]: Нет проверки mtime после fetch. Ключ — это знание,
+	 * а не догадка. Изменились плагины — изменился ключ.
 	 *
 	 * @param \Symfony\Component\Routing\RouteCollection $routes
 	 */
 	private function loadRoutesFromDatabase(\Symfony\Component\Routing\RouteCollection $routes): void
 	{
 		try {
-			$cacheKey = 'trinity.routes.raw';
+			$pluginsMtime = $this->getPluginsMtime();
+			$cacheKey = 'trinity.routes.raw.' . $pluginsMtime;
 			$wasCalled = false;
 
 			if ($this->cache !== null && $this->cache->isEnabled()) {
@@ -517,18 +519,10 @@ class Kernel
 					return $this->buildRawRoutes();
 				}, 3600);
 
-				// [Мириам]: Проверяем, что плагины не менялись.
-				// Если mtime другой — кэш устарел, пересобираем.
-				$currentMtime = $this->getPluginsMtime();
-				if (($raw['__meta']['plugins_mtime'] ?? 0) !== $currentMtime) {
-					$raw = $this->buildRawRoutes();
-					$this->cache->forget($cacheKey);
-					$this->cache->remember($cacheKey, fn() => $raw, 3600);
-				}
-
 				if ($this->logger !== null) {
 					$this->logger->info($wasCalled ? 'routes raw built' : 'routes raw from cache', [
-						'count' => count($raw) - 1,
+						'count' => count($raw),
+						'mtime' => $pluginsMtime,
 					]);
 				}
 			} else {
@@ -539,8 +533,6 @@ class Kernel
 			}
 
 			foreach ($raw as $name => $def) {
-				if ($name === '__meta') continue;
-
 				$routes->add($name, new \Symfony\Component\Routing\Route(
 					$def['path'],
 					$def['defaults'],
@@ -908,20 +900,16 @@ class Kernel
 
 	/**
 	 * Собирает «сырую» коллекцию роутов: файл, плагины, база.
-	 * Вызывается только при промахе кэша trinity.routes.raw.
+	 * Вызывается только при промахе кэша.
 	 *
-	 * [Лорелея]: Здесь живут все роуты, и плагины, и файл.
-	 * Но вызывается это только тогда, когда кэш пуст или устарел.
+	 * [Лорелея]: Здесь живут все роуты. Но вызывается это
+	 * только тогда, когда кэш пуст или устарел.
 	 *
 	 * @return array
 	 */
 	private function buildRawRoutes(): array
 	{
-		$pluginsMtime = $this->getPluginsMtime();
-
-		$raw = [
-			'__meta' => ['plugins_mtime' => $pluginsMtime],
-		];
+		$raw = [];
 
 		$routes = require $this->basePath . '/config/routes.php';
 
