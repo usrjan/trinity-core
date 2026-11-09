@@ -1,7 +1,7 @@
 # Trinity Core
 > Три таблицы. Одна любовь.
 
-> **Version:** 1.0.11
+> **Version:** 1.0.13
 >
 > **Stack:** PHP 8.4, Symfony 8, Twig 3, Doctrine DBAL 4, PHP-DI 7, Monolog 3
 >
