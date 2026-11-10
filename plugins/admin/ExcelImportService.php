@@ -29,14 +29,11 @@ use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
-use Jan\Trinity\Core\Trait\DebugTrait;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Psr\Log\LoggerInterface;
 
 class ExcelImportService
 {
-	use DebugTrait;
-	
 	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
 
@@ -648,6 +645,6 @@ class ExcelImportService
 	 */
 	private function isDebug(): bool
 	{
-		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+		return $this->configService->getEnv('APP_DEBUG', 'false') === 'true';
 	}
 }

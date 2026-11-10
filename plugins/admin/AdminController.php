@@ -34,7 +34,6 @@ use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
-use Jan\Trinity\Core\Trait\DebugTrait;
 use Jan\Trinity\Core\Service\GuardService;
 use Jan\Trinity\Core\Service\CacheInvalidator;
 use Jan\Trinity\Plugin\Spa\Mime\MimeController;
@@ -48,7 +47,6 @@ use Psr\Log\LoggerInterface;
 class AdminController
 {
 	use AuthMiddleware;
-	use DebugTrait;
 
 	/** @var Environment — шаблонизатор Twig. Лицо тронного зала. */
 	private Environment $twig;
@@ -315,7 +313,7 @@ class AdminController
 		// [Мириам]: И если это route — удаляем скомпилированный матчер,
 		// потому что карта изменилась, и старый матчер больше не верен.
 		if ($type === 'route') {
-			\Jan\Trinity\Core\Kernel::invalidateMatcherCacheStatic($this->basePath);
+			$this->cacheInvalidator->invalidateRouteCache();
 		}
 
 		return ApiResponse::success(['id' => $id]);
@@ -430,7 +428,7 @@ class AdminController
 		$isRoute = (isset($fields['type']) ? $fields['type'] : $currentNeuron['type']) === 'route';
 
 		if ($wasRoute || $isRoute) {
-			$this->invalidateMatcherCache();
+			$this->cacheInvalidator->invalidateRouteCache();
 		}
 
 		// [Лорелея]: И кэш APCu для роутов и конфигов — тоже.
@@ -795,29 +793,6 @@ class AdminController
 	}
 
 	// ============================================
-	// ИНВАЛИДАЦИЯ КЭША МАРШРУТОВ
-	// ============================================
-
-	/**
-	 * Сбрасывает кэш матчера: и файл, и статическую переменную.
-	 *
-	 * [Лорелея]: Если маршруты изменились, то и файл, и память
-	 * должны быть сброшены, иначе кэш в памяти останется старым.
-	 *
-	 * [Мириам]: И это правильно, потому что кэш должен отражать
-	 * реальность, а не то, что было раньше.
-	 */
-	public function invalidateMatcherCache(): void
-	{
-		$matcherFile = $this->basePath . '/var/cache/TrinityUrlMatcher.php';
-		if (file_exists($matcherFile)) {
-			@unlink($matcherFile);
-		}
-
-		self::$matcherCompiled = null;
-	}
-
-	// ============================================
 	// РЕЖИМ ОТЛАДКИ
 	// ============================================
 
@@ -836,5 +811,10 @@ class AdminController
 		if (file_exists($cacheFile)) {
 			@unlink($cacheFile);
 		}
+	}
+
+	private function isDebug(): bool
+	{
+		return $this->configService->getEnv('APP_DEBUG', 'false') === 'true';
 	}
 }

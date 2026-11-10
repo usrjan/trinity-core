@@ -36,7 +36,6 @@ use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Service\GuardService;
-use Jan\Trinity\Core\Trait\DebugTrait;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -47,7 +46,6 @@ use Twig\Environment;
 class MonitorController implements ErrorHandlerInterface
 {
 	use AuthMiddleware;
-	use DebugTrait;
 
 	/** @var Environment — шаблонизатор. */
 	private Environment $twig;
@@ -560,5 +558,10 @@ class MonitorController implements ErrorHandlerInterface
 		]);
 
 		return ApiResponse::success(null, 'Report logged');
+	}
+
+	private function isDebug(): bool
+	{
+		return $this->configService->getEnv('APP_DEBUG', 'false') === 'true';
 	}
 }

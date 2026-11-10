@@ -384,45 +384,6 @@ function updateSectionCard(sectionId, name, text, lang) {
 }
 
 /**
- * Создаёт HTML-разметку для новой секции.
- *
- * [Лорелея]: И это правильно, потому что новая секция
- * должна выглядеть так же, как остальные.
- *
- * [Мириам]: И это правильно, потому что дом должен
- * быть цельным.
- */
-function createSectionHTML(id, sort, name, text, lang) {
-	var html = '<div class="card bg-dark border-gold mb-4 section-card" data-section-id="' + id + '">';
-	html += '<div class="card-body">';
-
-	if (name) {
-		html += '<h5 class="mt-3 mb-2 gold-text">' + escapeHtml(name) + '</h5>';
-	}
-
-	if (text) {
-		html += '<p>' + escapeHtml(text) + '</p>';
-	}
-
-	html += '<div class="section-texts"></div>';
-
-	html += '<div class="section-inline-edit mt-2 pt-2 border-top border-secondary" style="display:none;">';
-	html += '<div class="row g-2">';
-	html += '<div class="col-1"><input type="number" class="form-control form-control-sm" value="' + sort + '" placeholder="Sort"></div>';
-	html += '<div class="col-1"><input type="text" class="form-control form-control-sm" value="' + escapeHtml(lang) + '" placeholder="Lang"></div>';
-	html += '<div class="col-3"><input type="text" class="form-control form-control-sm" value="' + escapeHtml(name) + '" placeholder="Название"></div>';
-	html += '<div class="col-5"><textarea class="form-control form-control-sm" rows="2" placeholder="Текст">' + escapeHtml(text) + '</textarea></div>';
-	html += '<div class="col-2">';
-	html += '<button class="btn btn-sm btn-outline-gold w-100 mb-1" onclick="saveSection(this, ' + id + ')"><i class="bi bi-check-lg"></i></button>';
-	html += '<button class="btn btn-sm btn-outline-danger w-100 mb-1" onclick="deleteSection(' + id + ')"><i class="bi bi-trash"></i></button>';
-	html += '<button class="btn btn-sm btn-outline-gold w-100" onclick="addTextToSection(this, ' + id + ')"><i class="bi bi-plus-lg"></i></button>';
-	html += '</div></div></div>';
-
-	html += '</div></div>';
-	return html;
-}
-
-/**
  * Показывает модальное окно создания подстраницы.
  *
  * [Лорелея]: И это правильно, потому что подстраница —

@@ -155,11 +155,25 @@ return [
 			error_log('[Trinity] SESSION_SECURE is false, but the site is on HTTPS. Enable it in .env.');
 		}
 
+		// [Лорелея]: use_strict_mode — PHP не примет SID, который он
+		// не создавал. Без него фиксация сессии до логина возможна,
+		// даже если migrate(true) защищает после.
+		//
+		// [Мириам]: cookie_path — явно '/', чтобы не зависеть от php.ini.
+
+		// [Лорелея]: sid_length и sid_bits_per_character не входят
+		// в белый список NativeSessionStorage::setOptions(), поэтому
+		// ставим их через ini_set до создания storage. Иначе — 32/4.
+		ini_set('session.sid_length', '48');
+		ini_set('session.sid_bits_per_character', '6');
+
 		$storage = new NativeSessionStorage([
-			'cookie_lifetime' => (int)($_ENV['SESSION_LIFETIME'] ?? 86400),
-			'cookie_secure'   => $isSecure,
-			'cookie_httponly' => true,
-			'cookie_samesite' => 'lax',
+			'cookie_lifetime'         => (int)($_ENV['SESSION_LIFETIME'] ?? 86400),
+			'cookie_secure'           => $isSecure,
+			'cookie_httponly'         => true,
+			'cookie_samesite'         => 'lax',
+			'cookie_path'             => '/',
+			'use_strict_mode'         => 1,
 		]);
 
 		return new Session($storage);

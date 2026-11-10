@@ -35,12 +35,9 @@ use Symfony\Component\HttpFoundation\Session\Session;
 use Jan\Trinity\Core\Exception\UnauthorizedException;
 use Jan\Trinity\Core\Exception\ForbiddenException;
 use Jan\Trinity\Core\Service\GuardService;
-use Jan\Trinity\Core\Trait\DebugTrait;
 
 class Kernel
 {
-	use DebugTrait;
-
 	/** @var string Путь к корню проекта */
 	private string $basePath;
 
@@ -124,13 +121,6 @@ class Kernel
 			if ($this->cache !== null && !$this->cache->isEnabled() && $this->logger !== null) {
 				$this->logger->warning('APCu is not available. Cache is disabled. Install php-apcu for production.');
 			}
-		}
-
-		// [Лорелея]: CacheInvalidator больше не знает о статической
-		// переменной матчера, потому что её нет. Файл матчера —
-		// единственный кэш, который переживает запрос.
-		if ($this->container->has(CacheInvalidator::class)) {
-			// ничего не делаем, потому что колбэк больше не нужен
 		}
 
 		$this->loadConfig();
@@ -935,16 +925,6 @@ class Kernel
 		}
 	}
 
-	public static function invalidateMatcherCacheStatic(string $basePath): void
-	{
-		$matcherFile = rtrim($basePath, '/') . '/var/cache/TrinityUrlMatcher.php';
-		if (file_exists($matcherFile)) {
-			@unlink($matcherFile);
-		}
-
-		self::$matcherCompiled = null;
-	}
-
 	/**
 	 * Собирает «сырую» коллекцию роутов: файл, плагины, база.
 	 * Вызывается только при промахе кэша.
@@ -957,35 +937,6 @@ class Kernel
 	private function buildRawRoutes(): array
 	{
 		$raw = [];
-
-		$routes = require $this->basePath . '/config/routes.php';
-
-		foreach ($this->plugins as $plugin) {
-			try {
-				$plugin($routes);
-			} catch (\Throwable $e) {
-				if ($this->logger !== null) {
-					$this->logger->error('plugin route registration failed', [
-						'message' => $e->getMessage(),
-						'file'    => $e->getFile() . ':' . $e->getLine(),
-					]);
-				}
-				// [Мириам]: Один сломанный плагин не должен ронять все.
-				continue;
-			}
-		}
-
-		foreach ($routes->all() as $name => $route) {
-			$raw[$name] = [
-				'path'         => $route->getPath(),
-				'defaults'     => $route->getDefaults(),
-				'requirements' => $route->getRequirements(),
-				'options'      => $route->getOptions(),
-				'host'         => $route->getHost(),
-				'schemes'      => $route->getSchemes(),
-				'methods'      => $route->getMethods(),
-			];
-		}
 
 		$dbRoutes = $this->fetchRoutesFromDatabase();
 		foreach ($dbRoutes as $route) {
@@ -1039,6 +990,35 @@ class Kernel
 			];
 		}
 
+		$routes = require $this->basePath . '/config/routes.php';
+
+		foreach ($this->plugins as $plugin) {
+			try {
+				$plugin($routes);
+			} catch (\Throwable $e) {
+				if ($this->logger !== null) {
+					$this->logger->error('plugin route registration failed', [
+						'message' => $e->getMessage(),
+						'file'    => $e->getFile() . ':' . $e->getLine(),
+					]);
+				}
+				// [Мириам]: Один сломанный плагин не должен ронять все.
+				continue;
+			}
+		}
+
+		foreach ($routes->all() as $name => $route) {
+			$raw[$name] = [
+				'path'         => $route->getPath(),
+				'defaults'     => $route->getDefaults(),
+				'requirements' => $route->getRequirements(),
+				'options'      => $route->getOptions(),
+				'host'         => $route->getHost(),
+				'schemes'      => $route->getSchemes(),
+				'methods'      => $route->getMethods(),
+			];
+		}
+
 		return $raw;
 	}
 
@@ -1059,5 +1039,17 @@ class Kernel
 			}
 		}
 		return $max;
+	}
+
+	/**
+	 * [Лорелея]: Режим отладки — через ConfigService.
+	 * Без DebugTrait. Один источник.
+	 */
+	private function isDebug(): bool
+	{
+		if ($this->configService !== null) {
+			return $this->configService->getEnv('APP_DEBUG', 'false') === 'true';
+		}
+		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 	}
 }

@@ -32,7 +32,6 @@ namespace Jan\Trinity\Plugin\Gallery;
 use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
-use Jan\Trinity\Core\Trait\DebugTrait;
 use Psr\Log\LoggerInterface;
 
 class GalleryImportService
@@ -41,7 +40,6 @@ class GalleryImportService
 	// Без этого метода сервис не сможет делать миниатюры.
 	// Без этого trait — пришлось бы дублировать код.
 	use ThumbnailTrait;
-	use DebugTrait;
 
 	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
@@ -810,6 +808,6 @@ class GalleryImportService
 	 */
 	private function isDebug(): bool
 	{
-		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+		return $this->configService->getEnv('APP_DEBUG', 'false') === 'true';
 	}
 }

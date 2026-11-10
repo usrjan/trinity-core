@@ -26,12 +26,12 @@ namespace Jan\Trinity\Plugin\Gallery;
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\JsonHelper;
 use Jan\Trinity\Core\Validator;
+use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
-use Jan\Trinity\Core\Trait\DebugTrait;
 use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -48,7 +48,6 @@ class GalleryController
 	use AuthMiddleware;
 	use ThumbnailTrait;
 	use BreadcrumbsTrait;
-	use DebugTrait;
 
 	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
@@ -75,6 +74,8 @@ class GalleryController
 
 	/** @var GalleryImportService — сервис импорта из папки. */
 	private GalleryImportService $galleryImport;
+
+	private ConfigService $configService;
 
 	/**
 	 * Белые списки расширений и MIME.
@@ -116,7 +117,8 @@ class GalleryController
 		Validator $validator,
 		LoggerInterface $logger,
 		string $galleryUploadDir,
-		string $galleryUploadUrl
+		string $galleryUploadUrl,
+		ConfigService $configService
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
@@ -125,6 +127,7 @@ class GalleryController
 		$this->guard = $guard;
 		$this->validator = $validator;
 		$this->logger = $logger;
+		$this->configService = $configService;
 
 		$this->galleryUploadDir = rtrim($galleryUploadDir, '/');
 		$this->galleryUploadUrl = rtrim($galleryUploadUrl, '/');
@@ -1168,6 +1171,6 @@ class GalleryController
 
 	private function isDebug(): bool
 	{
-		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+		return $this->configService->getEnv('APP_DEBUG', 'false') === 'true';
 	}
 }

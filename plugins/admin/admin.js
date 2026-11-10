@@ -158,7 +158,11 @@
 		tree.forEach(function(node) {
 			html += renderNode(node, 0);
 		});
-		treePanel.innerHTML = sanitizeHtml(html);
+		
+		// [Лорелея]: html — из renderNode, не из пользователя.
+		// escapeHtml уже есть для name и type. sanitizeHtml
+		// удалял onclick, и клик по + не работал.
+		treePanel.innerHTML = html;
 	}
 
 	/**
@@ -355,7 +359,7 @@
 			html += '</div></div>';
 		}
 
-		neuronPanel.innerHTML = sanitizeHtml(html);
+		neuronPanel.innerHTML = html;
 	}
 
 	function getDisplayName(node) {
@@ -390,11 +394,28 @@
 	 * это не «вставка». Это — акт.
 	 */
 	window.adminCreateNeuron = function(pid) {
-		var slug = prompt('Slug (необязательно):');
-		var type = prompt('Тип (tree/item/file/user):', 'item');
+		var type = prompt('Тип (tree/item/file/user/route/config):', 'item');
+		if (!type) return;
 
 		var data = {};
-		if (slug) data.slug = slug;
+
+		if (type === 'route') {
+			var path = prompt('Path (например, /test):', '/test');
+			if (!path) return;
+
+			var controller = prompt('Controller (например, Jan\\Trinity\\Plugin\\Spa\\HomeController):', 'Jan\\Trinity\\Plugin\\Spa\\HomeController');
+			if (!controller) return;
+
+			var method = prompt('Method (например, index):', 'index');
+			if (!method) return;
+
+			data.path = path;
+			data.controller = controller;
+			data.method = method;
+		} else {
+			var slug = prompt('Slug (необязательно):');
+			if (slug) data.slug = slug;
+		}
 
 		fetch('/api/admin/neuron', {
 			method: 'POST',

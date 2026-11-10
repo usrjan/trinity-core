@@ -276,7 +276,7 @@ INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 
 INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 (32, 42, 'route', '{"name":"home","path":"/","controller":"Jan\\\\Trinity\\\\Plugin\\\\Spa\\\\HomeController","method":"index","methods":["GET"],"sort":100}'),
-(33, 42, 'route', '{"name":"page","path":"/{slug}","controller":"Jan\\\\Trinity\\\\Plugin\\\\Spa\\\\HomeController","method":"index","methods":["GET"],"sort":10000}');
+(33, 42, 'route', '{"name":"page","path":"/{slug}","controller":"Jan\\\\Trinity\\\\Plugin\\\\Spa\\\\HomeController","method":"index","methods":["GET"],"sort":10000,"requirements":{"slug":"^(?!(sub|section|update-full|subpage-by-id|addSectionById|addSubPage|addSubPageById|deleteSubPage|deleteSection|updateSection|updateSectionFull|readme|mime|menu|spa|admin|api|login|logout|register|profile|gallery|map|tools|monitor|guard)$)[^/]+"}}');
 
 INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 (43, 1, 'tree', '{"slug":"CONFIG","sort":400}');

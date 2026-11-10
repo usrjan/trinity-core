@@ -26,11 +26,11 @@ namespace Jan\Trinity\Plugin\Tools;
 
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\Validator;
+use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
-use Jan\Trinity\Core\Trait\DebugTrait;
 use Jan\Trinity\Plugin\Tools\Handlers\ReportSocialHandler;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -42,7 +42,6 @@ use Psr\Log\LoggerInterface;
 class ToolsController
 {
 	use AuthMiddleware;
-	use DebugTrait;
 
 	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
@@ -57,6 +56,11 @@ class ToolsController
 
 	/** @var LoggerInterface — логгер. */
 	private LoggerInterface $logger;
+
+	/** @var SynapseRepository — работа с синапсами. */
+	private SynapseRepository $synapseRepo;
+
+	private ConfigService $configService;
 
 	/**
 	 * Конструктор.
@@ -74,13 +78,15 @@ class ToolsController
 		NeuronRepository $neuronRepo,
 		Validator $validator,
 		LoggerInterface $logger,
-		SynapseRepository $synapseRepo
+		SynapseRepository $synapseRepo,
+		ConfigService $configService
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->validator = $validator;
 		$this->logger = $logger;
+		$this->configService = $configService;
 
 		$this->initAuth($session, $synapseRepo);
 	}
@@ -199,6 +205,6 @@ class ToolsController
 	 */
 	private function isDebug(): bool
 	{
-		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+		return $this->configService->getEnv('APP_DEBUG', 'false') === 'true';
 	}
 }
