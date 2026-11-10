@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * DI-КОНТЕЙНЕР
@@ -27,6 +28,9 @@ use Jan\Trinity\Core\Cache;
 use Jan\Trinity\Core\ErrorHandlerInterface;
 use Jan\Trinity\Core\ConfigService;
 use Jan\Trinity\Core\Validator;
+use Jan\Trinity\Core\ArgumentResolver;
+use Jan\Trinity\Core\HttpResponder;
+use Jan\Trinity\Core\RouteCompiler;
 use Jan\Trinity\Core\Mime\Registry;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -56,9 +60,11 @@ use Symfony\Component\HttpFoundation\Session\Storage\NativeSessionStorage;
 
 use Monolog\Logger;
 use Monolog\Handler\RotatingFileHandler;
+use Monolog\Handler\FingersCrossedHandler;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Level;
 use Psr\Log\LoggerInterface;
+
 
 return [
 
@@ -188,7 +194,7 @@ return [
 	//
 	// [Мириам]: И — это правильно. Потому что GuardService пишет
 	// в $session->set('csrf_token'). А Twig — читает. Один источник.
-	Environment::class => function (Session $session, \Jan\Trinity\Core\Service\GuardService $guard) {
+	Environment::class => function (Session $session, GuardService $guard) {
 		$basePath = dirname(__DIR__);
 		$isDev = ($_ENV['APP_ENV'] ?? 'prod') === 'dev';
 
@@ -269,6 +275,11 @@ return [
 	ProfileController::class => \DI\autowire(),
 	MapController::class => \DI\autowire(),
 	ToolsController::class => \DI\autowire(),
+	ArgumentResolver::class => \DI\autowire(),
+	HttpResponder::class => \DI\autowire(),
+	RouteCompiler::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path'))
+		->constructorParameter('logger', \DI\get('logger.app')),
 
 	// ============================================
 	// VALIDATOR
@@ -340,11 +351,11 @@ return [
 		$appHandler = new RotatingFileHandler($logDir . '/app.log', 7, Level::Info);
 		$appHandler->setFormatter($formatter);
 
-		$bufferHandler = new \Monolog\Handler\FingersCrossedHandler(
+		$bufferHandler = new FingersCrossedHandler(
 			$appHandler,
 			Level::Error,
-			0,
-			false,
+			100, // [Лорелея]: bufferSize = 100. Не «хранить всё».
+			true,
 			true
 		);
 

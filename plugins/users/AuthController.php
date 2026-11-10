@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * КОНТРОЛЛЕР АУТЕНТИФИКАЦИИ
@@ -368,7 +369,7 @@ class AuthController
 
 		// [Лорелея]: Генерируем токен до рендера шаблона, чтобы
 		// Twig взял именно его, а не создал новый.
-		$csrfToken = $this->guard->generateCsrfToken();
+		$csrfToken = $this->guard->getOrCreateCsrfToken();
 
 
 		$error = $this->session->get('register_error');

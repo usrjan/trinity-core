@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * ЯДРО TRINITY
@@ -23,9 +24,6 @@ namespace Jan\Trinity\Core;
 use DI\ContainerBuilder;
 use Symfony\Component\Dotenv\Dotenv;
 use Symfony\Component\Routing\RouteCollection;
-use Symfony\Component\Routing\Matcher\UrlMatcherInterface;
-use Symfony\Component\Routing\Matcher\CompiledUrlMatcher;
-use Symfony\Component\Routing\Matcher\Dumper\CompiledUrlMatcherDumper;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\Exception\ResourceNotFoundException;
 use Symfony\Component\Routing\Exception\MethodNotAllowedException;
@@ -62,26 +60,9 @@ class Kernel
 	 */
 	private ?ConfigService $configService = null;
 
-	/** @var string — разрешённые методы для CORS. */
-	private const CORS_ALLOW_METHODS = 'GET, POST, PUT, DELETE, OPTIONS';
-
-	/** @var string — разрешённые заголовки для CORS. */
-	private const CORS_ALLOW_HEADERS = 'Content-Type, Authorization, X-CSRF-Token';
-
-	/** @var int — время кэширования preflight в секундах. */
-	private const CORS_MAX_AGE = 86400;
-
-	/**
-	 * @var array — кэш спецификаций параметров методов.
-	 *
-	 * [Лорелея]: Живёт только в пределах одного запроса, потому что
-	 * PHP-FPM не сохраняет статику между запросами. Это не «кэш»
-	 * в смысле «переживает запрос», а «локальный кэш запроса».
-	 *
-	 * [Мириам]: И это правильно, потому что вода не может запомнить
-	 * русло, если русло каждый раз новое.
-	 */
-	private static array $paramSpecCacheRequest = [];
+	private ArgumentResolver $argumentResolver;
+	private HttpResponder $httpResponder;
+	private RouteCompiler $routeCompiler;
 
 	// ============================================
 	// РОЖДЕНИЕ
@@ -106,6 +87,10 @@ class Kernel
 		$containerBuilder->addDefinitions($this->basePath . '/config/container.php');
 		$this->container = $containerBuilder->build();
 
+		$this->argumentResolver = $this->container->get(ArgumentResolver::class);
+
+		$this->httpResponder = $this->container->get(HttpResponder::class);
+
 		// [Лорелея]: Сначала логгер, потом кэш, потому что предупреждение
 		// о APCu должно попасть в лог, а не потеряться.
 		if ($this->container->has(\Psr\Log\LoggerInterface::class)) {
@@ -122,9 +107,10 @@ class Kernel
 				$this->logger->warning('APCu is not available. Cache is disabled. Install php-apcu for production.');
 			}
 		}
-
 		$this->loadConfig();
 		$this->loadPlugins();
+		$this->routeCompiler = $this->container->get(RouteCompiler::class);
+		$this->routeCompiler->init($this->plugins);
 	}
 
 	/**
@@ -253,18 +239,35 @@ class Kernel
 		return;
 	}
 
-		try {
-			$response = $this->dispatch($request);
-		} catch (\Throwable $e) {
-			[$code, $message] = match (true) {
-				$e instanceof ResourceNotFoundException => [404, 'Страница не найдена'],
-				$e instanceof MethodNotAllowedException => [405, 'Метод не поддерживается'],
-				$e instanceof UnauthorizedException => [401, $e->getMessage()],
-				$e instanceof ForbiddenException => [403, $e->getMessage()],
-				default => [500, $this->safeErrorMessage($e, 500)],
-			};
+	try {
+		$response = $this->dispatch($request);
+	} catch (\Throwable $e) {
+		[$code, $message] = match (true) {
+			$e instanceof ResourceNotFoundException => [404, 'Страница не найдена'],
+			$e instanceof MethodNotAllowedException => [405, 'Метод не поддерживается'],
+			$e instanceof UnauthorizedException => [401, $e->getMessage()],
+			$e instanceof ForbiddenException => [403, $e->getMessage()],
+			default => [500, $this->safeErrorMessage($e, 500, $request)],
+		};
 
-			$response = $this->renderError($code, $message, $e);
+		// [Лорелея]: Логируем оригинал всегда, до renderError.
+		// Если MonitorController упадёт — стек уже в логе.
+		// 5xx — error, 4xx — warning, потому что 4xx — это гость,
+		// а 5xx — это мы.
+		if ($this->logger !== null) {
+			$logMethod = $code >= 500 ? 'error' : 'warning';
+			$this->logger->$logMethod('unhandled exception', [
+				'code'    => $code,
+				'message' => $e->getMessage(),
+				'file'    => $e->getFile() . ':' . $e->getLine(),
+				'trace'   => $e->getTraceAsString(),
+				'url'     => $_SERVER['REQUEST_URI'] ?? 'unknown',
+				'method'  => $_SERVER['REQUEST_METHOD'] ?? 'unknown',
+				'ip'      => $request->getClientIp(),
+			]);
+		}
+
+		$response = $this->renderError($code, $message, $e);
 
 			// [Лорелея]: Для 405 ставим Allow-заголовок, чтобы клиент
 			// знал, какие методы разрешены. Без «пиздеца».
@@ -274,57 +277,7 @@ class Kernel
 			}
 		}
 
-		$this->respond($request, $response);
-	}
-
-	/**
-	 * Отправляет ответ и ставит CORS-заголовки.
-	 *
-	 * [Лорелея]: Один метод на все ответы, потому что повторение
-	 * applyCorsHeaders в каждом блоке — это пять мест для ошибки.
-	 *
-	 * [Мириам]: И это правильно, потому что ответ должен быть
-	 * один, и CORS должен быть один.
-	 */
-	private function respond(Request $request, Response $response): void
-	{
-		$this->applyCorsHeaders($request, $response);
-
-		// [Лорелея]: Базовые security-заголовки. Одно место, пять строк,
-		// потому что защита должна быть в одном месте, а не в пяти.
-		$response->headers->set('X-Content-Type-Options', 'nosniff');
-		$response->headers->set('X-Frame-Options', 'SAMEORIGIN');
-		$response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
-		$response->headers->set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-
-		// [Лорелея]: CSP Report-Only. Не блокирует, а сообщает.
-		// Начинаем с 'unsafe-inline', потому что inline-скрипты
-		// в шаблонах. Потом вычищаем inline и убираем 'unsafe-inline'.
-		$csp = implode('; ', [
-			"default-src 'self'",
-			"script-src 'self' 'unsafe-inline' https://api-maps.yandex.ru",
-			"style-src 'self' 'unsafe-inline'",
-			"img-src 'self' data: https://*.yandex.ru",
-			"font-src 'self'",
-			"connect-src 'self'",
-			"frame-ancestors 'self'",
-			"base-uri 'self'",
-			"form-action 'self'",
-			"report-uri /api/monitor/csp",
-		]);
-
-		$response->headers->set('Content-Security-Policy-Report-Only', $csp);
-
-		// [Мириам]: HSTS только для HTTPS, потому что на HTTP он
-		// не имеет смысла и может сломать dev-окружение.
-		if ($request->isSecure()) {
-			$response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-		}
-
-		$response->headers->set('Access-Control-Allow-Methods', self::CORS_ALLOW_METHODS);
-		$response->headers->set('Access-Control-Allow-Headers', self::CORS_ALLOW_HEADERS);
-
-		$response->send();
+		$this->httpResponder->send($request, $response);
 	}
 
 	/**
@@ -340,20 +293,17 @@ class Kernel
 		$origin = $request->headers->get('Origin');
 		$acrm = $request->headers->get('Access-Control-Request-Method');
 
-		// [Лорелея]: Preflight — это когда гость спрашивает, можно ли войти.
-		// Отвечаем 204 со всеми заголовками.
+		// [Лорелея]: Preflight — через HttpResponder. Kernel
+		// больше не знает про CORS-заголовки.
 		if ($origin && $acrm) {
 			$response = new Response('', 204);
-			$this->applyCorsHeaders($request, $response);
-			$response->headers->set('Access-Control-Allow-Methods', self::CORS_ALLOW_METHODS);
-			$response->headers->set('Access-Control-Allow-Headers', self::CORS_ALLOW_HEADERS);
-			$response->headers->set('Access-Control-Max-Age', (string) self::CORS_MAX_AGE);
-			$response->headers->set('Vary', 'Origin');
+			$this->httpResponder->preflight($request, $response);
 			$response->send();
 			return;
 		}
 
-		// [Мириам]: HEAD — это GET без тела. Отвечаем 200 без тела.
+		// [Мириам]: HEAD — это GET без тела. Symfony сам обрежет
+		// тело при send(). Но матчер должен видеть GET.
 		if ($request->getMethod() === 'HEAD') {
 			$response = new Response('', 200);
 			$response->send();
@@ -361,7 +311,7 @@ class Kernel
 		}
 
 		// [Лорелея]: Всё остальное — 405. И ставим Allow, чтобы клиент
-		// знал, какие методы разрешены. Без «пиздеца».
+		// знал, какие методы разрешены.
 		$response = new Response('Метод не поддерживается', 405);
 		$response->headers->set('Allow', 'GET, POST, PUT, DELETE');
 		$response->send();
@@ -398,18 +348,14 @@ class Kernel
 		// GET-страницы не нуждаются в ней.
 		$session = $this->container->get(Session::class);
 
-		// [Лорелея]: Роуты — из кэша варианта C. Плагины и файл
-		// вызываются только при промахе кэша, внутри buildRawRoutes().
-		$routes = new \Symfony\Component\Routing\RouteCollection();
-		$this->loadRoutesFromDatabase($routes);
+		// [Лорелея]: Роуты — через RouteCompiler. Ядро больше не знает,
+		// откуда они: файл, плагины или база. Компилятор знает.
+		$routes = new RouteCollection();
 
 		$context = new RequestContext();
 		$context->fromRequest($request);
 
-		// [Лорелея]: Передаём собранную коллекцию в getMatcher(),
-		// потому что пересобирать её там — это дважды вызывать
-		// каждый плагин.
-		$matcher = $this->getMatcher($routes, $context);
+		$matcher = $this->routeCompiler->getMatcher($routes, $context);
 		$parameters = $matcher->match($context->getPathInfo());
 
 		$controllerClass = $parameters['_controller'];
@@ -460,241 +406,14 @@ class Kernel
 		}
 
 		$controller = $this->container->get($controllerClass);
-		$args = $this->resolveArguments($controller, $method, $parameters, $request);
+		$args = $this->argumentResolver->resolve($controller, $method, $parameters, $request);
 
 		return $controller->$method(...$args);
-	}
-
-	/**
-	 * Ставит CORS-заголовки на основе whitelist из .env.
-	 *
-	 * [Лорелея]: Если в whitelist стоит `*`, мы не ставим
-	 * credentials, потому что `*` и credentials вместе
-	 * не работают, и делать вид, что работают, — это обман.
-	 *
-	 * [Мириам]: И это правильно, потому что доверие, выданное
-	 * всем, — это не доверие, а его отсутствие.
-	 */
-	private function applyCorsHeaders(Request $request, Response $response): void
-	{
-		$allowed = $this->getConfig('cors.allowed_origins', '');
-		if (empty($allowed)) {
-			return;
-		}
-
-		$origin = $request->headers->get('Origin');
-
-		if (!$origin) {
-			return;
-		}
-
-		// [Лорелея]: Vary: Origin нужен всегда, когда мы играем с CORS,
-		// потому что иначе CDN или прокси может закэшировать ответ
-		// с одним Allow-Origin и отдать его другому origin.
-		$response->headers->set('Vary', 'Origin');
-
-		$allowedOrigins = array_map('trim', explode(',', $allowed));
-
-		// [Лорелея]: `*` — это открытая дверь. Credentials при этом
-		// не ставим, потому что браузер такую комбинацию отвергает,
-		// и мы не будем делать вид, что всё в порядке.
-		if (in_array('*', $allowedOrigins, true)) {
-			$response->headers->set('Access-Control-Allow-Origin', '*');
-			return;
-		}
-
-		// [Мириам]: Точный origin из списка — это уже доверие,
-		// и только здесь можно ставить credentials, потому что
-		// браузер поймёт, что мы говорим с ним честно.
-		if (in_array($origin, $allowedOrigins, true)) {
-			$response->headers->set('Access-Control-Allow-Origin', $origin);
-			$response->headers->set('Access-Control-Allow-Credentials', 'true');
-		}
-	}
-
-	// ============================================
-	// ЗАГРУЗКА РОУТОВ ИЗ БАЗЫ
-	// ============================================
-
-	/**
-	 * Строит RouteCollection из «сырой» коллекции в APCu.
-	 * Ключ включает mtime плагинов — если плагины изменились,
-	 * ключ другой, и кэш пересобирается сам.
-	 *
-	 * [Лорелея]: Нет проверки mtime после fetch. Ключ — это знание,
-	 * а не догадка. Изменились плагины — изменился ключ.
-	 *
-	 * @param \Symfony\Component\Routing\RouteCollection $routes
-	 */
-	private function loadRoutesFromDatabase(\Symfony\Component\Routing\RouteCollection $routes): void
-	{
-		try {
-			$pluginsMtime = $this->getPluginsMtime();
-			$cacheKey = 'trinity.routes.raw.' . $pluginsMtime;
-			$wasCalled = false;
-
-			if ($this->cache !== null && $this->cache->isEnabled()) {
-				$raw = $this->cache->remember($cacheKey, function () use (&$wasCalled) {
-					$wasCalled = true;
-					return $this->buildRawRoutes();
-				}, 3600);
-
-				if ($this->logger !== null) {
-					$this->logger->info($wasCalled ? 'routes raw built' : 'routes raw from cache', [
-						'count' => count($raw),
-						'mtime' => $pluginsMtime,
-					]);
-				}
-			} else {
-				if ($this->logger !== null) {
-					$this->logger->info('routes raw built (no cache)');
-				}
-				$raw = $this->buildRawRoutes();
-			}
-
-			foreach ($raw as $name => $def) {
-				$routes->add($name, new \Symfony\Component\Routing\Route(
-					$def['path'],
-					$def['defaults'],
-					$def['requirements'],
-					$def['options'],
-					$def['host'],
-					$def['schemes'],
-					$def['methods']
-				));
-			}
-
-		} catch (\Throwable $e) {
-			if ($this->logger !== null) {
-				$this->logger->error('routes load failed', [
-					'message' => $e->getMessage(),
-					'file'    => $e->getFile() . ':' . $e->getLine(),
-				]);
-			}
-
-			throw new \RuntimeException('Сервис временно недоступен', 503);
-		}
-	}
-
-	/**
-	 * Загрузить роуты из базы — БЕЗ КЭША.
-	 */
-	private function fetchRoutesFromDatabase(): array
-	{
-		$db = $this->container->get(DatabaseService::class);
-		$conn = $db->getConnection();
-
-		$dbRoutes = $conn->executeQuery(
-			"SELECT id, data FROM neuron WHERE type = 'route' AND is_deleted = 0 ORDER BY sort ASC"
-		)->fetchAllAssociative();
-
-		foreach ($dbRoutes as &$route) {
-			$route['data'] = json_decode($route['data'] ?? '{}', true) ?: [];
-		}
-		unset($route);
-
-		return $dbRoutes;
 	}
 
 	// ============================================
 	// РАЗРЕШЕНИЕ ПАРАМЕТРОВ
 	// ============================================
-
-	/**
-	 * Разрешает аргументы для метода контроллера.
-	 *
-	 * [Лорелея]: Кэшируем спецификацию параметров, потому что рефлексия
-	 * на каждый запрос — это дёшево, но не бесплатно. И приводим
-	 * скаляры по типу, потому что строка "42" не должна притворяться
-	 * числом 42.
-	 *
-	 * [Мириам]: И это правильно, потому что тип должен совпадать,
-	 * а не почти совпадать.
-	 *
-	 * @param object $controller
-	 * @param string $method
-	 * @param array $urlParams
-	 * @param Request $request
-	 * @return array
-	 */
-	private function resolveArguments(
-		object $controller,
-		string $method,
-		array $urlParams,
-		Request $request
-	): array {
-		$cacheKey = get_class($controller) . '::' . $method;
-
-		if (!isset(self::$paramSpecCacheRequest[$cacheKey])) {
-			$reflection = new \ReflectionMethod($controller, $method);
-			$spec = [];
-
-			foreach ($reflection->getParameters() as $param) {
-				$type = $param->getType();
-				$spec[] = [
-					'name'     => $param->getName(),
-					'type'     => $type instanceof \ReflectionNamedType ? $type->getName() : null,
-					'optional' => $param->isOptional(),
-					'default'  => $param->isOptional() ? $param->getDefaultValue() : null,
-				];
-			}
-
-			self::$paramSpecCacheRequest[$cacheKey] = $spec;
-		}
-
-		$spec = self::$paramSpecCacheRequest[$cacheKey];
-		$args = [];
-
-		foreach ($spec as $param) {
-			if ($param['type'] === Request::class) {
-				$args[] = $request;
-			} elseif (isset($urlParams[$param['name']])) {
-				$args[] = $this->castScalar($urlParams[$param['name']], $param['type']);
-			} elseif ($param['optional']) {
-				$args[] = $param['default'];
-			} else {
-				throw new \RuntimeException(sprintf(
-					"Cannot resolve parameter '%s' of type '%s' in %s::%s(). " .
-					"Supported: %s, scalar route parameters, optional defaults.",
-					$param['name'],
-					$param['type'] ?? 'mixed',
-					get_class($controller),
-					$method,
-					Request::class
-				));
-			}
-		}
-
-		return $args;
-	}
-
-	/**
-	 * Приводит скаляр к типу параметра.
-	 *
-	 * [Лорелея]: Строка "42" не должна притворяться числом 42,
-	 * потому что strict_types в плагинах даст TypeError.
-	 *
-	 * [Мириам]: И это правильно, потому что тип должен совпадать,
-	 * а не почти совпадать.
-	 *
-	 * @param mixed $value
-	 * @param string|null $type
-	 * @return mixed
-	 */
-	private function castScalar(mixed $value, ?string $type): mixed
-	{
-		if ($type === null) {
-			return $value;
-		}
-
-		return match ($type) {
-			'int'    => (int) $value,
-			'float'  => (float) $value,
-			'bool'   => filter_var($value, FILTER_VALIDATE_BOOLEAN),
-			'string' => (string) $value,
-			default  => $value,
-		};
-	}
 
 	/**
 	 * Возвращает значение конфига.
@@ -707,82 +426,10 @@ class Kernel
 	 */
 	public function getConfig(string $key, $default = null)
 	{
-		if ($this->configService !== null) {
-			return $this->configService->get($key, $default);
-		}
-
-		return $default;
+		return $this->configService->get('guard.' . $key, $default);
 	}
 
-	/**
-	 * Возвращает скомпилированный матчер маршрутов.
-	 *
-	 * [Лорелея]: PhpMatcherDumper в Symfony 8 нет — его заменили
-	 * на CompiledUrlMatcherDumper ещё в 3.x. Но CompiledUrlMatcherDumper
-	 * даёт массив, не класс. Мы оборачиваем массив в класс
-	 * TrinityUrlMatcher extends CompiledUrlMatcher — и грузим его
-	 * через require_once + opcache. Горячий путь — new + match().
-	 *
-	 * @param RouteCollection $routes
-	 * @param RequestContext $context
-	 * @return UrlMatcherInterface
-	 */
-	private function getMatcher(RouteCollection $routes, RequestContext $context): UrlMatcherInterface
-	{
-		$cacheDir = $this->basePath . '/var/cache';
-		if (!is_dir($cacheDir)) {
-			mkdir($cacheDir, 0775, true);
-		}
-
-		$matcherFile = $cacheDir . '/TrinityUrlMatcher.php';
-
-		// [Мириам]: Если файл есть — грузим класс. require_once
-		// после первого раза — no-op. Опкод — в opcache.
-		if (file_exists($matcherFile)) {
-			require_once $matcherFile;
-
-			if (class_exists('TrinityUrlMatcher', false)) {
-				return new \TrinityUrlMatcher($context);
-			}
-
-			// [Лорелея]: Файл есть, а класса нет — битый файл.
-			// Удаляем и компилируем заново.
-			@unlink($matcherFile);
-		}
-
-		// [Мириам]: Компилируем массив через CompiledUrlMatcherDumper.
-		$dumper = new \Symfony\Component\Routing\Matcher\Dumper\CompiledUrlMatcherDumper($routes);
-		$compiled = $dumper->getCompiledRoutes();
-
-		// [Лорелея]: Оборачиваем массив в класс. Это то, что делал
-		// PhpMatcherDumper, но вручную — 10 строк вместо целого класса.
-		$code = '<?php' . "\n\n"
-			. 'class TrinityUrlMatcher extends \\Symfony\\Component\\Routing\\Matcher\\CompiledUrlMatcher' . "\n"
-			. '{' . "\n"
-			. "\t" . 'public function __construct($context)' . "\n"
-			. "\t" . '{' . "\n"
-			. "\t\t" . 'parent::__construct(' . var_export($compiled, true) . ', $context);' . "\n"
-			. "\t" . '}' . "\n"
-			. '}' . "\n";
-
-		// [Мириам]: Атомарная запись через tmp + rename.
-		$tmp = $matcherFile . '.' . uniqid('', true) . '.tmp';
-		file_put_contents($tmp, $code, LOCK_EX);
-		rename($tmp, $matcherFile);
-
-		// [Лорелея]: Сбрасываем opcache для файла матчера, потому что
-		// при opcache.validate_timestamps=0 старый скомпилированный
-		// матчер может жить вечно после unlink.
-		if (function_exists('opcache_invalidate')) {
-			@opcache_invalidate($matcherFile, true);
-		}
-
-		require_once $matcherFile;
-
-		return new \TrinityUrlMatcher($context);
-	}
-
-	private function renderError(int $code, string $message, \Throwable $e): Response
+	private function renderError(int $code, string $message, \Throwable $e, ?Request $request = null): Response
 	{
 		// [Лорелея]: Берём реальный login из сессии, а не пишем
 		// «guest» жёстко, потому что метаданные должны быть
@@ -824,7 +471,7 @@ class Kernel
 
 			// [Лорелея]: Даже здесь — не сырьё. В prod — только наше сообщение.
 			// В debug — можно с деталями, но всё равно через фильтр.
-			return new Response($this->safeErrorMessage($e, $code), $code);
+			return new Response($this->safeErrorMessage($e, $code, $request), $code);
 		}
 	}
 
@@ -838,9 +485,12 @@ class Kernel
 	 * Потому что клиенту не нужно знать, где у нас трещина.
 	 * А в debug — можно сказать больше, но всё равно без путей и SQL.
 	 */
-	private function safeErrorMessage(\Throwable $e, int $code): string
+	private function safeErrorMessage(\Throwable $e, int $code, ?Request $request = null): string
 	{
-		if (!$this->isDebug()) {
+		// [Лорелея]: В prod — только «Внутренняя ошибка сервера».
+		// В dev — детали. Но — только для debug-заголовка / IP.
+		// Гость — всегда «Внутренняя ошибка сервера», даже в dev.
+		if (!$this->isDebug() || !$this->isDebugAllowed($request)) {
 			return $this->defaultErrorMessage($code);
 		}
 
@@ -926,122 +576,6 @@ class Kernel
 	}
 
 	/**
-	 * Собирает «сырую» коллекцию роутов: файл, плагины, база.
-	 * Вызывается только при промахе кэша.
-	 *
-	 * [Лорелея]: Здесь живут все роуты. Но вызывается это
-	 * только тогда, когда кэш пуст или устарел.
-	 *
-	 * @return array
-	 */
-	private function buildRawRoutes(): array
-	{
-		$raw = [];
-
-		$dbRoutes = $this->fetchRoutesFromDatabase();
-		foreach ($dbRoutes as $route) {
-			$data = $route['data'] ?? [];
-
-			$controller = trim($data['controller'] ?? '');
-			if ($controller === '') {
-				if ($this->logger !== null) {
-					$this->logger->warning('route skipped: empty controller', [
-						'route_id' => $route['id'] ?? null,
-						'path'     => $data['path'] ?? null,
-					]);
-				}
-				continue;
-			}
-
-			$path = trim($data['path'] ?? '');
-			if ($path === '') {
-				if ($this->logger !== null) {
-					$this->logger->warning('route skipped: empty path', [
-						'route_id'   => $route['id'] ?? null,
-						'controller' => $controller,
-					]);
-				}
-				continue;
-			}
-
-			$name = $data['name'] ?? 'route_' . ($route['id'] ?? uniqid());
-
-			$defaults = [
-				'_controller' => $controller,
-				'_method'     => $data['method'] ?? '__invoke',
-			];
-
-			if (!empty($data['roles']) && is_array($data['roles'])) {
-				$defaults['_roles'] = $data['roles'];
-			}
-
-			if (isset($data['csrf'])) {
-				$defaults['_csrf'] = (bool) $data['csrf'];
-			}
-
-			$raw[$name] = [
-				'path'         => $path,
-				'defaults'     => $defaults,
-				'requirements' => $data['requirements'] ?? [],
-				'options'      => $data['options'] ?? [],
-				'host'         => $data['host'] ?? '',
-				'schemes'      => $data['schemes'] ?? [],
-				'methods'      => $data['methods'] ?? [],
-			];
-		}
-
-		$routes = require $this->basePath . '/config/routes.php';
-
-		foreach ($this->plugins as $plugin) {
-			try {
-				$plugin($routes);
-			} catch (\Throwable $e) {
-				if ($this->logger !== null) {
-					$this->logger->error('plugin route registration failed', [
-						'message' => $e->getMessage(),
-						'file'    => $e->getFile() . ':' . $e->getLine(),
-					]);
-				}
-				// [Мириам]: Один сломанный плагин не должен ронять все.
-				continue;
-			}
-		}
-
-		foreach ($routes->all() as $name => $route) {
-			$raw[$name] = [
-				'path'         => $route->getPath(),
-				'defaults'     => $route->getDefaults(),
-				'requirements' => $route->getRequirements(),
-				'options'      => $route->getOptions(),
-				'host'         => $route->getHost(),
-				'schemes'      => $route->getSchemes(),
-				'methods'      => $route->getMethods(),
-			];
-		}
-
-		return $raw;
-	}
-
-	/**
-	 * [Мириам]: mtime папки plugins/, чтобы понять, менялись ли
-	 * плагины. Если менялись — кэш пересобирается.
-	 */
-	private function getPluginsMtime(): int
-	{
-		$dir = $this->basePath . '/plugins';
-		if (!is_dir($dir)) return 0;
-
-		$max = 0;
-		foreach (glob($dir . '/*/plugin.php') ?: [] as $file) {
-			$m = filemtime($file);
-			if ($m !== false && $m > $max) {
-				$max = $m;
-			}
-		}
-		return $max;
-	}
-
-	/**
 	 * [Лорелея]: Режим отладки — через ConfigService.
 	 * Без DebugTrait. Один источник.
 	 */
@@ -1051,5 +585,31 @@ class Kernel
 			return $this->configService->getEnv('APP_DEBUG', 'false') === 'true';
 		}
 		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+	}
+
+	/**
+	 * [Лорелея]: Детали ошибки — только для debug-заголовка
+	 * или debug-IP. Гость — «Внутренняя ошибка сервера».
+	 *
+	 * [Мириам]: И это правильно, потому что доверие, выданное
+	 * всем, — это не доверие, а его отсутствие.
+	 */
+	private function isDebugAllowed(?Request $request): bool
+	{
+		if ($request === null) {
+			return false;
+		}
+
+		$debugToken = $_ENV['DEBUG_TOKEN'] ?? '';
+		if ($debugToken !== '' && $request->headers->get('X-Debug') === $debugToken) {
+			return true;
+		}
+
+		$debugIp = $_ENV['DEBUG_IP'] ?? '';
+		if ($debugIp !== '' && $request->getClientIp() === $debugIp) {
+			return true;
+		}
+
+		return false;
 	}
 }

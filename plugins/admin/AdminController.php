@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * АДМИН-КОНТРОЛЛЕР
@@ -34,7 +35,6 @@ use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
-use Jan\Trinity\Core\Service\GuardService;
 use Jan\Trinity\Core\Service\CacheInvalidator;
 use Jan\Trinity\Plugin\Spa\Mime\MimeController;
 use Symfony\Component\HttpFoundation\Request;
@@ -60,9 +60,6 @@ class AdminController
 	/** @var SynapseRepository — работа с синапсами. */
 	private SynapseRepository $synapseRepo;
 
-	/** @var GuardService — CSRF-защита. */
-	private GuardService $guard;
-
 	/** @var LoggerInterface — логгер. */
 	private LoggerInterface $logger;
 
@@ -70,9 +67,6 @@ class AdminController
 
 	/** @var Cache — кэш. */
 	private Cache $cache;
-
-	/** @var array|null — скомпилированные маршруты в памяти воркера. */
-	private static ?array $matcherCompiled = null;
 
 	/**
 	 * @var MimeController — контроллер mime.
@@ -103,7 +97,6 @@ class AdminController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
-		GuardService $guard,
 		LoggerInterface $logger,
 		Validator $validator,
 		Cache $cache,
@@ -116,7 +109,6 @@ class AdminController
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
-		$this->guard = $guard;
 		$this->logger = $logger;
 		$this->validator = $validator;
 		$this->cache = $cache;
@@ -454,11 +446,6 @@ class AdminController
 	 */
 	public function delete(int $id, Request $request): JsonResponse
 	{
-		$csrfToken = $request->headers->get('X-CSRF-Token', '');
-		if (!$this->guard->validateCsrfToken($csrfToken)) {
-			return ApiResponse::error('Недействительный CSRF-токен', 419);
-		}
-
 		$neuron = $this->neuronRepo->findById($id);
 		if (!$neuron) {
 			return ApiResponse::error('Нейрон не найден', 404);
@@ -723,8 +710,6 @@ class AdminController
 	 */
 	public function approveUser(int $id, Request $request): JsonResponse
 	{
-		if ($error = $this->requireCsrf($request)) return $error;
-
 		$user = $this->neuronRepo->findById($id);
 		if (!$user || $user['type'] !== 'user') {
 			return ApiResponse::error('Пользователь не найден', 404);
@@ -756,8 +741,6 @@ class AdminController
 	 */
 	public function deleteUser(int $id, Request $request): JsonResponse
 	{
-		if ($error = $this->requireCsrf($request)) return $error;
-
 		$user = $this->neuronRepo->findById($id);
 		if (!$user || $user['type'] !== 'user') {
 			return ApiResponse::error('Пользователь не найден', 404);
@@ -771,47 +754,8 @@ class AdminController
 	}
 
 	// ============================================
-	// CSRF-ПРОВЕРКА
-	// ============================================
-
-	/**
-	 * Проверяет CSRF-токен.
-	 *
-	 * [Лорелея]: Одна точка, потому что проверка должна быть
-	 * в одном месте, а не в трёх.
-	 *
-	 * [Мириам]: И это правильно, потому что доверие начинается
-	 * с того, что всё в одном месте.
-	 */
-	private function requireCsrf(Request $request): ?JsonResponse
-	{
-		$csrfToken = $request->headers->get('X-CSRF-Token', '');
-		if (!$this->guard->validateCsrfToken($csrfToken)) {
-			return ApiResponse::error('Недействительный CSRF-токен', 419);
-		}
-		return null;
-	}
-
-	// ============================================
 	// РЕЖИМ ОТЛАДКИ
 	// ============================================
-
-	/**
-	 * Удаляет файловый кэш конфигов.
-	 *
-	 * [Лорелея]: Один метод на все места, потому что путь
-	 * должен быть в одном месте, а не в трёх.
-	 *
-	 * [Мириам]: И это правильно, потому что если путь размазан
-	 * по трём местам, рано или поздно одно из них забудут.
-	 */
-	private function invalidateConfigCache(): void
-	{
-		$cacheFile = $this->basePath . '/var/cache/config.php';
-		if (file_exists($cacheFile)) {
-			@unlink($cacheFile);
-		}
-	}
 
 	private function isDebug(): bool
 	{

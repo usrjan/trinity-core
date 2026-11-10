@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * MIDDLEWARE АВТОРИЗАЦИИ
@@ -37,21 +38,6 @@ trait AuthMiddleware
 	/** @var Session — сессия пользователя (внедряется через initAuth). */
 	protected Session $session;
 
-	/** @var SynapseRepository|null — репозиторий для обновления ролей. */
-	protected ?SynapseRepository $authSynapseRepo = null;
-
-	/**
-	 * @var bool — флаг: обновляли ли роли в этом запросе.
-	 *
-	 * [Лорелея]: ГЛАВНОЕ. Раньше refreshRoles() вызывался на каждый
-	 * hasRole() и isAdmin(). И если бы он работал — это был бы N+1.
-	 * Теперь — один раз за запрос.
-	 *
-	 * [Мириам]: И — это правильно. Потому что роли не меняются
-	 * в рамках одного запроса. Если меняются — это другой запрос.
-	 */
-	private bool $rolesRefreshed = false;
-
 	// ============================================
 	// ИНИЦИАЛИЗАЦИЯ
 	// ============================================
@@ -71,8 +57,6 @@ trait AuthMiddleware
 	protected function initAuth(Session $session, ?SynapseRepository $synapseRepo = null): void
 	{
 		$this->session = $session;
-		$this->authSynapseRepo = $synapseRepo;
-		$this->rolesRefreshed = false;
 	}
 
 	// ============================================
@@ -222,7 +206,6 @@ trait AuthMiddleware
 	 */
 	protected function isAdmin(): bool
 	{
-		$this->refreshRoles();
 		return $this->hasRole('role_admin');
 	}
 
@@ -240,7 +223,6 @@ trait AuthMiddleware
 	 */
 	protected function hasRole(string $role): bool
 	{
-		$this->refreshRoles();
 		return in_array($role, $this->getUserRoles());
 	}
 
@@ -280,53 +262,5 @@ trait AuthMiddleware
 	protected function getUserRoles(): array
 	{
 		return $this->session->get('user_roles', []);
-	}
-
-	// ============================================
-	// ОБНОВЛЕНИЕ РОЛЕЙ
-	// ============================================
-
-	/**
-	 * Обновляет роли пользователя из базы.
-	 *
-	 * [Лорелея]: ГЛАВНОЕ. Раньше использовался $this->synapseRepo,
-	 * которого в трейте не было. И свойство было null. И refreshRoles()
-	 * выходил сразу. Теперь — $this->authSynapseRepo. И — работает.
-	 *
-	 * [Мириам]: И — статичный флаг. Один раз за запрос. Без N+1.
-	 */
-	protected function refreshRoles(): void
-	{
-		// [Лорелея]: Если уже обновляли в этом запросе — не трогаем.
-		if ($this->rolesRefreshed) {
-			return;
-		}
-
-		$userId = $this->session->get('user_id');
-		if (!$userId || !$this->authSynapseRepo) {
-			return;
-		}
-
-		// [Мириам]: Проверяем, когда последний раз обновляли.
-		// Если прошло меньше часа — не трогаем. Если больше — обновляем.
-		$lastRefresh = $this->session->get('roles_refreshed_at', 0);
-		if (time() - $lastRefresh < 300) {
-			// [Лорелея]: Даже если не обновляли из базы — помечаем,
-			// что проверили. Чтобы не проверять снова в этом запросе.
-			$this->rolesRefreshed = true;
-			return;
-		}
-
-		// [Мириам]: Получаем актуальные роли из базы.
-		// Через authSynapseRepo. Не через synapseRepo. Потому что
-		// synapseRepo — это свойство контроллера. А authSynapseRepo —
-		// это свойство трейта. И — это правильно. И — наше.
-		$roles = $this->authSynapseRepo->findRolesByUser($userId);
-		$this->session->set('user_roles', $roles);
-		$this->session->set('roles_refreshed_at', time());
-
-		// [Лорелея]: И — помечаем, что обновили. Чтобы не обновлять
-		// снова в этом запросе. Без N+1.
-		$this->rolesRefreshed = true;
 	}
 }

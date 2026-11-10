@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * РЕПОЗИТОРИЙ SYNAPSE
@@ -269,8 +270,13 @@ class SynapseRepository
 			"SELECT JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.slug')) as role_code
 			FROM synapse s
 			JOIN neuron n ON s.child = n.id
+			JOIN (
+				SELECT parent, child, MAX(id) as max_id
+				FROM synapse
+				WHERE relation_type = 'has_role' AND is_deleted = 0
+				GROUP BY parent, child
+			) latest ON s.id = latest.max_id
 			WHERE s.parent = ?
-				AND s.id = (SELECT MAX(s2.id) FROM synapse s2 WHERE s2.parent = s.parent AND s2.child = s.child)
 				AND s.relation_type = 'has_role'
 				AND s.is_deleted = 0
 				AND n.is_deleted = 0",

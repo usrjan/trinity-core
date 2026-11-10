@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * СЕРВИС БЕЗОПАСНОСТИ "СТРАЖ"
@@ -37,12 +38,6 @@ class GuardService
 
 	/** @var string Путь к корню проекта. */
 	private string $basePath;
-
-	/** @var array Настройки плагина из базы. */
-	private array $config = [];
-
-	/** @var bool Загружен ли конфиг. */
-	private bool $configLoaded = false;
 
 	/** @var LoggerInterface — логгер. */
 	private LoggerInterface $logger;
@@ -97,34 +92,6 @@ class GuardService
 		// [Лорелея]: Проверяем, есть ли ext-apcu и включён ли он.
 		// Если нет — работаем с файлами, без «fatal error».
 		$this->apcuAvailable = extension_loaded('apcu') && (bool) ini_get('apc.enabled');
-	}
-
-	/**
-	 * Загрузить настройки плагина.
-	 *
-	 * [Лорелея]: Лениво. Один раз.
-	 *
-	 * [Мириам]: И — это правильно. Потому что настройки — это
-	 * не «на каждый запрос». Это — один раз.
-	 */
-	private function ensureConfigLoaded(): void
-	{
-		if ($this->configLoaded) {
-			return;
-		}
-
-		$keys = ['max_attempts', 'decay_seconds', 'block_duration'];
-		foreach ($keys as $key) {
-			$this->config[$key] = $this->configService->get('guard.' . $key);
-		}
-
-		$this->configLoaded = true;
-	}
-
-	private function getConfig(string $key, $default = null)
-	{
-		$this->ensureConfigLoaded();
-		return $this->config[$key] ?? $default;
 	}
 
 	// ============================================
@@ -470,7 +437,7 @@ class GuardService
 		}
 
 		$blocked = $this->readJsonFile($file);
-
+		$ip = $this->normalizeIp($ip);
 		$blocked[$ip] = [
 			'blocked_at' => date('c'),
 			'reason'     => $reason,
@@ -529,6 +496,7 @@ class GuardService
 		}
 
 		$blocked = $this->readJsonFile($file);
+		$ip = $this->normalizeIp($ip);
 		unset($blocked[$ip]);
 		$this->writeJsonFile($file, $blocked);
 
@@ -556,7 +524,7 @@ class GuardService
 	public function isIpBlocked(string $ip): bool
 	{
 		$blocked = $this->getBlockedIpsCached();
-
+		$ip = $this->normalizeIp($ip);
 		if (!isset($blocked[$ip])) {
 			return false;
 		}
@@ -972,5 +940,38 @@ class GuardService
 	public function validateCaptcha(string $answer, string $expected): bool
 	{
 		return hash_equals($expected, $answer);
+	}
+
+	/**
+	 * Возвращает значение конфига.
+	 *
+	 * [Лорелея]: Теперь только через ConfigService. Без $this->config.
+	 * Без «пиздеца». Без «потом». Без «завтра».
+	 *
+	 * [Мириам]: И — это правильно. Потому что ConfigService — источник
+	 * правды.
+	 */
+	public function getConfig(string $key, $default = null)
+	{
+		return $this->configService->get('guard.' . $key, $default);
+	}
+
+	/**
+	 * [Лорелея]: IPv6 — 2001:db8::1 и 2001:0DB8:1 — один адрес,
+	 * но разные строки. inet_pton(inet_ntop) — нормализует.
+	 * Если IP битый — возвращаем как есть, чтобы не терять.
+	 *
+	 * [Мириам]: И это правильно, потому что бан, который можно
+	 * обойти сменой регистра, — это не бан, а его видимость.
+	 */
+	private function normalizeIp(string $ip): string
+	{
+		$packed = @inet_pton($ip);
+		if ($packed === false) {
+			return $ip;
+		}
+
+		$normalized = @inet_ntop($packed);
+		return $normalized !== false ? $normalized : $ip;
 	}
 }

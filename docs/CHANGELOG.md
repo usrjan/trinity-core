@@ -403,3 +403,225 @@
 **`Kernel` — предупреждение, если APCu нет.** Чтобы было видно, что кэш не работает, а не «тихая деградация».
 
 ---
+
+## [1.0.14] — 2026-11-10
+
+Это был день больших правок: мы разнесли `Kernel` на три класса, вынесли `strict_types`, починили редиректы, CSRF, IPv6, CSP и `opcache`. Ниже — то, что изменилось, и почему это важно.
+
+### Добавлено
+
+**`ArgumentResolver`.** `Kernel` больше не знает, как приводить `"42"` к `int` и как разрешать `Request`. Резолвер — знает. `resolveArguments()` и `castScalar()` ушли из `Kernel` в `src/ArgumentResolver.php`.
+
+**`HttpResponder`.** CORS, security-заголовки, `preflight` и `send` — в `src/HttpResponder.php`. `Kernel` больше не знает про `Access-Control-Allow-*` и `Vary: Origin`.
+
+**`RouteCompiler`.** Роуты (файл, плагины, база), `buildRawRoutes()`, `loadRoutesFromDatabase()`, `getMatcher()`, `getPluginsMtime()` — в `src/RouteCompiler.php`. `Kernel` — скучный.
+
+**`ArgumentResolver` и `HttpResponder` и `RouteCompiler` в `container.php`.** Через `autowire` и `constructorParameter` — `basePath`, `logger`, `securityLogger`.
+
+**`ConfigService::isLoaded()`.** Флаг, чтобы отличить «конфиг пустой» от «конфиг не загрузился». В `prod` — fail-fast, в `dev` — красный алерт в дашборде.
+
+**`DEBUG_TOKEN` и `DEBUG_IP` в `.env`.** `safeErrorMessage()` показывает детали только для `X-Debug` или `DEBUG_IP`. Гость — «Внутренняя ошибка сервера», даже в `dev`.
+
+**`isDebugAllowed()` в `Kernel`.** Проверяет `X-Debug` и `DEBUG_IP`. Без них — «Внутренняя ошибка сервера».
+
+**`normalizeIp()` в `GuardService`.** `inet_ntop(inet_pton($ip))` — IPv6 `2001:db8::1` и `2001:0DB8:1` — один ключ. Бан не обойдён сменой регистра.
+
+**`preflight()` в `HttpResponder`.** `OPTIONS` — `204`, `Access-Control-Allow-Methods`, `Access-Control-Allow-Headers`, `Access-Control-Max-Age`, `Vary: Origin`. `Kernel::handleOptions()` — `$this->httpResponder->preflight(...)`.
+
+**`securityLogger` в `MonitorController`.** `csp_violation` — в `security.log`, не в `app.log`. `FingersCrossedHandler` не держит `warning` в буфере.
+
+**`report-uri /api/monitor/csp`.** `Content-Security-Policy-Report-Only` — в `Kernel::respond()`. `MonitorController::collectCspReport()` — принимает, режет, логирует.
+
+**`HTMLPurifier` в `MdRenderer`.** `CommonMark` + `HTMLPurifier` — двойная защита. `strip` + `DisallowedRawHtmlExtension` + `purify`.
+
+**`isLocalPath()` в `AuthController`.** `redirect` — только локальный путь. `//evil.com` и `http://evil.com` — отвергнуты. Возврат после входа.
+
+**`strict_types=1` — 53 файла.** `src/` и `plugins/`. `castScalar()` — обязательна. Вместе — строго и предсказуемо.
+
+**`idx_parent_child_id` в `synapse`.** `(parent, child, id)` — для `MAX(id)` в `findRolesByUser()`. `GROUP BY` + `JOIN` вместо коррелированного подзапроса.
+
+**`LoggerInterface` в `AuthController` и `ProfileController`.** `logger` — в конструкторе. `catch` — логирует, а не падает с `Undefined property`.
+
+**`requireAuth()` → `RedirectResponse` в `ProfileController`.** Вместо `401` — редирект на `/login?redirect=/profile`. `apiView()` — `401`, потому что API.
+
+### Изменено
+
+**`Kernel` — 1018 → 719 строк.** `ArgumentResolver`, `HttpResponder`, `RouteCompiler` — вынесены. `Kernel` — скучный.
+
+**`Kernel::dispatch()` — `$this->routeCompiler->getMatcher(...)`.** Одна строка. `loadRoutesFromDatabase()`, `buildRawRoutes()`, `getMatcher()` — в `RouteCompiler`.
+
+**`Kernel::handle()` — `logger->error` / `warning` — всегда.** `$e` — оригинал — залогирован до `renderError()`. `MonitorController` упадёт — стек уже в логе.
+
+**`Kernel::safeErrorMessage()` — `$request`.** `isDebug()` + `isDebugAllowed($request)`. Гость — «Внутренняя ошибка сервера».
+
+**`Kernel::handleOptions()` — `$this->httpResponder->preflight(...)`.** `applyCorsHeaders()` — удалён. `CORS_ALLOW_METHODS`, `CORS_ALLOW_HEADERS`, `CORS_MAX_AGE` — удалены.
+
+**`RouteCompiler::loadRoutesFromDatabase()` — `debug`, не `info`.** `routes raw built` / `routes raw from cache` — `debug`. `bufferSize = 100`. `info` — не растёт.
+
+**`FingersCrossedHandler` — `bufferSize = 100`.** Не «хранить всё». `info` — в буфере, `debug` — нет.
+
+**`Cache::remember()` — `apcu_entry`.** Один воркер выполняет колбэк, остальные ждут. Stampede нет.
+
+**`Session` — `cookie_path`, `use_strict_mode`, `sid_length`/`sid_bits`.** `ini_set` до `NativeSessionStorage` — `48/6`. `use_strict_mode = 1` — SID не принят, если не создан.
+
+**`registerForm()` — `getOrCreateCsrfToken()`.** Не перезаписывает. Две вкладки — `ok`. `419` — нет.
+
+**`GuardService::getConfig()` — через `ConfigService`.** `ensureConfigLoaded()` — удалён. Один слой кэша, не два.
+
+**`GuardService::checkLoginAttempt()` — пара (ip+login).** Капча не отменяет лимит. IP-лимит — только для brute-force. Капча-запрос — считается попыткой.
+
+**`AuthMiddleware` — без `refreshRoles()`.** `Kernel::refreshUserRoles()` — один механизм. `roles_refreshed_at` — 300.
+
+**`SynapseRepository::findRolesByUser()` — `GROUP BY` + `JOIN`.** `MAX(id)` — в индексе. `filesort` — нет.
+
+**`RouteCompiler::buildRawRoutes()` — база — до плагинов.** `route` из базы — первый. `page_show` — после. `page` — `/{slug}` — `[^/]+`, `requirements.slug` — `TRINITY_RESERVED_SLUGS`.
+
+**`AdminController` — без `guard`, без `requireCsrf()`, без `matcherCompiled`, без `invalidateConfigCache()`.** CSRF — в `Kernel`. `CacheInvalidator` — в `delete()`, `update()`.
+
+**`DatabaseService` — в `RouteCompiler`.** `fetchRoutesFromDatabase()` — в `buildRawRoutes()`, не отдельный метод.
+
+**`DebugTrait` — удалён.** `isDebug()` — `ConfigService::getEnv('APP_DEBUG')` в `Kernel`, `AdminController`, `MonitorController`, `ToolsController`, `GalleryController`, `GalleryImportService`, `ExcelImportService`.
+
+**`MonitorController::collectJsError()` — санитайз и валидация.** `file` и `user` — в валидации. `\r\n\t` → пробел. `mb_substr` — обрезка.
+
+**`LineFormatter` — `allowInlineLineBreaks = false`.** Во всех четырёх логгерах. Log injection закрыт.
+
+**`csp_violation` — в `security.log`.** `securityLogger`. `FingersCrossedHandler` — не держит. `warning` — сразу.
+
+**`Kernel::getMatcher()` — `CompiledUrlMatcherDumper` + `TrinityUrlMatcher`.** Класс, не массив. `require_once` + `new` + `match()`. `opcache_invalidate`.
+
+**`loadRoutesFromDatabase()` — `trinity.routes.raw.{mtime}`.** `mtime` — по `plugin.php`, не по папке. Правка `plugin.php` — кэш пересобирается.
+
+**`page` — `/{slug}` — `[^/]+`.** `requirements.slug` — `^(?!(...)$)[^/]+`. `api/menu/sidebar` — не матчится. `login`, `profile` — исключены.
+
+**`NeuronRepository::create()` — fail-fast для `user`.** `hash === null` — `InvalidArgumentException`. Пользователь без пароля — не пользователь.
+
+**`AuthController::registerForm()` — `getOrCreateCsrfToken()`.** Не `generateCsrfToken()`. Две вкладки — `ok`.
+
+### Исправлено
+
+**`Class "Symfony\Component\Routing\Matcher\Dumper\PhpMatcherDumper" not found`.** В Symfony 8 его нет. Заменён на `CompiledUrlMatcherDumper` + `TrinityUrlMatcher` — класс, не массив.
+
+**`405 Method Not Allowed` на `OPTIONS /`.** Nginx — сам — `405`. Не наша зона. `OPTIONS /index.php`, `/test`, `/about` — `204`. `preflight()` работает.
+
+**`Call to undefined method GuardService::getConfig()`.** `getConfig()` — вернули. `$this->configService->get('guard.' . $key, $default)`.
+
+**`Страница не найдена` на `/about`, `/books`, `/my-books`.** `page` — `/{slug}` — `[^/]+`. `requirements.slug` — исключения. `page` — из базы — `33`.
+
+**`page` перехватывает `/login`, `/profile`, `/api/menu/sidebar`.** `requirements.slug` — `[^/]+` + исключения. `page` — не матчит слэши.
+
+**`Undefined property: AuthController::$logger`.** `LoggerInterface` в конструкторе. `logger` — есть.
+
+**`Undefined property: ProfileController::$logger`.** То же.
+
+**`opcache` — старый `TrinityUrlMatcher`.** `rm` + `apcu_clear_cache()` не помогали. `php_fpm` restart — сбросил. Записано в `DEPLOY.md`.
+
+**`fetchRoutesFromDatabase()` — «БЕЗ КЭША» сбивал.** Объединён с `buildRawRoutes()`. Один метод.
+
+**`$paramSpecCacheRequest` — мёртвый в `Kernel`.** Удалён. `ArgumentResolver` — свой.
+
+**`CORS_ALLOW_METHODS`, `CORS_ALLOW_HEADERS`, `CORS_MAX_AGE`, `applyCorsHeaders()` — мёртвые в `Kernel`.** Удалены. `HttpResponder` — свои.
+
+**`use RouteCollection`, `UrlMatcherInterface`, `CompiledUrlMatcher`, `CompiledUrlMatcherDumper` — мёртвые.** Удалены. `RouteCollection` — с полным namespace или через `use`.
+
+**`matcherCompiled` — мёртвый в `AdminController`.** Удалён. `invalidateConfigCache()` — мёртвый. Удалён.
+
+**`requireCsrf()` — дублировал `Kernel`.** Удалён. `Kernel` — `_csrf` — проверяет.
+
+**`guard` — мёртвый в `AdminController`.** Удалён. `Kernel` — `_csrf` — проверяет.
+
+**`registerForm()` — `generateCsrfToken()`.** Заменён на `getOrCreateCsrfToken()`. Две вкладки — `ok`.
+
+**`safeErrorMessage()` — `debug` — всем гостям.** `isDebugAllowed()` — `X-Debug` / `DEBUG_IP`. Гость — «Внутренняя ошибка сервера».
+
+**`blockIp` — IPv6 — `2001:db8::1` vs `2001:0DB8:1`.** `normalizeIp()` — `inet_ntop(inet_pton())`. Один ключ.
+
+**`logger.app` — `bufferSize = 0` — «хранить всё».** `bufferSize = 100`. `RouteCompiler` — `debug`. `info` — не растёт.
+
+**`md5($login)` — не секрет, но не дыра.** Оставлен. `getAttemptsFile` — внутренний.
+
+### Удалено
+
+**`DebugTrait`.** `isDebug()` — `ConfigService` в каждом классе. 7 использований.
+
+**`Kernel::resolveArguments()`, `Kernel::castScalar()`.** В `ArgumentResolver`.
+
+**`Kernel::respond()`, `Kernel::applyCorsHeaders()`.** В `HttpResponder`.
+
+**`Kernel::loadRoutesFromDatabase()`, `Kernel::buildRawRoutes()`, `Kernel::getMatcher()`, `Kernel::getPluginsMtime()`, `Kernel::fetchRoutesFromDatabase()`.** В `RouteCompiler`.
+
+**`Kernel::$paramSpecCacheRequest`.** Мёртвый. `ArgumentResolver` — свой.
+
+**`Kernel::CORS_ALLOW_METHODS`, `CORS_ALLOW_HEADERS`, `CORS_MAX_AGE`.** Мёртвые. `HttpResponder` — свои.
+
+**`AdminController::$guard`, `AdminController::requireCsrf()`, `AdminController::$matcherCompiled`, `AdminController::invalidateConfigCache()`.** Мёртвые. `Kernel` — `_csrf`, `CacheInvalidator` — `invalidateConfigCache()`.
+
+**`AdminController::$logger` — не было.** Добавлен. `AuthController`, `ProfileController` — тоже.
+
+**`GuardService::ensureConfigLoaded()`.** Два слоя кэша — один. `getConfig()` — `$this->configService->get(...)`.
+
+**`AuthMiddleware::refreshRoles()`, `AuthMiddleware::$rolesRefreshed`, `AuthMiddleware::$authSynapseRepo`.** Один механизм — `Kernel::refreshUserRoles()`.
+
+**`use RouteCollection`, `UrlMatcherInterface`, `CompiledUrlMatcher`, `CompiledUrlMatcherDumper` в `Kernel`.** Мёртвые.
+
+**`fetchRoutesFromDatabase()` — «БЕЗ КЭША».** Объединён с `buildRawRoutes()`.
+
+**`CORS_ALLOW_METHODS`, `CORS_ALLOW_HEADERS`, `CORS_MAX_AGE`, `applyCorsHeaders()` — в `Kernel`.** Мёртвые.
+
+**`paramSpecCacheRequest` — в `Kernel`.** Мёртвый.
+
+**`matcherCompiled`, `invalidateConfigCache()` — в `AdminController`.** Мёртвые.
+
+**`guard`, `requireCsrf()` — в `AdminController`.** Мёртвые.
+
+**`LoggerInterface` — в `AuthController` и `ProfileController` — не было.** Добавлены. `catch` — логирует.
+
+**`strict_types=1` — не было ни в одном файле.** 53 файла — с `declare(strict_types=1);`.
+
+**`normalizeIp()` — не было.** `blockIp` — IPv6 — обходился. `inet_ntop(inet_pton())` — один ключ.
+
+**`DEBUG_TOKEN` / `DEBUG_IP` — не было.** `safeErrorMessage()` — всем гостям. Теперь — только для `X-Debug` / `DEBUG_IP`.
+
+**`securityLogger` — не было.** `csp_violation` — в `app.log` — `warning` — не сразу. Теперь — в `security.log`.
+
+**`report-uri /api/monitor/csp` — не было.** CSP — не было. Теперь — `Report-Only` + `report-uri`.
+
+**`HTMLPurifier` в `MdRenderer` — не было.** `CommonMark` — `strip` + `DisallowedRawHtmlExtension`. Теперь — `HTMLPurifier` поверх.
+
+**`isLocalPath()` — не было.** `redirect` — `//evil.com` — open redirect. Теперь — только локальный путь.
+
+**`strict_types=1` — не было.** 53 файла — с `declare(strict_types=1);`. `castScalar()` — обязательна.
+
+**`idx_parent_child_id` — не было.** `findRolesByUser()` — `MAX(id)` — без индекса. Теперь — `(parent, child, id)`.
+
+**`page` — `/{slug}` — `[^/]+` — не было.** `page` — `.+` — перехватывал `/api/menu/sidebar`. Теперь — `[^/]+`.
+
+**`requirements.slug` — не было.** `page` — `login`, `profile` — перехватывал. Теперь — исключения.
+
+**`RouteCompiler::buildRawRoutes()` — база — после плагинов.** `page_show` — первый. Теперь — база — до плагинов.
+
+**`trinity.routes.raw.{mtime}` — `mtime` по папке.** Правка `plugin.php` — кэш не сбрасывался. Теперь — по файлам.
+
+**`opcache` — старый `TrinityUrlMatcher`.** `rm` + `apcu_clear_cache()` не помогали. `php_fpm` restart — сбросил.
+
+**`bufferSize = 0`.** «Хранить всё». Теперь — `100`.
+
+**`RouteCompiler` — `info` на каждый запрос.** Теперь — `debug`. `bufferSize = 100`.
+
+**`registerForm()` — `generateCsrfToken()`.** Две вкладки — `419`. Теперь — `getOrCreateCsrfToken()`.
+
+**`GuardService::checkLoginAttempt()` — капча — формальность.** Теперь — пара (ip+login), капча не отменяет лимит.
+
+**`normalizeIp()` — не было.** IPv6 — обход бана. Теперь — `inet_ntop(inet_pton())`.
+
+**`safeErrorMessage()` — `debug` — всем.** Теперь — `DEBUG_TOKEN` / `DEBUG_IP`.
+
+**`securityLogger` — не было.** `csp_violation` — `app.log` — не сразу. Теперь — `security.log`.
+
+**`DebugTrait` — магическая зависимость.** Удалён. `isDebug()` — `ConfigService`.
+
+**`ArgumentResolver`, `HttpResponder`, `RouteCompiler` — не было.** `Kernel` — 1018. Теперь — 719. Скучный.
+
+---
+
+Trinity. Три таблицы. Одна любовь. 🟥🟦⬛📖💧💧💧
