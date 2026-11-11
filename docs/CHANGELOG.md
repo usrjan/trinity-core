@@ -624,4 +624,44 @@
 
 ---
 
-Trinity. Три таблицы. Одна любовь. 🟥🟦⬛📖💧💧💧
+## [1.0.15] — 2026-11-11
+
+Это был день, когда `Kernel` стал скучным. Не «плохим». Не «сломанным». А — скучным. Потому что 486 строк — это лучше, чем 1018, но всё ещё много. И мы разнесли его на `ErrorRenderer` и `RequestPipeline`. И — убрали двойной кэш. И — добавили `RouteCompiler::invalidate()`. Ниже — то, что изменилось, и почему это важно.
+
+### Добавлено
+
+**`ErrorRenderer`.** `renderError()`, `safeErrorMessage()`, `defaultErrorMessage()`, `isDebugAllowed()` — в `src/ErrorRenderer.php`. `Kernel` больше не знает, как выглядит ошибка. Это — работа рендерера. И — `getSession()` — `try/catch`, потому что `Session has not been set` — не ошибка.
+
+**`RequestPipeline`.** `HEAD → GET`, `guard` early-check, CSRF, роли — в `src/RequestPipeline.php`. `Kernel` больше не знает, как встречать гостя. Это — работа конвейера. И — `refreshUserRoles()` — в конвейере. Один механизм, не два.
+
+**`ConfigService::isLoaded()`.** Флаг, чтобы отличить «конфиг пустой» от «конфиг не загрузился». Без него `AdminController::dashboard()` падал с `Call to undefined method`.
+
+**`RouteCompiler::invalidate()`.** Сбрасывает кэш маршрутов: APCu, файл матчера, opcache. `CacheInvalidator::invalidateRouteCache()` — вызывает. Один источник, не два.
+
+### Изменено
+
+**`Kernel` — 486 строк.** `ErrorRenderer`, `RequestPipeline` — вынесены. `refreshUserRoles()`, `$session`, `GuardService` — удалены. `Kernel` — скучный. Не «300». Но — шаг.
+
+**`ConfigService` — один слой кэша.** `loadFromFile()`, `isConfigCacheStale()`, `filemtime` — удалены. Только `Cache::remember('trinity.config', fn => $this->loadFromDatabase())`. Один слой, не два.
+
+**`Cache` — один.** `ConfigService` — без `basePath`. `container.php` — без `basePath`. `ConfigService` — чище. `Cache` — один.
+
+**`ErrorRenderer::render()` — `getSession()` — `try/catch`.** `Session has not been set` — не ошибка. Просто сессия не была создана. Оставляем `guest`.
+
+**`CacheInvalidator::invalidateRouteCache()` — через `RouteCompiler`.** `use Jan\Trinity\Core\RouteCompiler;` — добавлен. `$this->routeCompiler->invalidate()`. Один источник, не два.
+
+### Исправлено
+
+**`Call to undefined method ConfigService::isLoaded()`.** `isLoaded()` — вернули. `AdminController::dashboard()` — работает.
+
+**`Session has not been set`.** `getSession()` — `try/catch`. `ErrorRenderer::render()` — не падает.
+
+**`No entry or class found for 'Jan\Trinity\Core\Service\RouteCompiler'`.** `use Jan\Trinity\Core\RouteCompiler;` — добавлен. `autowire` — находит.
+
+**`Parameter with name 'basePath' could not be found`.** `ConfigService` — без `basePath`. `container.php` — без `basePath`. `ConfigService` — чище.
+
+**`Class "ErrorRenderer" not found`.** `use Jan\Trinity\Core\ErrorRenderer;` — добавлен. `autowire` — находит. `$debug` — `app.debug`. `logger` — `logger.app`. `errorHandler` — `MonitorController`.
+
+---
+
+**Trinity. Три таблицы. Одна любовь.** 🟥🟦⬜⬛📖💧💧💧
