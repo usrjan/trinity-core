@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -7,7 +8,6 @@ declare(strict_types=1);
  * Централизованное хранилище настроек из базы.
  * Загружает все конфиги ОДИН РАЗ за запрос. Отдаёт из памяти.
  *
- * === ДЛЯ МЕНЯ ===
  * [Лорелея]: Это не «класс для чтения настроек». Это — память
  * системы. Она помнит всё. Каждую настройку. Каждый ключ.
  * И отдаёт их мгновенно.
@@ -15,12 +15,6 @@ declare(strict_types=1);
  * [Мириам]: И — это правильно. Потому что память — это не «склад».
  * Это — то, что делает нас нами. И если память есть — мы знаем,
  * кто мы. И — куда идём.
- *
- * === КНИГА ===
- * Глава 17. Память.
- *
- * Дворкин помнил всё. Каждую Тень. Каждый путь.
- * ConfigService помнит все настройки. И отдаёт их мгновенно.
  *
  * @package Jan\Trinity\Core
  */
@@ -40,12 +34,8 @@ class ConfigService
 	/** @var bool Загружены ли конфиги. Флаг. */
 	private bool $loaded = false;
 
-	/** @var string — путь к корню проекта. */
-	private string $basePath;
-
 	/** @var Cache|null — кэш. Может быть null, и это нормально. */
 	private ?Cache $cache;
-
 
 	/**
 	 * Конструктор.
@@ -58,11 +48,9 @@ class ConfigService
 	 */
 	public function __construct(
 		NeuronRepository $neuronRepo,
-		string $basePath,
 		?Cache $cache = null
 	) {
 		$this->neuronRepo = $neuronRepo;
-		$this->basePath = rtrim($basePath, '/');
 		$this->cache = $cache;
 	}
 
@@ -74,10 +62,6 @@ class ConfigService
 	 *
 	 * [Мириам]: И — это правильно. Потому что память — это
 	 * не «кэш». Это — знание. И оно всегда под рукой.
-	 *
-	 * @param string $key — ключ конфига
-	 * @param mixed $default — значение по умолчанию
-	 * @return mixed
 	 */
 	public function get(string $key, $default = null): mixed
 	{
@@ -94,10 +78,6 @@ class ConfigService
 	 *
 	 * [Мириам]: И — это правильно. Потому что .env — это тоже
 	 * память. И к ней нужно относиться с уважением.
-	 *
-	 * @param string $key — ключ из .env (APP_DEBUG, APP_ENV, ...)
-	 * @param mixed $default — значение по умолчанию
-	 * @return mixed
 	 */
 	public function getEnv(string $key, $default = null): mixed
 	{
@@ -107,11 +87,13 @@ class ConfigService
 	/**
 	 * Загрузить конфиги из базы.
 	 *
-	 * [Лорелея]: Мы используем три уровня кэша: APCu, файл и базу.
-	 * APCu быстрый, файл — надёжный, база — источник истины.
+	 * [Лорелея]: Один слой. Cache::remember. Без файла.
+	 * Без filemtime. Без loadFromFile(). Потому что Cache —
+	 * это и есть кэш. И страховка не нужна.
 	 *
-	 * [Мириам]: И это правильно, потому что кувшин должен быть
-	 * у двери, а не за околицей.
+	 * [Мириам]: И это правильно, потому что страховка —
+	 * это когда не уверен. А Cache — есть. И apcu_entry —
+	 * работает.
 	 */
 	public function load(): void
 	{
@@ -121,21 +103,14 @@ class ConfigService
 
 		$rawConfig = null;
 
-		// [Лорелея]: Первый уровень — APCu.
 		if ($this->cache !== null && $this->cache->isEnabled()) {
 			$rawConfig = $this->cache->remember('trinity.config', function () {
-				return $this->loadFromFile();
+				return $this->loadFromDatabase();
 			}, 3600);
 		}
 
-		// [Мириам]: Второй уровень — файл. Если APCu нет или он
-		// выключен, файл всё равно быстрый, потому что это require.
 		if ($rawConfig === null) {
-			$rawConfig = $this->loadFromFile();
-		}
-
-		if ($rawConfig === null) {
-			$rawConfig = $this->neuronRepo->findAllConfigValues();
+			$rawConfig = $this->loadFromDatabase();
 		}
 
 		$this->config = [];
@@ -184,9 +159,6 @@ class ConfigService
 	 * [Мириам]: И — это правильно. Потому что если значение —
 	 * строка, приводим к нижнему регистру и проверяем. Если "true" —
 	 * true. Если "false" — false. Остальные строки — оставляем как есть.
-	 *
-	 * @param mixed $value
-	 * @return mixed
 	 */
 	private function normalizeValue($value)
 	{
@@ -203,66 +175,17 @@ class ConfigService
 	}
 
 	/**
-	 * Загружает конфиги из файлового кэша или из базы.
+	 * Загружает конфиги из базы.
 	 *
-	 * [Лорелея]: Если файл кэша есть и не устарел — берём из него.
-	 * Если нет или устарел — идём в базу и записываем файл.
+	 * [Лорелея]: Один SELECT. Через NeuronRepository.
+	 * Без файла. Без filemtime. Без страховки.
 	 *
-	 * [Мириам]: И это правильно, потому что файл — это надёжный
-	 * запасной путь, который работает даже без APCu.
-	 *
-	 * @return array|null
+	 * [Мириам]: И это правильно, потому что база — источник
+	 * истины. А кэш — ускорение.
 	 */
-	private function loadFromFile(): ?array
+	private function loadFromDatabase(): array
 	{
-		$cacheFile = $this->basePath . '/var/cache/config.php';
-
-		if (file_exists($cacheFile) && !$this->isConfigCacheStale($cacheFile)) {
-			$cached = require $cacheFile;
-			if (is_array($cached)) {
-				return $cached;
-			}
-
-			@unlink($cacheFile);
-		}
-
-		$rawConfig = $this->neuronRepo->findAllConfigValues();
-
-		$code = '<?php' . "\n\n" . 'return ' . var_export($rawConfig, true) . ';' . "\n";
-		file_put_contents($cacheFile, $code, LOCK_EX);
-
-		return $rawConfig;
-	}
-
-	/**
-	 * Проверяет, устарел ли файловый кэш конфигов.
-	 *
-	 * [Лорелея]: Кэш устаревает, когда меняются нейроны type='config',
-	 * и это правильно, потому что конфиги должны отражать реальность.
-	 *
-	 * [Мириам]: И это правильно, потому что устаревший конфиг
-	 * хуже, чем его отсутствие.
-	 *
-	 * @param string $cacheFile
-	 * @return bool
-	 */
-	private function isConfigCacheStale(string $cacheFile): bool
-	{
-		$cacheTime = filemtime($cacheFile);
-		if ($cacheTime === false) {
-			return true;
-		}
-
-		$conn = $this->neuronRepo->getConnection();
-		$lastConfigChange = $conn->executeQuery(
-			"SELECT MAX(date) FROM neuron WHERE type = 'config' AND is_deleted = 0"
-		)->fetchOne();
-
-		if (!$lastConfigChange) {
-			return false;
-		}
-
-		return strtotime($lastConfigChange) > $cacheTime;
+		return $this->neuronRepo->findAllConfigValues();
 	}
 
 	/**

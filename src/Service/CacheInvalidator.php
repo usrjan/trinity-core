@@ -20,6 +20,7 @@ declare(strict_types=1);
 namespace Jan\Trinity\Core\Service;
 
 use Jan\Trinity\Core\Cache;
+use Jan\Trinity\Core\RouteCompiler;
 
 class CacheInvalidator
 {
@@ -41,9 +42,13 @@ class CacheInvalidator
 	 */
 	private $onMatcherReset = null;
 
-	public function __construct(Cache $cache, string $basePath)
-	{
+	public function __construct(
+		Cache $cache,
+		RouteCompiler $routeCompiler,
+		string $basePath
+	) {
 		$this->cache = $cache;
+		$this->routeCompiler = $routeCompiler;
 		$this->basePath = rtrim($basePath, '/');
 	}
 
@@ -63,26 +68,18 @@ class CacheInvalidator
 	}
 
 	/**
-	 * Сбрасывает кэш маршрутов: APCu, файл матчера и статическую
-	 * переменную. С `forgetByPrefix` — потому что ключ теперь
-	 * включает mtime, и точечный forget его не найдёт.
+	 * Сбрасывает кэш маршрутов через RouteCompiler.
 	 *
-	 * [Мириам]: Инвалидация «наполовину» хуже, чем её отсутствие,
-	 * потому что создаёт иллюзию, что кэш сброшен.
+	 * [Лорелея]: CacheInvalidator больше не знает, как удалять
+	 * матчер. Это — работа RouteCompiler. Инвалидатор — просто
+	 * вызывает.
+	 *
+	 * [Мириам]: И это правильно, потому что тот, кто строит,
+	 * знает, что ломать.
 	 */
 	public function invalidateRouteCache(): void
 	{
-		$this->cache->forget('trinity.routes');
-		$this->cache->forgetByPrefix('trinity.routes.raw.');
-
-		$matcherFile = $this->basePath . '/var/cache/TrinityUrlMatcher.php';
-		if (file_exists($matcherFile)) {
-			@unlink($matcherFile);
-
-			if (function_exists('opcache_invalidate')) {
-				@opcache_invalidate($matcherFile, true);
-			}
-		}
+		$this->routeCompiler->invalidate();
 	}
 
 	/**

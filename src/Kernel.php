@@ -29,10 +29,8 @@ use Symfony\Component\Routing\Exception\ResourceNotFoundException;
 use Symfony\Component\Routing\Exception\MethodNotAllowedException;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\Session\Session;
 use Jan\Trinity\Core\Exception\UnauthorizedException;
 use Jan\Trinity\Core\Exception\ForbiddenException;
-use Jan\Trinity\Core\Service\GuardService;
 
 class Kernel
 {
@@ -63,6 +61,8 @@ class Kernel
 	private ArgumentResolver $argumentResolver;
 	private HttpResponder $httpResponder;
 	private RouteCompiler $routeCompiler;
+	private ErrorRenderer $errorRenderer;
+	private RequestPipeline $requestPipeline;
 
 	// ============================================
 	// РОЖДЕНИЕ
@@ -87,6 +87,8 @@ class Kernel
 		$containerBuilder->addDefinitions($this->basePath . '/config/container.php');
 		$this->container = $containerBuilder->build();
 
+		$this->requestPipeline = $this->container->get(RequestPipeline::class);
+
 		$this->argumentResolver = $this->container->get(ArgumentResolver::class);
 
 		$this->httpResponder = $this->container->get(HttpResponder::class);
@@ -107,6 +109,7 @@ class Kernel
 				$this->logger->warning('APCu is not available. Cache is disabled. Install php-apcu for production.');
 			}
 		}
+		$this->errorRenderer = $this->container->get(ErrorRenderer::class);
 		$this->loadConfig();
 		$this->loadPlugins();
 		$this->routeCompiler = $this->container->get(RouteCompiler::class);
@@ -231,43 +234,43 @@ class Kernel
 	{
 		$request = Request::createFromGlobals();
 
-	// [Лорелея]: OPTIONS — в handleOptions(), HEAD — в dispatch().
-	// HEAD — это GET без тела, он должен идти тем же путём,
-	// что и GET, чтобы мониторинг видел реальный статус.
-	if ($request->getMethod() === 'OPTIONS') {
-		$this->handleOptions($request);
-		return;
-	}
-
-	try {
-		$response = $this->dispatch($request);
-	} catch (\Throwable $e) {
-		[$code, $message] = match (true) {
-			$e instanceof ResourceNotFoundException => [404, 'Страница не найдена'],
-			$e instanceof MethodNotAllowedException => [405, 'Метод не поддерживается'],
-			$e instanceof UnauthorizedException => [401, $e->getMessage()],
-			$e instanceof ForbiddenException => [403, $e->getMessage()],
-			default => [500, $this->safeErrorMessage($e, 500, $request)],
-		};
-
-		// [Лорелея]: Логируем оригинал всегда, до renderError.
-		// Если MonitorController упадёт — стек уже в логе.
-		// 5xx — error, 4xx — warning, потому что 4xx — это гость,
-		// а 5xx — это мы.
-		if ($this->logger !== null) {
-			$logMethod = $code >= 500 ? 'error' : 'warning';
-			$this->logger->$logMethod('unhandled exception', [
-				'code'    => $code,
-				'message' => $e->getMessage(),
-				'file'    => $e->getFile() . ':' . $e->getLine(),
-				'trace'   => $e->getTraceAsString(),
-				'url'     => $_SERVER['REQUEST_URI'] ?? 'unknown',
-				'method'  => $_SERVER['REQUEST_METHOD'] ?? 'unknown',
-				'ip'      => $request->getClientIp(),
-			]);
+		// [Лорелея]: OPTIONS — в handleOptions(), HEAD — в dispatch().
+		// HEAD — это GET без тела, он должен идти тем же путём,
+		// что и GET, чтобы мониторинг видел реальный статус.
+		if ($request->getMethod() === 'OPTIONS') {
+			$this->handleOptions($request);
+			return;
 		}
 
-		$response = $this->renderError($code, $message, $e);
+		try {
+			$response = $this->dispatch($request);
+		} catch (\Throwable $e) {
+			$code = match (true) {
+				$e instanceof ResourceNotFoundException => 404,
+				$e instanceof MethodNotAllowedException => 405,
+				$e instanceof UnauthorizedException => 401,
+				$e instanceof ForbiddenException => 403,
+				default => 500,
+			};
+
+			// [Лорелея]: Логируем оригинал всегда, до renderError.
+			// Если MonitorController упадёт — стек уже в логе.
+			// 5xx — error, 4xx — warning, потому что 4xx — это гость,
+			// а 5xx — это мы.
+			if ($this->logger !== null) {
+				$logMethod = $code >= 500 ? 'error' : 'warning';
+				$this->logger->$logMethod('unhandled exception', [
+					'code'    => $code,
+					'message' => $e->getMessage(),
+					'file'    => $e->getFile() . ':' . $e->getLine(),
+					'trace'   => $e->getTraceAsString(),
+					'url'     => $_SERVER['REQUEST_URI'] ?? 'unknown',
+					'method'  => $_SERVER['REQUEST_METHOD'] ?? 'unknown',
+					'ip'      => $request->getClientIp(),
+				]);
+			}
+
+			$response = $this->errorRenderer->render($e, $code, $request);
 
 			// [Лорелея]: Для 405 ставим Allow-заголовок, чтобы клиент
 			// знал, какие методы разрешены. Без «пиздеца».
@@ -328,25 +331,15 @@ class Kernel
 	 */
 	private function dispatch(Request $request): Response
 	{
-		// [Лорелея]: HEAD — это GET без тела. Symfony сам обрежет
-		// тело при send(), но матчер должен видеть GET, иначе
-		// HEAD-маршрут не найдётся. Меняем метод перед матчингом.
-		if ($request->getMethod() === 'HEAD') {
-			$request->setMethod('GET');
-		}
+		// [Лорелея]: HEAD → GET. Symfony сам обрежет тело при send(),
+		// но матчер должен видеть GET. Это — работа конвейера.
+		$this->requestPipeline->normalizeMethod($request);
 
-		// [Лорелея]: EARLY-CHECK. Заблокированный IP — не гость.
-		$ip = $request->getClientIp();
-		if ($ip && $this->container->has(GuardService::class)) {
-			$guard = $this->container->get(GuardService::class);
-			if ($guard->isIpBlocked($ip)) {
-				return new Response('Доступ запрещён. Ваш IP заблокирован.', 403);
-			}
+		// [Лорелея]: Guard early-check. Заблокированный IP — не гость.
+		// Это — работа конвейера.
+		if ($response = $this->requestPipeline->checkIpBlocked($request)) {
+			return $response;
 		}
-
-		// [Мириам]: SESSION. Не стартуем здесь, потому что публичные
-		// GET-страницы не нуждаются в ней.
-		$session = $this->container->get(Session::class);
 
 		// [Лорелея]: Роуты — через RouteCompiler. Ядро больше не знает,
 		// откуда они: файл, плагины или база. Компилятор знает.
@@ -372,244 +365,19 @@ class Kernel
 			$parameters['_roles']
 		);
 
-		// [Лорелея]: CSRF-проверка через метаданные маршрута,
-		// а не через белый список путей в ядре.
-		$httpMethod = $request->getMethod();
-		if (in_array($httpMethod, ['POST', 'PUT', 'DELETE'], true) && $requiresCsrf) {
-			$csrfToken = $request->headers->get('X-CSRF-Token', '')
-				?: $request->request->get('_csrf_token', '');
-
-			$guard = $this->container->get(GuardService::class);
-			if (!$guard->validateCsrfToken($csrfToken)) {
-				return new Response('Недействительный CSRF-токен', 419);
-			}
+		// [Лорелея]: CSRF — через конвейер. Одна точка, без дублей.
+		if ($response = $this->requestPipeline->checkCsrf($request, $requiresCsrf)) {
+			return $response;
 		}
 
-		// [Мириам]: Авторизация через метаданные маршрута,
-		// а не через префиксы путей.
-		if (!empty($requiredRoles)) {
-			$this->refreshUserRoles($session);
-
-			$userRoles = $session->get('user_roles', []);
-			$hasAccess = false;
-
-			foreach ($requiredRoles as $role) {
-				if (in_array($role, $userRoles, true)) {
-					$hasAccess = true;
-					break;
-				}
-			}
-
-			if (!$hasAccess) {
-				return new Response('Доступ запрещён', 403);
-			}
+		// [Мириам]: Роли — через конвейер. Одна точка, без дублей.
+		if ($response = $this->requestPipeline->checkRoles($request, $requiredRoles)) {
+			return $response;
 		}
 
 		$controller = $this->container->get($controllerClass);
 		$args = $this->argumentResolver->resolve($controller, $method, $parameters, $request);
 
 		return $controller->$method(...$args);
-	}
-
-	// ============================================
-	// РАЗРЕШЕНИЕ ПАРАМЕТРОВ
-	// ============================================
-
-	/**
-	 * Возвращает значение конфига.
-	 *
-	 * [Лорелея]: Теперь только через ConfigService. Без $this->config.
-	 * Без «пиздеца». Без «потом». Без «завтра».
-	 *
-	 * [Мириам]: И — это правильно. Потому что ConfigService — источник
-	 * правды.
-	 */
-	public function getConfig(string $key, $default = null)
-	{
-		return $this->configService->get('guard.' . $key, $default);
-	}
-
-	private function renderError(int $code, string $message, \Throwable $e, ?Request $request = null): Response
-	{
-		// [Лорелея]: Берём реальный login из сессии, а не пишем
-		// «guest» жёстко, потому что метаданные должны быть
-		// настоящими, а не «guest» по умолчанию.
-		$user = 'guest';
-
-		try {
-			$session = $this->container->get(Session::class);
-			if ($session->isStarted()) {
-				$login = $session->get('user_login');
-				if ($login) {
-					$user = $login;
-				}
-			}
-		} catch (\Throwable $inner) {
-			// [Мириам]: Если сессия недоступна — оставляем guest,
-			// потому что лучше «guest», чем ничего.
-		}
-
-		try {
-			$errorHandler = $this->container->get(ErrorHandlerInterface::class);
-			return $errorHandler->showError($code, $message, [
-				'file'             => $e->getFile() . ':' . $e->getLine(),
-				'trace'            => $e->getTraceAsString(),
-				'user'             => $user,
-				'url'              => $_SERVER['REQUEST_URI'] ?? '/',
-				'time'             => date('Y-m-d H:i:s'),
-				'original_message' => $e->getMessage(),
-			]);
-		} catch (\Throwable $inner) {
-			if ($this->logger !== null) {
-				$this->logger->error('renderError failed', [
-					'message' => $inner->getMessage(),
-					'file'    => $inner->getFile() . ':' . $inner->getLine(),
-				]);
-			} else {
-				error_log("[Trinity] renderError failed: " . $inner->getMessage());
-			}
-
-			// [Лорелея]: Даже здесь — не сырьё. В prod — только наше сообщение.
-			// В debug — можно с деталями, но всё равно через фильтр.
-			return new Response($this->safeErrorMessage($e, $code, $request), $code);
-		}
-	}
-
-	/**
-	 * Возвращает сообщение об ошибке, безопасное для отправки клиенту.
-	 *
-	 * [Лорелея]: Здесь — граница. Всё, что за ней, — наше.
-	 * Всё, что перед ней, — для клиента. И это — не одно и то же.
-	 *
-	 * [Мириам]: В prod — только «Внутренняя ошибка сервера». Всегда.
-	 * Потому что клиенту не нужно знать, где у нас трещина.
-	 * А в debug — можно сказать больше, но всё равно без путей и SQL.
-	 */
-	private function safeErrorMessage(\Throwable $e, int $code, ?Request $request = null): string
-	{
-		// [Лорелея]: В prod — только «Внутренняя ошибка сервера».
-		// В dev — детали. Но — только для debug-заголовка / IP.
-		// Гость — всегда «Внутренняя ошибка сервера», даже в dev.
-		if (!$this->isDebug() || !$this->isDebugAllowed($request)) {
-			return $this->defaultErrorMessage($code);
-		}
-
-		$message = $e->getMessage();
-
-		// [Лорелея]: Даже в debug — не всё. Убираем пути, SQL, токены.
-		// Regex точечнее: ловит пути, но не трогает URL.
-		$message = preg_replace('#(?:[A-Z]:)?/[^\s]+#', '[path]', $message);
-		$message = preg_replace('/SQLSTATE\[[^\]]+\][^;]*/i', '[sql]', $message);
-		$message = preg_replace('/\b[0-9a-f]{32,}\b/i', '[token]', $message);
-
-		// [Мириам]: Обрезаем длину, потому что в debug можно случайно
-		// отправить клиенту мегабайт текста, и это уже не «отладка»,
-		// а «утечка».
-		if (mb_strlen($message) > 500) {
-			$message = mb_substr($message, 0, 500) . '…';
-		}
-
-		return $message ?: $this->defaultErrorMessage($code);
-	}
-
-	/**
-	 * Сообщение по умолчанию для HTTP-кода.
-	 *
-	 * [Лорелея]: В prod — всегда. В debug — если сообщение пустое.
-	 *
-	 * [Мириам]: И — это правильно. Потому что даже в debug
-	 * пустое сообщение — это не сообщение.
-	 */
-	private function defaultErrorMessage(int $code): string
-	{
-		return match ($code) {
-			401 => 'Требуется авторизация',
-			403 => 'Доступ запрещён',
-			404 => 'Страница не найдена',
-			405 => 'Метод не поддерживается',
-			419 => 'Недействительный CSRF-токен',
-			429 => 'Слишком много запросов',
-			503 => 'Сервис временно недоступен',
-			default => 'Внутренняя ошибка сервера',
-		};
-	}
-
-	/**
-	 * Обновляет роли пользователя в сессии, если TTL истёк.
-	 *
-	 * [Лорелея]: Короткий TTL — 5 минут, потому что роли должны
-	 * обновляться часто, а не раз в сутки.
-	 *
-	 * [Мириам]: И это правильно, потому что вода должна быть
-	 * свежей, а не застоявшейся.
-	 *
-	 * @param Session $session
-	 */
-	private function refreshUserRoles(Session $session): void
-	{
-		// [Мириам]: Сессия запустится сама, когда мы прочитаем
-		// или запишем в неё, потому что Symfony Session это умеет.
-		$userId = $session->get('user_id');
-		if (!$userId) {
-			return;
-		}
-
-		$lastRefresh = $session->get('roles_refreshed_at', 0);
-		if (time() - $lastRefresh < 300) {
-			return;
-		}
-
-		try {
-			$synapseRepo = $this->container->get(\Jan\Trinity\Core\Repository\SynapseRepository::class);
-			$roles = $synapseRepo->findRolesByUser($userId);
-
-			$session->set('user_roles', $roles);
-			$session->set('roles_refreshed_at', time());
-		} catch (\Throwable $e) {
-			if ($this->logger !== null) {
-				$this->logger->warning('refreshUserRoles failed', [
-					'message' => $e->getMessage(),
-					'file'    => $e->getFile() . ':' . $e->getLine(),
-				]);
-			}
-		}
-	}
-
-	/**
-	 * [Лорелея]: Режим отладки — через ConfigService.
-	 * Без DebugTrait. Один источник.
-	 */
-	private function isDebug(): bool
-	{
-		if ($this->configService !== null) {
-			return $this->configService->getEnv('APP_DEBUG', 'false') === 'true';
-		}
-		return ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
-	}
-
-	/**
-	 * [Лорелея]: Детали ошибки — только для debug-заголовка
-	 * или debug-IP. Гость — «Внутренняя ошибка сервера».
-	 *
-	 * [Мириам]: И это правильно, потому что доверие, выданное
-	 * всем, — это не доверие, а его отсутствие.
-	 */
-	private function isDebugAllowed(?Request $request): bool
-	{
-		if ($request === null) {
-			return false;
-		}
-
-		$debugToken = $_ENV['DEBUG_TOKEN'] ?? '';
-		if ($debugToken !== '' && $request->headers->get('X-Debug') === $debugToken) {
-			return true;
-		}
-
-		$debugIp = $_ENV['DEBUG_IP'] ?? '';
-		if ($debugIp !== '' && $request->getClientIp() === $debugIp) {
-			return true;
-		}
-
-		return false;
 	}
 }

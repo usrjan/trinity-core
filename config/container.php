@@ -31,6 +31,8 @@ use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\ArgumentResolver;
 use Jan\Trinity\Core\HttpResponder;
 use Jan\Trinity\Core\RouteCompiler;
+use Jan\Trinity\Core\ErrorRenderer;
+use Jan\Trinity\Core\RequestPipeline;
 use Jan\Trinity\Core\Mime\Registry;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
@@ -282,6 +284,29 @@ return [
 		->constructorParameter('logger', \DI\get('logger.app')),
 
 	// ============================================
+	// ERROR RENDERER
+	// ============================================
+	// [Лорелея]: ErrorRenderer знает, как выглядит ошибка.
+	// Kernel больше не знает — это работа рендерера.
+	//
+	// [Мириам]: И это правильно, потому что ошибка — это
+	// не «стыд», это информация. Но информация — для тех,
+	// кому можно.
+	ErrorRenderer::class => function (
+		\Jan\Trinity\Core\ErrorHandlerInterface $errorHandler,
+		\Jan\Trinity\Core\ConfigService $configService,
+		\Psr\Log\LoggerInterface $logger
+	) {
+		return new \Jan\Trinity\Core\ErrorRenderer(
+			$errorHandler,
+			$configService->get('app.debug', false),
+			$logger
+		);
+	},
+
+	RequestPipeline::class => \DI\autowire(),
+
+	// ============================================
 	// VALIDATOR
 	// ============================================
 	// [Лорелея]: Validator получает NeuronRepository. Чтобы
@@ -450,7 +475,6 @@ return [
 	// [Мириам]: И — это правильно. Потому что память —
 	// это не «кэш». Это — знание.
 	ConfigService::class => \DI\autowire()
-		->constructorParameter('basePath', \DI\get('app.base_path'))
 		->constructorParameter('cache', \DI\get(Cache::class)),
 
 	// ============================================

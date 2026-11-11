@@ -272,4 +272,28 @@ class RouteCompiler
 		}
 		return $max;
 	}
+
+	/**
+	 * Сбрасывает кэш маршрутов: APCu, файл матчера, opcache.
+	 *
+	 * [Лорелея]: RouteCompiler знает, что кэшировать, потому что
+	 * он это строит. CacheInvalidator — просто вызывает.
+	 *
+	 * [Мириам]: И это правильно, потому что тот, кто строит,
+	 * знает, что ломать.
+	 */
+	public function invalidate(): void
+	{
+		$this->cache->forget('trinity.routes');
+		$this->cache->forgetByPrefix('trinity.routes.raw.');
+
+		$matcherFile = $this->basePath . '/var/cache/TrinityUrlMatcher.php';
+		if (file_exists($matcherFile)) {
+			@unlink($matcherFile);
+
+			if (function_exists('opcache_invalidate')) {
+				@opcache_invalidate($matcherFile, true);
+			}
+		}
+	}
 }
