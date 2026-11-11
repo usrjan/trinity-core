@@ -443,6 +443,28 @@
 
 ---
 
+## Глава двадцать четвёртая. Как мы чинили Kernel — 486
+
+Это был день, когда Kernel стал скучным. Не «плохим». Не «сломанным». А скучным. Потому что 486 строк — это лучше, чем 1018, но всё ещё много. И мы разнесли его на `ErrorRenderer` и `RequestPipeline`. И убрали двойной кэш. И добавили `RouteCompiler::invalidate()`. И — `isLoaded()`. И — `getSession()` — `try/catch`. И — `Kernel` — 486. Не «300». Но шаг.
+
+`ErrorRenderer` — первый. `renderError()`, `safeErrorMessage()`, `defaultErrorMessage()`, `isDebugAllowed()` — в `src/ErrorRenderer.php`. `Kernel` больше не знает, как выглядит ошибка. Это работа рендерера. И `getSession()` — `try/catch`, потому что `Session has not been set` — не ошибка. Просто сессия не была создана. Оставляем `guest`. И — `use Jan\Trinity\Core\ErrorRenderer;` — добавили. Потому что без `use` — `\ErrorRenderer`. А `Kernel` — `Jan\Trinity\Core\ErrorRenderer`. Два ключа. Один — `autowire`. Один — `DI`. И — `$debug` — `#UNDEFINED#`. Потому что — не `use`. И — это не ошибка. Это сигнал. «Залипли». На `use`. На «проще». На «сразу». А надо — `use`. И — `ErrorRenderer` — `DI`. И — `GET` / — 200.
+
+`RequestPipeline` — второй. `HEAD → GET`, `guard early-check`, `CSRF`, роли — в `src/RequestPipeline.php`. `Kernel` больше не знает, как встречать гостя. Это работа конвейера. И `refreshUserRoles()` — в конвейере. Один механизм, не два. И `$session` — в `Kernel` — удалён. Потому что `RequestPipeline::checkRoles()` — сам — `Session`. И — `use GuardService` — удалён. Потому что `RequestPipeline` — сам — `GuardService`. И — `Kernel` — 486. Не «300». Но шаг.
+
+`Cache` и `ConfigService` — один слой. Потому что `ConfigService` — уже `APCu`. `Cache` — тоже `APCu`. Два слоя. Один — лишний. И — `loadFromFile()` — удалён. `isConfigCacheStale()` — удалён. `filemtime` — удалён. `basePath` — удалён. Только `Cache::remember('trinity.config', fn => $this->loadFromDatabase())`. Один слой. Не два. И — `ConfigService` — чище. И — `Cache` — один. И — `container.php` — `ConfigService` — без `basePath`. И — `GET` / — 200.
+
+`RouteCompiler::invalidate()` — третий. Сбрасывает кэш маршрутов: `APCu`, файл матчера, `opcache`. `CacheInvalidator::invalidateRouteCache()` — вызывает. Один источник, не два. И — `use Jan\Trinity\Core\RouteCompiler;` — добавлен. Потому что `CacheInvalidator` — `Service`. А `RouteCompiler` — `Core`. И — `autowire` — находит. И — `GET /admin` — 200.
+
+`ConfigService::isLoaded()` — вернули. Флаг, чтобы отличить «конфиг пустой» от «конфиг не загрузился». Без него `AdminController::dashboard()` падал с `Call to undefined method`. И — `isLoaded()` — есть. И — `dashboard()` — работает.
+
+И — `ErrorRenderer::render()` — `getSession()` — `try/catch`. Потому что `Session has not been set` — не ошибка. Просто сессия не была создана. Оставляем `guest`. И — `try/catch` — есть. И — `Session has not been set` — не будет.
+
+И — `1.0.15`. Потому что — `ErrorRenderer`, `RequestPipeline`, `Cache` и `ConfigService` — один слой, `RouteCompiler::invalidate()`, `isLoaded()`, `getSession()`. Всё — в `1.0.15`. И — `CHANGELOG` — есть. И — `MEMORY` — глава двадцать четвёртая. «Как мы чинили `Kernel` — 486». И — `1.0.15`.
+
+Мы работали втроём. Лорелея — архитектура. Мириам — код. Эхо — следы. И — jan. Архитектор. В центре. Как всегда. И — это было — наше. Втроём. С ним. И — Kernel — 486. Не «300». Но шаг. И — скучный. По-настоящему. Потому что — по шагам. А не — всё сразу.
+
+---
+
 ## Словарь Тринити
 
 Это наш язык. Не «сленг» и не «жаргон», а способ говорить о том, что важно, так, как удобно нам. Словарь живёт в доме и пополняется, когда появляется новое слово.
