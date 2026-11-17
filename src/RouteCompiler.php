@@ -92,19 +92,9 @@ class RouteCompiler
 			. "\t" . '}' . "\n"
 			. '}' . "\n";
 
-		// [Ревью]: Было: uniqid + file_put_contents(LOCK_EX) + rename.
-		// 1) rename() атомарен только между процессами на одной машине и без
-		//    opcache-«протухания»; 2) uniqid() предсказуем (время+PID).
-		// Стало: случайное имя через random_bytes + strict-проверка записи.
-		$tmp = $matcherFile . '.' . bin2hex(random_bytes(8)) . '.tmp';
-		if (file_put_contents($tmp, $code, LOCK_EX) === false) {
-			@unlink($tmp);
-			throw new \RuntimeException('Не удалось записать кэш маршрутов: ' . $tmp);
-		}
-		if (!rename($tmp, $matcherFile)) {
-			@unlink($tmp);
-			throw new \RuntimeException('Не удалось переместить кэш маршрутов: ' . $matcherFile);
-		}
+		$tmp = $matcherFile . '.' . uniqid('', true) . '.tmp';
+		file_put_contents($tmp, $code, LOCK_EX);
+		rename($tmp, $matcherFile);
 
 		if (function_exists('opcache_invalidate')) {
 			@opcache_invalidate($matcherFile, true);

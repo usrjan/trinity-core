@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -54,12 +55,8 @@ trait AuthMiddleware
 	 * @param Session $session — сессия
 	 * @param SynapseRepository|null $synapseRepo — репозиторий для ролей
 	 */
-	protected function initAuth(Session $session): void
+	protected function initAuth(Session $session, ?SynapseRepository $synapseRepo = null): void
 	{
-		// [Ревью]: Убран мёртвый параметр ?SynapseRepository — он
-		// никогда не использовался внутри метода. Все вызовы передавали
-		// только сессию (проверено grep'ом). Обновление ролей живёт
-		// в RequestPipeline::checkRoles(), а не здесь.
 		$this->session = $session;
 	}
 
@@ -227,7 +224,7 @@ trait AuthMiddleware
 	 */
 	protected function hasRole(string $role): bool
 	{
-		return in_array($role, $this->getUserRoles(), true);
+		return in_array($role, $this->getUserRoles());
 	}
 
 	/**

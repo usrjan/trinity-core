@@ -37,6 +37,11 @@ class CacheInvalidator
 	 */
 	private ?array $matcherCompiled = null;
 
+	/**
+	 * @var callable|null — колбэк для сброса статической переменной.
+	 */
+	private $onMatcherReset = null;
+
 	public function __construct(
 		Cache $cache,
 		RouteCompiler $routeCompiler,
@@ -45,6 +50,21 @@ class CacheInvalidator
 		$this->cache = $cache;
 		$this->routeCompiler = $routeCompiler;
 		$this->basePath = rtrim($basePath, '/');
+	}
+
+	/**
+	 * Регистрирует колбэк для сброса статической переменной матчера.
+	 *
+	 * [Лорелея]: Kernel передаёт сюда колбэк, который сбрасывает
+	 * self::$matcherCompiled. Это позволяет инвалидатору не знать
+	 * о Kernel.
+	 *
+	 * [Мириам]: И это правильно, потому что каждый должен заниматься
+	 * своим делом.
+	 */
+	public function setMatcherResetCallback(callable $callback): void
+	{
+		$this->onMatcherReset = $callback;
 	}
 
 	/**

@@ -18,7 +18,8 @@ declare(strict_types=1);
 
 namespace Jan\Trinity\Core;
 
-use Jan\Trinity\Core\Service\GuardService;
+use Jan\Trinity\Core\Service\CsrfService;
+use Jan\Trinity\Core\Service\IpBlocker;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -27,20 +28,25 @@ use Symfony\Component\HttpFoundation\Session\Session;
 
 class RequestPipeline
 {
-	private GuardService $guard;
 	private SynapseRepository $synapseRepo;
 	private Session $session;
+	private CsrfService $csrfService;
 	private ?LoggerInterface $logger;
 
+	/** @var IpBlocker — блокировка IP. */
+	private IpBlocker $ipBlocker;
+
 	public function __construct(
-		GuardService $guard,
 		SynapseRepository $synapseRepo,
 		Session $session,
+		CsrfService $csrfService,
+		IpBlocker $ipBlocker,
 		?LoggerInterface $logger = null
 	) {
-		$this->guard = $guard;
 		$this->synapseRepo = $synapseRepo;
 		$this->session = $session;
+		$this->csrfService = $csrfService;
+		$this->ipBlocker = $ipBlocker;
 		$this->logger = $logger;
 	}
 
@@ -66,7 +72,7 @@ class RequestPipeline
 	public function checkIpBlocked(Request $request): ?Response
 	{
 		$ip = $request->getClientIp();
-		if ($ip && $this->guard->isIpBlocked($ip)) {
+		if ($ip && $this->ipBlocker->isBlocked($ip)) {
 			return new Response('Доступ запрещён. Ваш IP заблокирован.', 403);
 		}
 		return null;
@@ -81,15 +87,14 @@ class RequestPipeline
 	public function checkCsrf(Request $request, bool $requiresCsrf): ?Response
 	{
 		$httpMethod = $request->getMethod();
-		// [Ревью]: PATCH тоже меняет состояние — он обязан быть под CSRF.
-		if (!in_array($httpMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true) || !$requiresCsrf) {
+		if (!in_array($httpMethod, ['POST', 'PUT', 'DELETE'], true) || !$requiresCsrf) {
 			return null;
 		}
 
 		$csrfToken = $request->headers->get('X-CSRF-Token', '')
 			?: $request->request->get('_csrf_token', '');
 
-		if (!$this->guard->validateCsrfToken($csrfToken)) {
+		if (!$this->csrfService->validateToken($csrfToken)) {
 			return new Response('Недействительный CSRF-токен', 419);
 		}
 

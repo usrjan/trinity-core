@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -21,8 +22,6 @@ declare(strict_types=1);
 
 namespace Jan\Trinity\Core;
 
-use DI\ContainerBuilder;
-use Symfony\Component\Dotenv\Dotenv;
 use Symfony\Component\Routing\RouteCollection;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\Exception\ResourceNotFoundException;
@@ -31,6 +30,11 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Jan\Trinity\Core\Exception\UnauthorizedException;
 use Jan\Trinity\Core\Exception\ForbiddenException;
+use Jan\Trinity\Core\EnvironmentLoader;
+use Jan\Trinity\Core\PluginLoader;
+use Jan\Trinity\Core\ContainerFactory;
+use Jan\Trinity\Core\ConfigService;
+
 
 class Kernel
 {
@@ -80,12 +84,12 @@ class Kernel
 	 */
 	private function initialize(): void
 	{
-		$dotenv = new Dotenv();
-		$dotenv->loadEnv($this->basePath . '/.env');
+		// [Лорелея]: Сначала — окружение. Без него контейнер не соберётся.
+		$environmentLoader = new EnvironmentLoader($this->basePath);
+		$environmentLoader->load();
 
-		$containerBuilder = new ContainerBuilder();
-		$containerBuilder->addDefinitions($this->basePath . '/config/container.php');
-		$this->container = $containerBuilder->build();
+		$containerFactory = new ContainerFactory($this->basePath);
+		$this->container = $containerFactory->create();
 
 		$this->requestPipeline = $this->container->get(RequestPipeline::class);
 
@@ -109,119 +113,16 @@ class Kernel
 				$this->logger->warning('APCu is not available. Cache is disabled. Install php-apcu for production.');
 			}
 		}
+		$this->configService = $this->container->get(ConfigService::class);
+		$this->configService->loadWithFailSafe($this->logger);
+
+		$pluginLoader = $this->container->get(PluginLoader::class);
+		$this->plugins = $pluginLoader->load();
+
 		$this->errorRenderer = $this->container->get(ErrorRenderer::class);
-		$this->loadConfig();
-		$this->loadPlugins();
 		$this->routeCompiler = $this->container->get(RouteCompiler::class);
 		$this->routeCompiler->init($this->plugins);
-	}
 
-	/**
-	 * Загрузка настроек из базы данных.
-	 *
-	 * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Только через ConfigService.
-	 * Без $this->config. Без fetchConfigFromDatabase().
-	 *
-	 * [Мириам]: И — это правильно. Потому что ConfigService всегда
-	 * зарегистрирован. И — fallback — недостижим.
-	 */
-	private function loadConfig(): void
-	{
-		try {
-			$this->configService = $this->container->get(ConfigService::class);
-			$this->configService->load();
-		} catch (\Throwable $e) {
-			if ($this->logger !== null) {
-				$this->logger->error('ConfigService load failed', [
-					'message' => $e->getMessage(),
-					'file'    => $e->getFile() . ':' . $e->getLine(),
-				]);
-			} else {
-				error_log('[Trinity] ConfigService load failed: ' . $e->getMessage());
-			}
-
-			// [Лорелея]: В prod — fail-fast. Дом без конфига — это дом
-			// без защиты. Лучше не работать, чем работать вслепую.
-			if (($_ENV['APP_ENV'] ?? 'prod') === 'prod') {
-				throw new \RuntimeException('Config load failed. See error.log.');
-			}
-
-			$this->configService = null;
-		}
-	}
-
-	/**
-	 * Загружает плагины из папки plugins/.
-	 *
-	 * [Лорелея]: Список плагинов кэшируется по mtime папки, потому что
-	 * он меняется редко, а glob() на каждом запросе — это I/O без нужды.
-	 *
-	 * [Мириам]: И это правильно, потому что русло должно быть
-	 * проложено один раз, а потом только проверяться.
-	 *
-	 * ОГРАНИЧЕНИЕ: mtime папки меняется только при добавлении или
-	 * удалении плагина, а не при правке существующего plugin.php.
-	 * При правке содержимого список остаётся прежним, но сам файл
-	 * перечитывается через opcache по mtime. Если нужно обновить
-	 * список — удалите var/cache/plugins.php или измените mtime папки.
-	 */
-	private function loadPlugins(): void
-	{
-		$pluginDir = $this->basePath . '/plugins';
-		if (!is_dir($pluginDir)) return;
-
-		$cacheFile = $this->basePath . '/var/cache/plugins.php';
-		$plugins = null;
-
-		// [Лорелея]: Если кэш есть и не устарел — берём из него.
-		if (file_exists($cacheFile)) {
-			$cached = require $cacheFile;
-			if (is_array($cached) && isset($cached['mtime']) && isset($cached['files'])) {
-				$dirMtime = filemtime($pluginDir);
-				if ($dirMtime !== false && $cached['mtime'] === $dirMtime) {
-					$plugins = $cached['files'];
-				}
-			}
-		}
-
-		// [Мириам]: Если кэша нет или он устарел — собираем заново
-		// и записываем, чтобы следующий запрос был быстрым.
-		if ($plugins === null) {
-			$plugins = glob($pluginDir . '/*/plugin.php') ?: [];
-			$dirMtime = filemtime($pluginDir);
-
-			$code = '<?php' . "\n\n" . 'return ' . var_export([
-				'mtime' => $dirMtime,
-				'files' => $plugins,
-			], true) . ';' . "\n";
-			// [Ревью]: Полубыстрый файл кэша = битый require на следующем
-			// запросе. Пишем во временный файл и переименовываем атомарно.
-			$tmp = $cacheFile . '.' . bin2hex(random_bytes(8)) . '.tmp';
-			if (file_put_contents($tmp, $code, LOCK_EX) !== false) {
-				rename($tmp, $cacheFile);
-			} else {
-				@unlink($tmp);
-			}
-		}
-
-		// [Лорелея]: Каждый плагин загружаем в своём try, чтобы
-		// один сломанный не ронял все остальные.
-		foreach ($plugins as $file) {
-			try {
-				$plugin = require $file;
-				if (is_callable($plugin)) {
-					$this->plugins[] = $plugin;
-				}
-			} catch (\Throwable $e) {
-				if ($this->logger !== null) {
-					$this->logger->error('plugin load failed', [
-						'file'    => $file,
-						'message' => $e->getMessage(),
-						'file_path' => $e->getFile() . ':' . $e->getLine(),
-					]);
-				}
-			}
-		}
 	}
 
 	// ============================================
@@ -323,7 +224,7 @@ class Kernel
 		// [Лорелея]: Всё остальное — 405. И ставим Allow, чтобы клиент
 		// знал, какие методы разрешены.
 		$response = new Response('Метод не поддерживается', 405);
-		$response->headers->set('Allow', 'GET, POST, PUT, PATCH, DELETE');
+		$response->headers->set('Allow', 'GET, POST, PUT, DELETE');
 		$response->send();
 	}
 

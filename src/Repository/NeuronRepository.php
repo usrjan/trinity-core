@@ -451,6 +451,16 @@ class NeuronRepository
 			$childIds
 		)->fetchAllAssociative();
 
+		foreach ($children as &$child) {
+			if (isset($child['data']) && is_string($child['data'])) {
+				$decoded = json_decode($child['data'], true);
+				$child['data'] = is_array($decoded) ? $decoded : [];
+			} elseif (!isset($child['data'])) {
+				$child['data'] = [];
+			}
+		}
+		unset($child);
+
 		$countMap = [];
 		foreach ($counts as $row) {
 			$countMap[(int) $row['pid']] = (int) $row['child_count'];
@@ -529,6 +539,16 @@ class NeuronRepository
 			GROUP BY pid",
 			$childIds
 		)->fetchAllAssociative();
+
+		foreach ($children as &$child) {
+			if (isset($child['data']) && is_string($child['data'])) {
+				$decoded = json_decode($child['data'], true);
+				$child['data'] = is_array($decoded) ? $decoded : [];
+			} elseif (!isset($child['data'])) {
+				$child['data'] = [];
+			}
+		}
+		unset($child);
 
 		$countMap = [];
 		foreach ($counts as $row) {
@@ -772,33 +792,5 @@ class NeuronRepository
 			}
 		}
 		return $result;
-	}
-
-	/**
-	 * Декодирует поле data у массива строк.
-	 *
-	 * [Лорелея]: Одно место для json_decode, потому что дублирование
-	 * — это когда одно и то же решение принимается в разных местах,
-	 * и рано или поздно они начинают расходиться.
-	 *
-	 * [Мириам]: И это правильно, потому что правда должна быть
-	 * в одном месте.
-	 *
-	 * @param array $rows — массив строк с полем data
-	 * @return array — массив строк с декодированным data
-	 */
-	public function hydrateData(array $rows): array
-	{
-		foreach ($rows as &$row) {
-			if (isset($row['data']) && is_string($row['data'])) {
-				$decoded = json_decode($row['data'], true);
-				$row['data'] = is_array($decoded) ? $decoded : [];
-			} elseif (!isset($row['data'])) {
-				$row['data'] = [];
-			}
-		}
-		unset($row);
-
-		return $rows;
 	}
 }

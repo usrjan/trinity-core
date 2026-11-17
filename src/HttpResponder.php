@@ -23,7 +23,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class HttpResponder
 {
-	private const CORS_ALLOW_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
+	private const CORS_ALLOW_METHODS = 'GET, POST, PUT, DELETE, OPTIONS';
 	private const CORS_ALLOW_HEADERS = 'Content-Type, Authorization, X-CSRF-Token';
 
 	/** @var ConfigService — сервис конфигурации. */
@@ -45,13 +45,6 @@ class HttpResponder
 		$response->headers->set('X-Frame-Options', 'SAMEORIGIN');
 		$response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
 		$response->headers->set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-
-		// [Ревью]: CSP отсутствовала вовсе — при любой XSS-дыре атакующий
-		// мог выполнить произвольный скрипт. По умолчанию режим Report-Only:
-		// нарушения логируются в /api/monitor/csp (контроллер уже есть),
-		// но ничего не ломается. Когда отладите репорты — включите enforced
-		// через CSP_ENFORCED=true в .env.
-		$this->applyCsp($response);
 
 		if ($request->isSecure()) {
 			$response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -89,41 +82,6 @@ class HttpResponder
 		if (in_array($origin, $allowedOrigins, true)) {
 			$response->headers->set('Access-Control-Allow-Origin', $origin);
 			$response->headers->set('Access-Control-Allow-Credentials', 'true');
-		}
-	}
-
-	/**
-	 * Ставит CSP.
-	 *
-	 * [Лорелея]: inline-скрипты пока разрешены ('unsafe-inline') —
-	 * они есть в base.html.twig, admin, monitor и др. Это не идеал,
-	 * но уже запрет внешних скриптов с чужих доменов и frame-анкеров.
-	 * Следующий шаг — nonce для inline и убор 'unsafe-inline'.
-	 */
-	private function applyCsp(Response $response): void
-	{
-		$reportUri = '/api/monitor/csp';
-
-		$csp = implode('; ', [
-			"default-src 'self'",
-			"script-src 'self' 'unsafe-inline' https://api-maps.yandex.ru https://cdn.jsdelivr.net",
-			"style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-			"img-src 'self' data: blob: https://api-maps.yandex.ru https://*.yandex.net https://*.yandex.ru",
-			"font-src 'self' data: https://cdn.jsdelivr.net",
-			"connect-src 'self' https://api-maps.yandex.ru",
-			"frame-src 'self'",
-			"frame-ancestors 'self'",
-			"object-src 'none'",
-			"base-uri 'self'",
-			"form-action 'self'",
-			"upgrade-insecure-requests",
-		]);
-
-		$enforced = ($_ENV['CSP_ENFORCED'] ?? 'false') === 'true';
-		if ($enforced) {
-			$response->headers->set('Content-Security-Policy', $csp . "; report-uri " . $reportUri);
-		} else {
-			$response->headers->set('Content-Security-Policy-Report-Only', $csp . "; report-uri " . $reportUri);
 		}
 	}
 
