@@ -652,15 +652,8 @@ class GuardService
 	 */
 	public function generateCsrfToken(): string
 	{
-		$token = bin2hex(random_bytes(32));
-
-		if (!$this->session->isStarted()) {
-			$this->session->start();
-		}
-
-		$this->session->set('csrf_token', $token);
-
-		return $token;
+		// [Ревью]: Делегирование в CsrfService — один источник правды.
+		return (new CsrfService($this->session))->generateToken();
 	}
 
 	/**
@@ -676,19 +669,10 @@ class GuardService
 	 */
 	public function validateCsrfToken(string $token): bool
 	{
-		// [Лорелея]: Сессия может быть не запущена. Запускаем.
-		if (!$this->session->isStarted()) {
-			$this->session->start();
-		}
-
-		// [Мириам]: Один источник. Symfony Session. Без $_SESSION.
-		$storedToken = $this->session->get('csrf_token');
-
-		if ($storedToken === null || $token === null) {
-			return false;
-		}
-
-		return hash_equals($storedToken, $token);
+		// [Ревью]: Было два независимых CSRF-механизма (здесь и в CsrfService)
+		// с одним ключом 'csrf_token' в сессии — два источника правды.
+		// Теперь вся логика токенов живёт в CsrfService, Guard — только фасад.
+		return (new CsrfService($this->session))->validateToken($token);
 	}
 
 	// ============================================
@@ -888,18 +872,8 @@ class GuardService
 	 */
 	public function getOrCreateCsrfToken(): string
 	{
-		if (!$this->session->isStarted()) {
-			$this->session->start();
-		}
-
-		$token = $this->session->get('csrf_token');
-
-		if ($token === null || $token === '') {
-			$token = bin2hex(random_bytes(32));
-			$this->session->set('csrf_token', $token);
-		}
-
-		return $token;
+		// [Ревью]: Делегирование в CsrfService — один источник правды.
+		return (new CsrfService($this->session))->getOrCreateToken();
 	}
 
 	/**

@@ -194,7 +194,14 @@ class Kernel
 				'mtime' => $dirMtime,
 				'files' => $plugins,
 			], true) . ';' . "\n";
-			file_put_contents($cacheFile, $code, LOCK_EX);
+			// [Ревью]: Полубыстрый файл кэша = битый require на следующем
+			// запросе. Пишем во временный файл и переименовываем атомарно.
+			$tmp = $cacheFile . '.' . bin2hex(random_bytes(8)) . '.tmp';
+			if (file_put_contents($tmp, $code, LOCK_EX) !== false) {
+				rename($tmp, $cacheFile);
+			} else {
+				@unlink($tmp);
+			}
 		}
 
 		// [Лорелея]: Каждый плагин загружаем в своём try, чтобы
@@ -316,7 +323,7 @@ class Kernel
 		// [Лорелея]: Всё остальное — 405. И ставим Allow, чтобы клиент
 		// знал, какие методы разрешены.
 		$response = new Response('Метод не поддерживается', 405);
-		$response->headers->set('Allow', 'GET, POST, PUT, DELETE');
+		$response->headers->set('Allow', 'GET, POST, PUT, PATCH, DELETE');
 		$response->send();
 	}
 
