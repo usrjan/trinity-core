@@ -22,6 +22,7 @@ declare(strict_types=1);
 namespace Jan\Trinity\Core;
 
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Psr\Log\LoggerInterface;
 
 class ConfigService
 {
@@ -201,5 +202,37 @@ class ConfigService
 	public function isLoaded(): bool
 	{
 		return $this->loaded;
+	}
+
+	/**
+	 * Загружает конфиги с обработкой ошибок.
+	 *
+	 * [Лорелея]: В prod — fail-fast. Дом без конфига — это дом
+	 * без защиты. Лучше не работать, чем работать вслепую.
+	 *
+	 * [Мириам]: И это правильно, потому что ошибка должна быть
+	 * явной, а не молчаливой.
+	 */
+	public function loadWithFailSafe(?LoggerInterface $logger = null): void
+	{
+		try {
+			$this->load();
+		} catch (\Throwable $e) {
+			if ($logger !== null) {
+				$logger->error('ConfigService load failed', [
+					'message' => $e->getMessage(),
+					'file'    => $e->getFile() . ':' . $e->getLine(),
+				]);
+			} else {
+				error_log('[Trinity] ConfigService load failed: ' . $e->getMessage());
+			}
+
+			if (($_ENV['APP_ENV'] ?? 'prod') === 'prod') {
+				throw new \RuntimeException('Config load failed. See error.log.');
+			}
+
+			$this->config = [];
+			$this->loaded = false;
+		}
 	}
 }

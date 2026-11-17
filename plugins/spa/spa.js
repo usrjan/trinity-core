@@ -107,6 +107,10 @@ var userLang = document.documentElement.lang || 'ru';
 				main.innerHTML = sanitizeHtml(data.data.html);
 				executeScripts(main);
 
+				if (typeof initPageEditorButtons === 'function') {
+					initPageEditorButtons();
+				}
+
 				// [Мириам]: Хлебные крошки — из ответа, чтобы гость
 				// знал, где он.
 				if (data.data.breadcrumbs) {
@@ -239,6 +243,10 @@ var userLang = document.documentElement.lang || 'ru';
 			.then(function (html) {
 				sidebar.innerHTML = sanitizeHtml(html);
 				updateActiveMenuItem(window.location.pathname);
+				// [Лорелея]: После вставки сайдбара инициализируем кнопку.
+				if (typeof initAddMenuItemButton === 'function') {
+					initAddMenuItemButton();
+				}
 			});
 	}
 

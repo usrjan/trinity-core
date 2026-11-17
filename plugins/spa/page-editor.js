@@ -515,3 +515,40 @@ function sanitizeHtml(html) {
 	walk(doc.body);
 	return doc.body.innerHTML;
 }
+
+/**
+ * Инициализирует кнопки редактирования страницы.
+ */
+function initPageEditorButtons() {
+	var btnToggle = document.getElementById('btnToggleEditMode');
+	if (btnToggle) btnToggle.addEventListener('click', function() { toggleEditMode(); });
+
+	var btnShowAddSub = document.getElementById('btnShowAddSubPage');
+	if (btnShowAddSub) btnShowAddSub.addEventListener('click', function() { showAddSubPage(); });
+
+	var btnCloseAddSub = document.getElementById('btnCloseAddSubPage');
+	if (btnCloseAddSub) btnCloseAddSub.addEventListener('click', function() { closeAddSubPage(); });
+
+	var btnAddSub = document.getElementById('btnAddSubPage');
+	if (btnAddSub) btnAddSub.addEventListener('click', function() { addSubPage(); });
+
+	var btnAddTextNew = document.getElementById('btnAddTextToNewSection');
+	if (btnAddTextNew) btnAddTextNew.addEventListener('click', function() { addTextToNewSection(); });
+
+	var btnAddSection = document.getElementById('btnAddSection');
+	if (btnAddSection) btnAddSection.addEventListener('click', function() { addSection(); });
+
+	document.querySelectorAll('.btnSaveSection').forEach(function(btn) {
+		btn.addEventListener('click', function() { saveSection(this, parseInt(this.dataset.sectionId)); });
+	});
+
+	document.querySelectorAll('.btnDeleteSection').forEach(function(btn) {
+		btn.addEventListener('click', function() { deleteSection(parseInt(this.dataset.sectionId)); });
+	});
+
+	document.querySelectorAll('.btnAddTextToSection').forEach(function(btn) {
+		btn.addEventListener('click', function() { addTextToSection(this, parseInt(this.dataset.sectionId)); });
+	});
+}
+
+window.initPageEditorButtons = initPageEditorButtons;

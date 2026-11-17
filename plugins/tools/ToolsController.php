@@ -63,6 +63,9 @@ class ToolsController
 
 	private ConfigService $configService;
 
+	/** @var ReportSocialHandler — обработчик отчёта. */
+	private ReportSocialHandler $reportSocialHandler;
+
 	/**
 	 * Конструктор.
 	 *
@@ -80,7 +83,8 @@ class ToolsController
 		Validator $validator,
 		LoggerInterface $logger,
 		SynapseRepository $synapseRepo,
-		ConfigService $configService
+		ConfigService $configService,
+		ReportSocialHandler $reportSocialHandler
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
@@ -88,6 +92,7 @@ class ToolsController
 		$this->validator = $validator;
 		$this->logger = $logger;
 		$this->configService = $configService;
+		$this->reportSocialHandler = $reportSocialHandler;
 
 		$this->initAuth($session, $synapseRepo);
 	}
@@ -164,8 +169,7 @@ class ToolsController
 		}
 
 		try {
-			$handler = new ReportSocialHandler();
-			$data = $handler->process($files, $params);
+			$data = $this->reportSocialHandler->process($files, $params);
 
 			$html = $this->twig->render('tool-report-social.html.twig', [
 				'data' => $data,

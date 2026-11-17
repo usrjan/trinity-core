@@ -25,6 +25,7 @@ declare(strict_types=1);
 
 use Symfony\Component\Routing\Route;
 use Jan\Trinity\Plugin\Gallery\GalleryController;
+use Jan\Trinity\Plugin\Gallery\GalleryDisplayController;
 
 return function ($routes) {
 
@@ -36,7 +37,7 @@ return function ($routes) {
 	// [Мириам]: И — это правильно. Потому что дверь —
 	// это не «стена». Это — приглашение.
 	$routes->add('gallery_page', new Route('/gallery', [
-		'_controller' => GalleryController::class,
+		'_controller' => GalleryDisplayController::class,
 		'_method'     => 'index',
 	]));
 
@@ -101,7 +102,7 @@ return function ($routes) {
 	// [Мириам]: И — это правильно. Потому что элемент —
 	// это не «файл». Это — картина.
 	$routes->add('gallery_item', new Route('/api/gallery/item/{id}', [
-		'_controller' => GalleryController::class,
+		'_controller' => GalleryDisplayController::class,
 		'_method'     => 'item',
 	], ['id' => '\d+']));
 
@@ -113,7 +114,7 @@ return function ($routes) {
 	// [Мириам]: И — это правильно. Потому что раздел —
 	// это не «список». Это — ветвь.
 	$routes->add('gallery_section', new Route('/api/gallery/section/{id}', [
-		'_controller' => GalleryController::class,
+		'_controller' => GalleryDisplayController::class,
 		'_method'     => 'section',
 	], ['id' => '\d+']));
 

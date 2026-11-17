@@ -33,7 +33,7 @@ use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
-use Jan\Trinity\Core\Service\GuardService;
+use Jan\Trinity\Core\Service\CsrfService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -59,9 +59,6 @@ class GalleryController
 	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
-	/** @var GuardService — CSRF-защита. */
-	private GuardService $guard;
-
 	/** @var LoggerInterface — логгер. */
 	private LoggerInterface $logger;
 
@@ -77,6 +74,9 @@ class GalleryController
 	private GalleryImportService $galleryImport;
 
 	private ConfigService $configService;
+
+	/** @var CsrfService — CSRF-защита. */
+	private CsrfService $csrfService;
 
 	/**
 	 * Белые списки расширений и MIME.
@@ -114,9 +114,9 @@ class GalleryController
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
 		GalleryImportService $galleryImport,
-		GuardService $guard,
 		Validator $validator,
 		LoggerInterface $logger,
+		CsrfService $csrfService,
 		string $galleryUploadDir,
 		string $galleryUploadUrl,
 		ConfigService $configService
@@ -125,9 +125,9 @@ class GalleryController
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->galleryImport = $galleryImport;
-		$this->guard = $guard;
 		$this->validator = $validator;
 		$this->logger = $logger;
+		$this->csrfService = $csrfService;
 		$this->configService = $configService;
 
 		$this->galleryUploadDir = rtrim($galleryUploadDir, '/');
@@ -254,294 +254,10 @@ class GalleryController
 	private function requireCsrf(Request $request): ?JsonResponse
 	{
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
-		if (!$this->guard->validateCsrfToken($csrfToken)) {
+		if (!$this->csrfService->validateToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 		return null;
-	}
-
-	// ============================================
-	// ГЛАВНАЯ СТРАНИЦА ГАЛЕРЕИ
-	// ============================================
-
-	/**
-	 * GET /gallery
-	 *
-	 * [Лорелея]: Открываем прихожую. Показываем разделы.
-	 *
-	 * [Мириам]: И — это правильно. Потому что прихожая —
-	 * это не «список». Это — встреча.
-	 */
-	public function index(): Response
-	{
-		$this->ensureDirectories();
-
-		$galleryRoot = $this->neuronRepo->findBySlug('gallery');
-
-		if (!$galleryRoot) {
-			return $this->initGallery();
-		}
-
-		$sections = $this->neuronRepo->findChildrenWithText($galleryRoot['id'], 'ru');
-
-		// [Лорелея]: Одно место для json_decode, а не пять,
-		// потому что дублирование — это когда одно и то же
-		// решение принимается в разных местах.
-		$sections = $this->neuronRepo->hydrateData($sections);
-
-		$items = [];
-		foreach ($sections as $child) {
-			$childData = $child['data'];
-
-			$items[] = [
-				'id'           => $child['id'],
-				'type'         => $child['type'],
-				'name'         => $child['name'] ?? $childData['slug'] ?? 'Без названия',
-				'has_children' => (int) ($child['child_count'] ?? 0) > 0,
-			];
-		}
-
-		$html = $this->twig->render('gallery.html.twig', [
-			'sections' => $items,
-			'rootId'   => $galleryRoot['id'],
-		]);
-
-		return new Response($html);
-	}
-
-	// ============================================
-	// СОДЕРЖИМОЕ РАЗДЕЛА
-	// ============================================
-
-	/**
-	 * GET /api/gallery/section/{id}
-	 *
-	 * [Лорелея]: Показываем раздел. С файлами и папками, и с
-	 * декодированными данными, потому что одно место для json_decode
-	 * лучше, чем пять.
-	 *
-	 * [Мириам]: И это правильно, потому что правда должна быть
-	 * в одном месте.
-	 *
-	 * @param int $id
-	 * @return JsonResponse
-	 */
-	public function section(int $id): JsonResponse
-	{
-		$children = $this->neuronRepo->findChildrenWithText($id, 'ru');
-
-		// [Лорелея]: Одно место для json_decode, а не пять,
-		// потому что дублирование — это когда одно и то же
-		// решение принимается в разных местах.
-		$children = $this->neuronRepo->hydrateData($children);
-
-		$treeIds = [];
-		foreach ($children as $child) {
-			if ($child['type'] === 'tree' && (int) ($child['child_count'] ?? 0) > 0) {
-				$treeIds[] = (int) $child['id'];
-			}
-		}
-
-		$filesByTree = [];
-		if (!empty($treeIds)) {
-			$filesByTree = $this->neuronRepo->findFilesForTrees($treeIds);
-		}
-
-		$items = [];
-		foreach ($children as $child) {
-			$childData = $child['data'];
-
-			$name = $child['name'] ?? $childData['slug'] ?? 'Без названия';
-
-			// [Мириам]: Если имя не пришло из JOIN, пробуем взять
-			// его из текста, потому что у раздела может быть
-			// несколько языков.
-			if ($child['text'] && (!$child['name'] || $name === 'Без названия')) {
-				$allTexts = $this->textRepo->findAllByKey($child['text']);
-
-				foreach ($allTexts as $t) {
-					if ($t['lang'] === 'ru' && !empty($t['name'])) {
-						$name = $t['name'];
-						break;
-					}
-				}
-
-				if ($name === 'Без названия' || !$name) {
-					foreach ($allTexts as $t) {
-						if (!empty($t['name'])) {
-							$name = $t['name'];
-							break;
-						}
-					}
-				}
-			}
-
-			$firstThumb = null;
-			$isVideo = false;
-			$isAudio = false;
-
-			if ($child['type'] === 'file') {
-				$name = $childData['display_name'] ?? $childData['original_name'] ?? $name;
-
-				$thumbPath = $childData['thumb_path'] ?? null;
-				if ($thumbPath) {
-					$firstThumb = $thumbPath;
-				}
-				$isVideo = $childData['is_video'] ?? false;
-				$isAudio = $childData['is_audio'] ?? false;
-
-			} elseif ($child['type'] === 'tree') {
-				$coverThumb = $childData['cover_thumb'] ?? null;
-				if ($coverThumb) {
-					$firstThumb = $coverThumb;
-				} elseif (isset($filesByTree[$child['id']]) && !empty($filesByTree[$child['id']])) {
-					$firstFile = $filesByTree[$child['id']][0];
-					$firstFileData = is_string($firstFile['data'] ?? null)
-						? json_decode($firstFile['data'], true)
-						: ($firstFile['data'] ?? []);
-					$thumbPath = $firstFileData['thumb_path'] ?? null;
-					if ($thumbPath) {
-						$firstThumb = $thumbPath;
-					}
-				}
-			}
-
-			$items[] = [
-				'id'           => $child['id'],
-				'type'         => $child['type'],
-				'name'         => $name,
-				'has_children' => (int) ($child['child_count'] ?? 0) > 0,
-				'first_thumb'  => $firstThumb,
-				'is_video'     => $isVideo,
-				'is_audio'     => $isAudio,
-			];
-		}
-
-		$html = $this->twig->render('gallery-section.html.twig', [
-			'items' => $items,
-		]);
-
-		return ApiResponse::success(['html' => $html]);
-	}
-
-	// ============================================
-	// ИНФОРМАЦИЯ ОБ ЭЛЕМЕНТЕ
-	// ============================================
-
-	/**
-	 * GET /api/gallery/item/{id}
-	 *
-	 * [Лорелея]: Показываем элемент. С фото, с описанием и с
-	 * декодированными данными, потому что одно место для json_decode
-	 * лучше, чем пять.
-	 *
-	 * [Мириам]: И это правильно, потому что правда должна быть
-	 * в одном месте.
-	 *
-	 * @param int $id
-	 * @return Response
-	 */
-	public function item(int $id): Response
-	{
-		$breadcrumbs = $this->buildBreadcrumbs($id, 'gallery', 'ru');
-
-		$item = $this->neuronRepo->findById($id);
-		if (!$item) {
-			return $this->errorHandler->showError(404, 'Элемент не найден', [
-				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
-				'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
-				'user'   => 'guest',
-				'time'   => date('Y-m-d H:i:s'),
-			]);
-		}
-
-		// [Лорелея]: Одно место для json_decode, а не пять,
-		// потому что дублирование — это когда одно и то же
-		// решение принимается в разных местах.
-		$item = $this->neuronRepo->hydrateData([$item])[0];
-		$itemData = $item['data'];
-
-		// [Мириам]: Если у элемента есть текст, берём имя и описание
-		// из него, потому что текст — это не «поле», а голос.
-		if ($item['text']) {
-			$text = $this->textRepo->findByKeyAndLang($item['text'], 'ru');
-
-			if (!$text || !$text['name']) {
-				$allTexts = $this->textRepo->findAllByKey($item['text']);
-				foreach ($allTexts as $t) {
-					if (!empty($t['name'])) {
-						$text = $t;
-						break;
-					}
-				}
-			}
-
-			if ($text) {
-				$item['name'] = $text['name'] ?? $itemData['slug'] ?? 'Без названия';
-				$item['description'] = $text['text'] ?? '';
-			}
-		}
-
-		// [Лорелея]: Если это файл — показываем его одного,
-		// потому что файл — это не «набор фото», а одно фото.
-		if ($item['type'] === 'file') {
-			$fileData = $itemData;
-			$photos = [];
-
-			$thumbPath = $fileData['thumb_path'] ?? '';
-			$storagePath = $fileData['storage_path'] ?? '';
-
-			if ($storagePath) {
-				$photos[] = [
-					'id'     => $item['id'],
-					'thumb'  => $thumbPath,
-					'full'   => $storagePath,
-					'width'  => $fileData['width'] ?? 800,
-					'height' => $fileData['height'] ?? 600,
-					'aspect' => ($fileData['width'] > 0 && $fileData['height'] > 0)
-						? ($fileData['width'] / $fileData['height'])
-						: 1.5,
-					'title'  => $item['name'] ?? '',
-				];
-			}
-
-			$html = $this->twig->render('gallery-item.html.twig', [
-				'item'    => $item,
-				'photos'  => $photos,
-				'isAdmin' => $this->isAdmin(),
-				'breadcrumbs' => $breadcrumbs,
-			]);
-
-			return ApiResponse::success(['html' => $html]);
-		}
-
-		// [Мириам]: Если это элемент — показываем все его файлы,
-		// потому что элемент — это «набор фото», а не одно фото.
-		$files = $this->neuronRepo->findChildrenWithText($id, 'ru', 'file');
-		$files = $this->neuronRepo->hydrateData($files);
-
-		$photos = [];
-		foreach ($files as $file) {
-			$fileData = $file['data'];
-
-			$photos[] = [
-				'id'     => $file['id'],
-				'thumb'  => ($fileData['thumb_path'] ?? ''),
-				'full'   => ($fileData['storage_path'] ?? ''),
-				'width'  => $fileData['width'] ?? 800,
-				'height' => $fileData['height'] ?? 600,
-				'aspect' => ($fileData['width'] ?? 800) / ($fileData['height'] ?? 600),
-				'title'  => $item['name'] ?? '',
-			];
-		}
-
-		$html = $this->twig->render('gallery-item.html.twig', [
-			'item'    => $item,
-			'photos'  => $photos,
-			'isAdmin' => $this->isAdmin(),
-		]);
-
-		return ApiResponse::success(['html' => $html]);
 	}
 
 	// ============================================
@@ -725,10 +441,6 @@ class GalleryController
 			return ApiResponse::error('Элемент не найден', 404);
 		}
 
-		// [Лорелея]: Одно место для json_decode, а не пять,
-		// потому что дублирование — это когда одно и то же
-		// решение принимается в разных местах.
-		$item = $this->neuronRepo->hydrateData([$item])[0];
 		$currentData = $item['data'];
 
 		$body = JsonHelper::parseJsonBody($request);

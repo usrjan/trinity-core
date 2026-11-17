@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -19,6 +20,8 @@ declare(strict_types=1);
 
 use Symfony\Component\Routing\Route;
 use Jan\Trinity\Plugin\Admin\AdminController;
+use Jan\Trinity\Plugin\Admin\ImportController;
+use Jan\Trinity\Plugin\Admin\DashboardController;
 
 return function ($routes) {
 
@@ -35,7 +38,7 @@ return function ($routes) {
 	// ДАШБОРД
 	// ============================================
 	$routes->add('admin_dashboard', new Route('/api/admin/dashboard', [
-		'_controller' => AdminController::class,
+		'_controller' => DashboardController::class,
 		'_method'     => 'dashboard',
 		'_roles'      => ['role_admin'],
 	]));
@@ -98,7 +101,7 @@ return function ($routes) {
 	// ОДОБРЕНИЕ ПОЛЬЗОВАТЕЛЯ
 	// ============================================
 	$routes->add('admin_user_approve', new Route('/api/admin/user/{id}/approve', [
-		'_controller' => AdminController::class,
+		'_controller' => UserManagementController::class,
 		'_method'     => 'approveUser',
 		'_roles'      => ['role_admin'],
 	], ['id' => '\d+'], [], '', [], ['POST']));
@@ -107,7 +110,7 @@ return function ($routes) {
 	// УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ
 	// ============================================
 	$routes->add('admin_user_delete', new Route('/api/admin/user/{id}', [
-		'_controller' => AdminController::class,
+		'_controller' => UserManagementController::class,
 		'_method'     => 'deleteUser',
 		'_roles'      => ['role_admin'],
 	], ['id' => '\d+'], [], '', [], ['DELETE']));
@@ -116,7 +119,7 @@ return function ($routes) {
 	// ИМПОРТ ИЗ EXCEL
 	// ============================================
 	$routes->add('admin_import', new Route('/api/admin/import', [
-		'_controller' => AdminController::class,
+		'_controller' => ImportController::class,
 		'_method'     => 'import',
 		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['POST']));

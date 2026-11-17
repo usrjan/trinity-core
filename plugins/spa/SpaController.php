@@ -33,7 +33,6 @@ use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
-use Jan\Trinity\Core\Service\GuardService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -58,16 +57,14 @@ class SpaController
 	/** @var SynapseRepository — работа с синапсами. */
 	private SynapseRepository $synapseRepo;
 
-	/** @var GuardService — CSRF-защита. */
-	private GuardService $guard;
-
 	/** @var ConfigService — сервис конфигурации. */
 	private ConfigService $configService;
 
 	private Validator $validator;
 
 	/** @var MenuController — контроллер меню. */
-	private MenuController $menuController;
+	private SidebarController $sidebarController;
+	private TopbarController $topbarController;
 
 	/** @var PageController — контроллер страниц. */
 	private PageController $pageController;
@@ -78,20 +75,20 @@ class SpaController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
-		GuardService $guard,
 		ConfigService $configService,
 		Validator $validator,
-		MenuController $menuController,
+		SidebarController $sidebarController,
+		TopbarController $topbarController,
 		PageController $pageController
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
-		$this->guard = $guard;
 		$this->configService = $configService;
 		$this->validator = $validator;
-		$this->menuController = $menuController;
+		$this->sidebarController = $sidebarController;
+		$this->topbarController = $topbarController;
 		$this->pageController = $pageController;
 
 		$this->initAuth($session, $synapseRepo);
@@ -119,8 +116,8 @@ class SpaController
 		// slug в нейронах под PAGES, и это безопасно.
 		$slug = trim($path, '/');
 
-		$sidebarHtml = $this->menuController->sidebar($request)->getContent();
-		$topbarHtml = $this->menuController->topbar($request)->getContent();
+		$sidebarHtml = $this->sidebarController->sidebar($request)->getContent();
+		$topbarHtml = $this->topbarController->topbar($request)->getContent();
 
 		$pageResponse = $this->pageController->show($slug, $request);
 		$pageData = json_decode($pageResponse->getContent(), true);

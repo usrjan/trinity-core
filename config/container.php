@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -33,21 +34,41 @@ use Jan\Trinity\Core\HttpResponder;
 use Jan\Trinity\Core\RouteCompiler;
 use Jan\Trinity\Core\ErrorRenderer;
 use Jan\Trinity\Core\RequestPipeline;
+use Jan\Trinity\Core\EnvironmentLoader;
+use Jan\Trinity\Core\PluginLoader;
+use Jan\Trinity\Core\ContainerFactory;
 use Jan\Trinity\Core\Mime\Registry;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
-use Jan\Trinity\Core\Service\GuardService;
 use Jan\Trinity\Core\Service\CacheInvalidator;
+use Jan\Trinity\Core\Service\CsrfService;
+use Jan\Trinity\Core\Service\RateLimiter;
+use Jan\Trinity\Core\Service\IpBlocker;
+use Jan\Trinity\Core\Service\CaptchaService;
+use Jan\Trinity\Core\Service\LoginAttemptLimiter;
+
 use Jan\Trinity\Plugin\Admin\AdminController;
+use Jan\Trinity\Plugin\Admin\ImportController;
 use Jan\Trinity\Plugin\Users\AuthController;
 use Jan\Trinity\Plugin\Users\ProfileController;
-use Jan\Trinity\Plugin\Monitor\MonitorController;
+use Jan\Trinity\Plugin\Monitor\ErrorPageController;
+use Jan\Trinity\Plugin\Monitor\JsErrorController;
+use Jan\Trinity\Plugin\Monitor\LogsController;
+use Jan\Trinity\Plugin\Monitor\CspReportController;
+
 use Jan\Trinity\Plugin\Guard\GuardController;
+
+
 use Jan\Trinity\Plugin\Map\MapController;
 use Jan\Trinity\Plugin\Tools\ToolsController;
 use Jan\Trinity\Plugin\Gallery\GalleryController;
 use Jan\Trinity\Plugin\Gallery\GalleryImportService;
+use Jan\Trinity\Plugin\Gallery\GalleryDisplayController;
+use Jan\Trinity\Plugin\Spa\TopbarController;
+use Jan\Trinity\Plugin\Spa\SidebarController;
+use Jan\Trinity\Plugin\Spa\MenuAdminController;
+use Jan\Trinity\Plugin\Spa\PageEditorController;
 use Jan\Trinity\Plugin\Spa\ReadmeController;
 use Jan\Trinity\Plugin\Spa\Mime\MimeController;
 use Jan\Trinity\Plugin\Spa\Mime\MdRenderer;
@@ -142,9 +163,6 @@ return [
 	// ============================================
 	// 4. СЕССИЯ
 	// ============================================
-	// [Лорелея]: Сессия не стартует в конструкторе. Только — создаём.
-	// start() будет вызван в Kernel, когда нужно. Или — в GuardService.
-	//
 	// [Мириам]: И — это правильно. Потому что сессия — это
 	// не «всегда». Это — когда нужно.
 	Session::class => function () {
@@ -193,10 +211,7 @@ return [
 	// [Лорелея]: ГЛАВНОЕ. Environment получает Session.
 	// И csrf_token читается из $session->get('csrf_token').
 	// Один источник. Без $_SESSION. Без «двух источников».
-	//
-	// [Мириам]: И — это правильно. Потому что GuardService пишет
-	// в $session->set('csrf_token'). А Twig — читает. Один источник.
-	Environment::class => function (Session $session, GuardService $guard) {
+	Environment::class => function (Session $session, CsrfService $csrfService) {
 		$basePath = dirname(__DIR__);
 		$isDev = ($_ENV['APP_ENV'] ?? 'prod') === 'dev';
 
@@ -216,11 +231,8 @@ return [
 			'strict_variables' => $isDev,
 		]);
 
-		// [Лорелея]: Twig-функция csrf_token вызывает GuardService,
-		// а не работает с сессией напрямую, потому что токен должен
-		// быть в одном месте.
-		$twig->addFunction(new \Twig\TwigFunction('csrf_token', function () use ($guard) {
-			return $guard->getOrCreateCsrfToken();
+		$twig->addFunction(new \Twig\TwigFunction('csrf_token', function () use ($csrfService) {
+			return $csrfService->getOrCreateToken();
 		}));
 
 		$twig->addGlobal('gallery_url', rtrim($_ENV['GALLERY_UPLOAD_URL'] ?? '/uploads/gallery', '/'));
@@ -260,17 +272,32 @@ return [
 	//
 	// [Мириам]: И это правильно, потому что догадка — это
 	// не знание. А constructorParameter — это знание.
-	MonitorController::class => \DI\autowire()
-		->constructorParameter('basePath', \DI\get('app.base_path'))
+
+	ErrorHandlerInterface::class => \DI\get(ErrorPageController::class),
+
+	ErrorPageController::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
+
+	JsErrorController::class => \DI\autowire(),
+
+	LogsController::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
+
+	CspReportController::class => \DI\autowire()
 		->constructorParameter('securityLogger', \DI\get('logger.security')),
 
-	// [Лорелея]: GuardService получает Session. Чтобы
-	// generateCsrfToken и validateCsrfToken работали с Symfony Session.
-	// Без «двух источников».
-	//
-	// [Мириам]: И — это правильно. Потому что сессия — одна.
-	GuardService::class => \DI\autowire()
+	CsrfService::class => \DI\autowire(),
+
+	RateLimiter::class => \DI\autowire()
 		->constructorParameter('basePath', \DI\get('app.base_path')),
+
+	IpBlocker::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
+
+	CaptchaService::class => \DI\autowire(),
+
+	LoginAttemptLimiter::class => \DI\autowire()
+		->constructorParameter('logger', \DI\get('logger.security')),
 
 	GuardController::class => \DI\autowire(),
 	AuthController::class => \DI\autowire(),
@@ -282,6 +309,13 @@ return [
 	RouteCompiler::class => \DI\autowire()
 		->constructorParameter('basePath', \DI\get('app.base_path'))
 		->constructorParameter('logger', \DI\get('logger.app')),
+	EnvironmentLoader::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
+	PluginLoader::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path'))
+		->constructorParameter('logger', \DI\get('logger.app')),
+	ContainerFactory::class => \DI\autowire()
+		->constructorParameter('basePath', \DI\get('app.base_path')),
 
 	// ============================================
 	// ERROR RENDERER
@@ -293,7 +327,7 @@ return [
 	// не «стыд», это информация. Но информация — для тех,
 	// кому можно.
 	ErrorRenderer::class => function (
-		\Jan\Trinity\Core\ErrorHandlerInterface $errorHandler,
+		\Jan\Trinity\Plugin\Monitor\ErrorPageController $errorHandler,
 		\Jan\Trinity\Core\ConfigService $configService,
 		\Psr\Log\LoggerInterface $logger
 	) {
@@ -335,6 +369,8 @@ return [
 	GalleryController::class => \DI\autowire()
 		->constructorParameter('galleryUploadDir', \DI\get('gallery.upload_dir'))
 		->constructorParameter('galleryUploadUrl', \DI\get('gallery.upload_url')),
+
+	GalleryDisplayController::class   => \DI\autowire(),
 
 	// ============================================
 	// 11. GALLERY IMPORT SERVICE
@@ -466,7 +502,7 @@ return [
 	// [Лорелея]: Портал. Один. Через интерфейс.
 	// [Мириам]: И — это правильно. Потому что портал —
 	// это не «класс». Это — дверь.
-	ErrorHandlerInterface::class => \DI\get(MonitorController::class),
+	ErrorHandlerInterface::class => \DI\get(ErrorPageController::class),
 
 	// ============================================
 	// CONFIG SERVICE
@@ -528,4 +564,14 @@ return [
 	// это не «место». Это — ответственность.
 	AdminController::class => \DI\autowire()
 		->constructorParameter('basePath', \DI\get('app.base_path')),
+
+	ImportController::class => \DI\autowire(),
+
+	ReportSocialHandler::class => \DI\autowire(),
+	SocialReportParser::class => \DI\autowire(),
+	SocialReportCalculator::class => \DI\autowire(),
+	TopbarController::class => \DI\autowire(),
+	SidebarController::class => \DI\autowire(),
+	MenuAdminController::class => \DI\autowire(),
+	PageEditorController::class => \DI\autowire(),
 ];

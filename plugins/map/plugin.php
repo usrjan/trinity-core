@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 use Symfony\Component\Routing\Route;
 use Jan\Trinity\Plugin\Map\MapController;
+use Jan\Trinity\Plugin\Map\MapGeoJsonController;
 
 return function ($routes) {
 
@@ -48,7 +49,7 @@ return function ($routes) {
 	// [Мириам]: И это правильно, потому что данные без формы —
 	// это хаос, а форма без данных — это пустота.
 	$routes->add('map_geojson', new Route('/api/map/geojson', [
-		'_controller' => MapController::class,
+		'_controller' => MapGeoJsonController::class,
 		'_method'     => 'geoJson',
 	]));
 
@@ -62,7 +63,7 @@ return function ($routes) {
 	// [Мириам]: И это правильно, потому что карта без историй —
 	// это просто схема, а схема не умеет быть домом.
 	$routes->add('map_info', new Route('/api/map/info/{id}', [
-		'_controller' => MapController::class,
+		'_controller' => MapInfoController::class,
 		'_method'     => 'info',
 	], ['id' => '\d+']));
 };

@@ -22,6 +22,7 @@ declare(strict_types=1);
 use Symfony\Component\Routing\Route;
 use Jan\Trinity\Plugin\Users\AuthController;
 use Jan\Trinity\Plugin\Users\ProfileController;
+use Jan\Trinity\Plugin\Users\ProfileEditController;
 
 return function ($routes) {
 
@@ -67,12 +68,12 @@ return function ($routes) {
 	// [Мириам]: И это правильно, потому что новый гость —
 	// это новая история.
 	$routes->add('register_form', new Route('/register', [
-		'_controller' => AuthController::class,
+		'_controller' => RegisterController::class,
 		'_method'     => 'registerForm',
 	], [], [], '', [], ['GET']));
 
 	$routes->add('register_process', new Route('/register', [
-		'_controller' => AuthController::class,
+		'_controller' => RegisterController::class,
 		'_method'     => 'register',
 	], [], [], '', [], ['POST']));
 
@@ -90,12 +91,12 @@ return function ($routes) {
 	]));
 
 	$routes->add('profile_edit_form', new Route('/profile/edit', [
-		'_controller' => ProfileController::class,
+		'_controller' => ProfileEditController::class,
 		'_method'     => 'editForm',
 	], [], [], '', [], ['GET']));
 
 	$routes->add('profile_edit', new Route('/profile/edit', [
-		'_controller' => ProfileController::class,
+		'_controller' => ProfileEditController::class,
 		'_method'     => 'edit',
 	], [], [], '', [], ['POST']));
 

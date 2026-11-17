@@ -19,7 +19,10 @@ declare(strict_types=1);
  */
 
 use Symfony\Component\Routing\Route;
-use Jan\Trinity\Plugin\Spa\MenuController;
+use Jan\Trinity\Plugin\Spa\TopbarController;
+use Jan\Trinity\Plugin\Spa\SidebarController;
+use Jan\Trinity\Plugin\Spa\MenuAdminController;
+use Jan\Trinity\Plugin\Spa\PageEditorController;
 use Jan\Trinity\Plugin\Spa\PageController;
 use Jan\Trinity\Plugin\Spa\SpaController;
 use Jan\Trinity\Plugin\Spa\ReadmeController;
@@ -95,22 +98,22 @@ return function ($routes) use ($reservedSlugsPattern) {
 	//
 	// [Мириам]: И это правильно, потому что шапка — это лицо дома.
 	$routes->add('menu_sidebar', new Route('/api/menu/sidebar', [
-		'_controller' => MenuController::class,
+		'_controller' => SidebarController::class,
 		'_method'     => 'sidebar',
 	]));
 
 	$routes->add('menu_topbar', new Route('/api/menu/topbar', [
-		'_controller' => MenuController::class,
+		'_controller' => TopbarController::class,
 		'_method'     => 'topbar',
 	]));
 
 	$routes->add('menu_add_item', new Route('/api/menu/add-item', [
-		'_controller' => MenuController::class,
+		'_controller' => MenuAdminController::class,
 		'_method'     => 'addItem',
 	], [], [], '', [], ['POST']));
 
 	$routes->add('menu_update_item', new Route('/api/menu/update-item', [
-		'_controller' => MenuController::class,
+		'_controller' => MenuAdminController::class,
 		'_method'     => 'updateItem',
 	], [], [], '', [], ['POST']));
 
@@ -123,7 +126,7 @@ return function ($routes) use ($reservedSlugsPattern) {
 	// [Мириам]: И это правильно, потому что точность должна
 	// идти впереди обобщения.
 	$routes->add('page_delete_sub', new Route('/api/page/sub/{id}', [
-		'_controller' => PageController::class,
+		'_controller' => PageEditorController::class,
 		'_method'     => 'deleteSubPage',
 	], ['id' => '\d+'], [], '', [], ['DELETE']));
 
@@ -133,37 +136,37 @@ return function ($routes) use ($reservedSlugsPattern) {
 	], ['id' => '\d+']));
 
 	$routes->add('page_add_section', new Route('/api/page/{slug}/section', [
-		'_controller' => PageController::class,
+		'_controller' => PageEditorController::class,
 		'_method'     => 'addSection',
 	], ['slug' => '.+'], [], '', [], ['POST']));
 
 	$routes->add('page_add_subpage', new Route('/api/page/{slug}/subpage', [
-		'_controller' => PageController::class,
+		'_controller' => PageEditorController::class,
 		'_method'     => 'addSubPage',
 	], ['slug' => '.+'], [], '', [], ['POST']));
 
 	$routes->add('page_update_section_full', new Route('/api/page/section/{id}/update-full', [
-		'_controller' => PageController::class,
+		'_controller' => PageEditorController::class,
 		'_method'     => 'updateSectionFull',
 	], ['id' => '\d+'], [], '', [], ['POST']));
 
 	$routes->add('page_update_section', new Route('/api/page/section/{id}', [
-		'_controller' => PageController::class,
+		'_controller' => PageEditorController::class,
 		'_method'     => 'updateSection',
 	], ['id' => '\d+'], [], '', [], ['POST']));
 
 	$routes->add('page_delete_section', new Route('/api/page/section/{id}/delete', [
-		'_controller' => PageController::class,
+		'_controller' => PageEditorController::class,
 		'_method'     => 'deleteSection',
 	], ['id' => '\d+'], [], '', [], ['POST']));
 
 	$routes->add('page_add_section_by_id', new Route('/api/page/section/{pageId}/add', [
-		'_controller' => PageController::class,
+		'_controller' => PageEditorController::class,
 		'_method'     => 'addSectionById',
 	], ['pageId' => '\d+'], [], '', [], ['POST']));
 
 	$routes->add('page_add_subpage_by_id', new Route('/api/page/{pageId}/subpage-by-id', [
-		'_controller' => PageController::class,
+		'_controller' => PageEditorController::class,
 		'_method'     => 'addSubPageById',
 	], ['pageId' => '\d+'], [], '', [], ['POST']));
 

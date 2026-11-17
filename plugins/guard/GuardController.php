@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -22,7 +23,8 @@ namespace Jan\Trinity\Plugin\Guard;
 use Jan\Trinity\Core\ApiResponse;
 use Jan\Trinity\Core\JsonHelper;
 use Jan\Trinity\Core\Validator;
-use Jan\Trinity\Core\Service\GuardService;
+use Jan\Trinity\Core\Service\CsrfService;
+use Jan\Trinity\Core\Service\IpBlocker;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Symfony\Component\HttpFoundation\Request;
@@ -33,8 +35,11 @@ class GuardController
 {
 	use AuthMiddleware;
 
-	/** @var GuardService — сервис, в котором живёт вся логика стража. */
-	private GuardService $guardService;
+	/** @var IpBlocker — блокировка IP. */
+	private IpBlocker $ipBlocker;
+
+	/** @var CsrfService — CSRF-защита. */
+	private CsrfService $csrfService;
 
 	/** @var Validator — тот, кто проверяет данные прежде, чем они войдут. */
 	private Validator $validator;
@@ -51,12 +56,14 @@ class GuardController
 	 * однажды выданный пропуск, а то, что подтверждается снова и снова.
 	 */
 	public function __construct(
-		GuardService $guardService,
+		IpBlocker $ipBlocker,
+		CsrfService $csrfService,
 		Session $session,
 		Validator $validator,
 		SynapseRepository $synapseRepo
 	) {
-		$this->guardService = $guardService;
+		$this->ipBlocker = $ipBlocker;
+		$this->csrfService = $csrfService;
 		$this->validator = $validator;
 
 		$this->initAuth($session, $synapseRepo);
@@ -82,7 +89,7 @@ class GuardController
 			return $error;
 		}
 
-		return ApiResponse::success($this->guardService->getBlockedIps());
+		return ApiResponse::success($this->ipBlocker->getBlockedIps());
 	}
 
 	/**
@@ -102,7 +109,7 @@ class GuardController
 		}
 
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
-		if (!$this->guardService->validateCsrfToken($csrfToken)) {
+		if (!$this->csrfService->validateToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
@@ -127,7 +134,7 @@ class GuardController
 			return ApiResponse::error('Некорректный IP-адрес', 400);
 		}
 
-		$this->guardService->blockIp($ip, $reason, $duration);
+		$this->ipBlocker->block($ip, $reason, $duration);
 		return ApiResponse::success(null, 'IP заблокирован');
 	}
 
@@ -147,7 +154,7 @@ class GuardController
 		}
 
 		$csrfToken = $request->headers->get('X-CSRF-Token', '');
-		if (!$this->guardService->validateCsrfToken($csrfToken)) {
+		if (!$this->csrfService->validateToken($csrfToken)) {
 			return ApiResponse::error('Недействительный CSRF-токен', 419);
 		}
 
@@ -168,7 +175,7 @@ class GuardController
 			return ApiResponse::error('Некорректный IP-адрес', 400);
 		}
 
-		$this->guardService->unblockIp($ip);
+		$this->ipBlocker->unblock($ip);
 		return ApiResponse::success(null, 'IP разблокирован');
 	}
 
@@ -187,7 +194,7 @@ class GuardController
 	 */
 	public function csrfTokenApi(): JsonResponse
 	{
-		$token = $this->guardService->getOrCreateCsrfToken();
+		$token = $this->csrfService->getOrCreateToken();
 		return ApiResponse::success(['csrf_token' => $token]);
 	}
 }

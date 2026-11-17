@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -19,7 +20,9 @@ declare(strict_types=1);
  */
 
 use Symfony\Component\Routing\Route;
-use Jan\Trinity\Plugin\Monitor\MonitorController;
+use Jan\Trinity\Plugin\Monitor\JsErrorController;
+use Jan\Trinity\Plugin\Monitor\LogsController;
+use Jan\Trinity\Plugin\Monitor\CspReportController;
 
 return function ($routes) {
 
@@ -33,8 +36,8 @@ return function ($routes) {
 	// [Мириам]: И это правильно, потому что даже у ошибки
 	// должен быть свой тихий приют.
 	$routes->add('monitor_js_error', new Route('/api/monitor/js-error', [
-		'_controller' => MonitorController::class,
-		'_method'     => 'collectJsError',
+		'_controller' => JsErrorController::class,
+		'_method'     => 'collect',
 		'_csrf'       => false,
 	], [], [], '', [], ['POST']));
 
@@ -48,7 +51,7 @@ return function ($routes) {
 	// [Мириам]: И это правильно, потому что память —
 	// это доверие, а доверие не раздают направо и налево.
 	$routes->add('monitor_logs', new Route('/api/monitor/logs', [
-		'_controller' => MonitorController::class,
+		'_controller' => LogsController::class,
 		'_method'     => 'getLogs',
 		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['GET']));
@@ -63,14 +66,14 @@ return function ($routes) {
 	// [Мириам]: И это правильно, потому что память, которая
 	// не умеет отпускать, становится тяжестью.
 	$routes->add('monitor_clear_logs', new Route('/api/monitor/logs', [
-		'_controller' => MonitorController::class,
+		'_controller' => LogsController::class,
 		'_method'     => 'clearLogs',
 		'_roles'      => ['role_admin'],
 	], [], [], '', [], ['DELETE']));
 
 	$routes->add('monitor_csp_report', new Route('/api/monitor/csp', [
-		'_controller' => MonitorController::class,
-		'_method'     => 'collectCspReport',
+		'_controller' => CspReportController::class,
+		'_method'     => 'collect',
 		'_csrf'       => false,
 	], [], [], '', [], ['POST']));
 };

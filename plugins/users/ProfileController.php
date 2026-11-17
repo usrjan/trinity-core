@@ -31,8 +31,6 @@ use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
-use Jan\Trinity\Core\Service\GuardService;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -65,9 +63,6 @@ class ProfileController
 	/** @var SynapseRepository — получение ролей. */
 	private SynapseRepository $synapseRepo;
 
-	/** @var GuardService — CSRF-защита. */
-	private GuardService $guard;
-
 	private Validator $validator;
 
 	/** @var LoggerInterface — логгер. */
@@ -88,7 +83,6 @@ class ProfileController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
-		GuardService $guard,
 		Validator $validator,
 		LoggerInterface $logger
 	) {
@@ -96,7 +90,6 @@ class ProfileController
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
-		$this->guard = $guard;
 		$this->validator = $validator;
 		$this->logger = $logger;
 
@@ -154,170 +147,6 @@ class ProfileController
 		]);
 
 		return new Response($html);
-	}
-
-	// ============================================
-	// ФОРМА РЕДАКТИРОВАНИЯ ПРОФИЛЯ
-	// ============================================
-
-	/**
-	 * GET /profile/edit
-	 *
-	 * [Лорелея]: Здесь мы открываем форму редактирования.
-	 * csrf_token берём из сессии, потому что один источник
-	 * лучше, чем два.
-	 *
-	 * [Мириам]: И это правильно, потому что доверие начинается
-	 * с того, что всё в одном месте.
-	 */
-	public function editForm(): Response
-	{
-		if (!$this->isAuthenticated()) {
-			return new RedirectResponse('/login?redirect=' . urlencode('/profile/edit'));
-		}
-
-		$userId = $this->session->get('user_id');
-		$user = $this->neuronRepo->findById($userId);
-		if (!$user || $user['type'] !== 'user') {
-			return new RedirectResponse('/login');
-		}
-
-		$data = is_string($user['data'] ?? null)
-			? json_decode($user['data'], true)
-			: ($user['data'] ?? []);
-
-		$availableLangs = $this->textRepo->getAvailableLangs();
-
-		$langNames = [
-			'ru' => 'Русский',
-			'en' => 'English',
-			'it' => 'Italiano',
-			'de' => 'Deutsch',
-			'fr' => 'Français',
-		];
-
-		$langOptions = [];
-		foreach ($availableLangs as $code) {
-			$langOptions[$code] = $langNames[$code] ?? strtoupper($code);
-		}
-
-		$error = $this->session->get('profile_error');
-		$this->session->remove('profile_error');
-
-		$html = $this->twig->render('profile-edit.html.twig', [
-			'user' => [
-				'login' => $data['login'] ?? '',
-				'email' => $data['email'] ?? '',
-				'phone' => $data['phone'] ?? '',
-				'lang'  => $data['lang'] ?? 'ru',
-			],
-			'available_langs' => $langOptions,
-			'csrf_token'      => $this->session->get('csrf_token', ''),
-			'error'           => $error,
-		]);
-
-		return new Response($html);
-	}
-
-	// ============================================
-	// СОХРАНЕНИЕ ИЗМЕНЕНИЙ ПРОФИЛЯ
-	// ============================================
-
-	/**
-	 * POST /profile/edit
-	 *
-	 * [Лорелея]: Здесь мы сохраняем изменения. Сначала валидация,
-	 * потом пароль, если его меняют, и только потом обновление,
-	 * потому что изменения должны быть осознанными.
-	 *
-	 * [Мириам]: И это правильно, потому что профиль — это
-	 * не «настройки», это то, как человек видит себя.
-	 */
-	public function edit(Request $request): Response
-	{
-		if (!$this->isAuthenticated()) {
-			return new RedirectResponse('/login?redirect=' . urlencode('/profile/edit'));
-		}
-
-		// [Лорелея]: user_id берётся строго из сессии, а не из запроса,
-		// потому что IDOR — это когда пользователь подставляет чужой id,
-		// и это не должно быть возможно.
-		$userId = $this->session->get('user_id');
-
-		$lang = trim($request->request->get('lang', 'ru'));
-		$email = strtolower(trim($request->request->get('email', '')));
-		$phone = trim($request->request->get('phone', ''));
-		$currentPassword = $request->request->get('current_password', '');
-		$newPassword = $request->request->get('new_password', '');
-		$passwordConfirm = $request->request->get('password_confirm', '');
-
-		$user = $this->neuronRepo->findById($userId);
-		$data = is_string($user['data'] ?? null)
-			? json_decode($user['data'], true)
-			: ($user['data'] ?? []);
-
-		$data['lang'] = $lang;
-		$data['email'] = $email;
-		$data['phone'] = $phone;
-
-		if (!$this->validator->validate([
-			'lang'  => $lang,
-			'email' => $email,
-			'phone' => $phone,
-		], [
-			'lang'  => ['required', 'in:ru,en,it,de,fr'],
-			'email' => ['nullable', 'email', 'max:255'],
-			'phone' => ['nullable', 'string', 'max:50', 'regex:/^\+?[0-9\s\-()]+$/u'],
-		])) {
-			$this->session->set('profile_error', $this->validator->getFirstError());
-			return new RedirectResponse('/profile/edit');
-		}
-
-		if (!empty($newPassword)) {
-			if (!$this->validator->validate([
-				'current_password' => $currentPassword,
-				'new_password'     => $newPassword,
-				'password_confirm' => $passwordConfirm,
-			], [
-				'current_password' => ['required', 'string', 'min:1'],
-				'new_password'     => ['required', 'string', 'min:8', 'max:255'],
-				'password_confirm' => ['required', 'string'],
-			])) {
-				$this->session->set('profile_error', $this->validator->getFirstError());
-				return new RedirectResponse('/profile/edit');
-			}
-
-			$hash = $data['password_hash'] ?? '';
-			if (!password_verify($currentPassword, $hash)) {
-				$this->session->set('profile_error', 'Неверный текущий пароль');
-				return new RedirectResponse('/profile/edit');
-			}
-
-			if ($newPassword !== $passwordConfirm) {
-				$this->session->set('profile_error', 'Пароли не совпадают');
-				return new RedirectResponse('/profile/edit');
-			}
-
-			// [Лорелея]: Новый хеш — с нашими параметрами, а не
-			// с PASSWORD_DEFAULT, потому что даунгрейд — это
-			// не «мелочь», а дыра.
-			$data['password_hash'] = password_hash($newPassword, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS);
-		}
-
-		try {
-			$this->neuronRepo->update($userId, ['data' => $data]);
-		} catch (\Throwable $e) {
-			$this->logger->error('profile update failed', [
-				'message' => $e->getMessage(),
-				'file'    => $e->getFile() . ':' . $e->getLine(),
-				'user_id' => $userId,
-			]);
-
-			$this->session->set('profile_error', 'Ошибка сохранения. Попробуйте позже.');
-			return new RedirectResponse('/profile/edit');
-		}
-
-		return new RedirectResponse('/profile');
 	}
 
 	// ============================================

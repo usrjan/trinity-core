@@ -326,6 +326,20 @@
 		return String(text).replace(/[&<>"']/g, function (m) { return map[m]; });
 	}
 
+	/**
+	 * Инициализирует кнопку "Добавить пункт" в сайдбаре.
+	 * Вызывается после того, как сайдбар загружен.
+	 */
+	function initAddMenuItemButton() {
+		var btn = document.getElementById('addMenuItemBtn');
+		if (btn) {
+			btn.addEventListener('click', function(e) {
+				e.preventDefault();
+				showAddMenuItemModal();
+			});
+		}
+	}
+
 	// ============================================
 	// СВОРАЧИВАНИЕ БОКОВОГО МЕНЮ
 	// ============================================
@@ -352,5 +366,6 @@
 	window.initUserDropdown = initUserDropdown;
 	window.updateActiveMenuItem = updateActiveMenuItem;
 	window.escapeHtml = escapeHtml;
+	window.initAddMenuItemButton = initAddMenuItemButton;
 
 })();
