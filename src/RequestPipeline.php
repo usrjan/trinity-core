@@ -81,7 +81,8 @@ class RequestPipeline
 	public function checkCsrf(Request $request, bool $requiresCsrf): ?Response
 	{
 		$httpMethod = $request->getMethod();
-		if (!in_array($httpMethod, ['POST', 'PUT', 'DELETE'], true) || !$requiresCsrf) {
+		// [Ревью]: PATCH тоже меняет состояние — он обязан быть под CSRF.
+		if (!in_array($httpMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true) || !$requiresCsrf) {
 			return null;
 		}
 

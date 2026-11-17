@@ -81,8 +81,12 @@
 
 	{# [Мириам]: Переменные карты приходят из контроллера.
 	   Центр, зум, коды — всё, что нужно, чтобы карта ожила. #}
+	{# [Ревью]: Было |json_encode|raw внутри <script> — XSS: строка </script> #}
+	{# разрывала тег. JSON теперь в <script type="application/json"> (Twig #}
+	{# экранирует его), JS читает через JSON.parse. #}
+	<script id="map-vars" type="application/json">{{ mapVars|json_encode }}</script>
 	<script>
-	var mapVars = {{ mapVars|json_encode|raw }};
+	var mapVars = JSON.parse(document.getElementById('map-vars').textContent);
 	</script>
 
 	{# [Лорелея]: Bootstrap, Yandex Maps и наш скрипт.
