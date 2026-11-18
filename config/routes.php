@@ -36,6 +36,7 @@ declare(strict_types=1);
 
 use Symfony\Component\Routing\Route;
 use Symfony\Component\Routing\RouteCollection;
+use Jan\Trinity\Plugin\Spa\PageController;
 
 // [Лорелея]: Создаём коллекцию. Пустую. Пока.
 $routes = new RouteCollection();
@@ -45,9 +46,14 @@ $routes = new RouteCollection();
 //
 // [Мириам]: И — это правильно. Потому что главная — это
 // не «ещё одна страница». Это — порог.
+//
+// [Лорелея]: ГЛАВНОЕ. HomeController заменён на PageController.
+// А _method — render. Потому что главная — это страница.
+// А не API. И гость должен видеть HTML. А не JSON.
 $routes->add('home', new Route('/', [
-	'_controller' => Jan\Trinity\Plugin\Spa\HomeController::class,
-	'_method'     => 'index',
+	'_controller' => PageController::class,
+	'_method'     => 'render',
+	'slug'        => 'home',
 ]));
 
 // [Лорелея]: Динамические страницы — загружаются из базы.

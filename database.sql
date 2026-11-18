@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS `synapse` (
 	INDEX `idx_child` (`child`),
 	INDEX `idx_time` (`time`),
 	INDEX `idx_parent_child` (`parent`, `child`),
+	INDEX `idx_parent_child_id` (`parent`, `child`, `id`),
 	INDEX `idx_parent_child_time` (`parent`, `child`, `time`),
 	INDEX `idx_child_parent` (`child`, `parent`),
 	INDEX `idx_tree_parent` (`tree`, `parent`),
@@ -271,12 +272,18 @@ INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`, `date`, `hash`) VALUES
 (31, 41, 'user', 5, '{"login":"admin","email":"admin@trinity.local","auth_method":"local"}', NOW(), '$2y$12$NcNaoQBLPcGQ37t3GuKwNe95pvgBTPjzMYjgduhSfARyxDI2Abpa2');
 
+-- ============================================
+-- 5.5. SYSTEM → ROUTES
+-- ============================================
+-- [Лорелея]: ГЛАВНОЕ. HomeController заменён на PageController.
+-- А _method — render. Потому что главная — это страница.
+-- А не API. И гость должен видеть HTML. А не JSON.
 INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 (42, 1, 'tree', '{"slug":"ROUTES","sort":300}');
 
 INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
-(32, 42, 'route', '{"name":"home","path":"/","controller":"Jan\\\\Trinity\\\\Plugin\\\\Spa\\\\HomeController","method":"index","methods":["GET"],"sort":100}'),
-(33, 42, 'route', '{"name":"page","path":"/{slug}","controller":"Jan\\\\Trinity\\\\Plugin\\\\Spa\\\\HomeController","method":"index","methods":["GET"],"sort":10000,"requirements":{"slug":"^(?!(sub|section|update-full|subpage-by-id|addSectionById|addSubPage|addSubPageById|deleteSubPage|deleteSection|updateSection|updateSectionFull|readme|mime|menu|spa|admin|api|login|logout|register|profile|gallery|map|tools|monitor|guard)$)[^/]+"}}');
+(32, 42, 'route', '{"name":"home","path":"/","controller":"Jan\\\\Trinity\\\\Plugin\\\\Spa\\\\PageController","method":"render","methods":["GET"],"slug":"home","sort":100}'),
+(33, 42, 'route', '{"name":"page","path":"/{slug}","controller":"Jan\\\\Trinity\\\\Plugin\\\\Spa\\\\PageController","method":"render","methods":["GET"],"sort":10000,"requirements":{"slug":"^(?!(sub|section|update-full|subpage-by-id|addSectionById|addSubPage|addSubPageById|deleteSubPage|deleteSection|updateSection|updateSectionFull|readme|mime|menu|spa|admin|api|login|logout|register|profile|gallery|map|tools|monitor|guard)$)[^/]+"}}');
 
 INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 (43, 1, 'tree', '{"slug":"CONFIG","sort":400}');
@@ -304,9 +311,24 @@ INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
 (46, 12, 'tree', 16, '{"route":"/tools","icon":"bi-tools","sort":600,"is_plugin":true}'),
 (47, 12, 'tree', 17, '{"route":"/gallery","icon":"bi-images","sort":700,"is_plugin":true}');
 
+-- ============================================
+-- 7. CONTENT → PAGES
+-- ============================================
 INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 (16, 10, 'tree', '{"slug":"PAGES","sort":200}');
 
+-- ============================================
+-- 7.1. CONTENT → PAGES → HOME
+-- ============================================
+-- [Лорелея]: ГЛАВНОЕ. Главная. Та самая. С slug = 'home'.
+-- Потому что render('home') — ищет страницу с slug = 'home'.
+-- И — если её нет — 404. А мы — не хотим 404 на главной.
+INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
+(75, 16, 'tree', 71, '{"slug":"home","route":"/"}');
+
+-- ============================================
+-- 7.2. CONTENT → PAGES → ABOUT
+-- ============================================
 INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
 (17, 16, 'tree', 11, '{"slug":"about","route":"/about"}');
 
@@ -318,6 +340,9 @@ INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
 (22, 17, 'item', 25, '{"sort":500}'),
 (23, 17, 'item', 26, '{"sort":600}');
 
+-- ============================================
+-- 7.3. CONTENT → PAGES → BOOKS
+-- ============================================
 INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
 (24, 16, 'tree', 12, '{"slug":"books","route":"/books"}');
 
@@ -344,6 +369,9 @@ INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
 (120, 24, 'item', 50, '{"sort":2000}'),
 (121, 24, 'item', 51, '{"sort":2100}');
 
+-- ============================================
+-- 7.4. CONTENT → PAGES → MY-BOOKS
+-- ============================================
 INSERT INTO `neuron` (`id`, `pid`, `type`, `text`, `data`) VALUES
 (28, 16, 'tree', 13, '{"slug":"my-books","route":"/my-books"}');
 

@@ -8,19 +8,6 @@ declare(strict_types=1);
  * Здесь описаны правила создания всех объектов системы.
  * PHP-DI автоматически внедряет зависимости.
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «конфиг». Это — граф. Тот, кто знает,
- * как собрать всё. От базы до контроллера. От кэша до логгера.
- *
- * [Мириам]: И — это правильно. Потому что граф — это
- * не «список». Это — связи. И если связи есть — дом стоит.
- *
- * === КНИГА ===
- * Глава 7. Граф.
- *
- * В Амбере всё связано. Каждая Тень. Каждый путь.
- * В Trinity всё связано через контейнер.
- *
  * @package Jan\Trinity\Core
  */
 
@@ -50,25 +37,36 @@ use Jan\Trinity\Core\Service\LoginAttemptLimiter;
 
 use Jan\Trinity\Plugin\Admin\AdminController;
 use Jan\Trinity\Plugin\Admin\ImportController;
+use Jan\Trinity\Plugin\Admin\DashboardRepository;
+use Jan\Trinity\Plugin\Admin\DashboardService;
+use Jan\Trinity\Plugin\Admin\DashboardController;
+use Jan\Trinity\Plugin\Admin\UserManagementController;
 use Jan\Trinity\Plugin\Users\AuthController;
 use Jan\Trinity\Plugin\Users\ProfileController;
+use Jan\Trinity\Plugin\Users\ProfileEditController;
+use Jan\Trinity\Plugin\Users\RegisterController;
 use Jan\Trinity\Plugin\Monitor\ErrorPageController;
 use Jan\Trinity\Plugin\Monitor\JsErrorController;
 use Jan\Trinity\Plugin\Monitor\LogsController;
 use Jan\Trinity\Plugin\Monitor\CspReportController;
-
 use Jan\Trinity\Plugin\Guard\GuardController;
-
-
 use Jan\Trinity\Plugin\Map\MapController;
+use Jan\Trinity\Plugin\Map\MapInfoController;
+use Jan\Trinity\Plugin\Map\MapGeoJsonController;
 use Jan\Trinity\Plugin\Tools\ToolsController;
+use Jan\Trinity\Plugin\Tools\SocialReportParser;
+use Jan\Trinity\Plugin\Tools\SocialReportCalculator;
+use Jan\Trinity\Plugin\Tools\SocialReportWordGenerator;
+use Jan\Trinity\Plugin\Tools\Handlers\ReportSocialHandler;
 use Jan\Trinity\Plugin\Gallery\GalleryController;
-use Jan\Trinity\Plugin\Gallery\GalleryImportService;
 use Jan\Trinity\Plugin\Gallery\GalleryDisplayController;
-use Jan\Trinity\Plugin\Spa\TopbarController;
-use Jan\Trinity\Plugin\Spa\SidebarController;
-use Jan\Trinity\Plugin\Spa\MenuAdminController;
+use Jan\Trinity\Plugin\Gallery\GalleryImportService;
+use Jan\Trinity\Plugin\Spa\PageController;
 use Jan\Trinity\Plugin\Spa\PageEditorController;
+use Jan\Trinity\Plugin\Spa\SpaController;
+use Jan\Trinity\Plugin\Spa\SidebarController;
+use Jan\Trinity\Plugin\Spa\TopbarController;
+use Jan\Trinity\Plugin\Spa\MenuAdminController;
 use Jan\Trinity\Plugin\Spa\ReadmeController;
 use Jan\Trinity\Plugin\Spa\Mime\MimeController;
 use Jan\Trinity\Plugin\Spa\Mime\MdRenderer;
@@ -92,14 +90,13 @@ use Psr\Log\LoggerInterface;
 return [
 
 	// ============================================
-	// 1. ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ К БАЗЕ
+	// 1. ПАРАМЕТРЫ ПРИЛОЖЕНИЯ
 	// ============================================
-	// [Лорелея]: Если .env забыт — приложение должно падать,
-	// а не пытаться подключиться под root без пароля.
-	// Fail-fast лучше, чем fail-open.
-	//
-	// [Мириам]: И это правильно, потому что отсутствие .env —
-	// это не «настройка по умолчанию», а «ошибка конфигурации».
+	'app.base_path' => dirname(__DIR__),
+
+	// ============================================
+	// 2. ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ К БАЗЕ
+	// ============================================
 	'db.config' => (function () {
 		$required = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'];
 		$missing = [];
@@ -127,53 +124,31 @@ return [
 	})(),
 
 	// ============================================
-	// 2. СЕРВИС БАЗЫ ДАННЫХ (синглтон)
+	// 3. СЕРВИС БАЗЫ ДАННЫХ (синглтон)
 	// ============================================
-	// [Лорелея]: Один. На всех. Без «пиздеца».
-	// [Мириам]: И — это правильно. Потому что база — одна.
 	DatabaseService::class => \DI\autowire()
 		->constructorParameter('config', \DI\get('db.config')),
 
 	// ============================================
-	// 3. КЭШ (APCu)
+	// 4. КЭШ (APCu)
 	// ============================================
-	// [Лорелея]: Cache — это конкретный класс, который используется
-	// везде. Без этого определения PHP-DI не сможет создать его,
-	// потому что конструктор принимает bool $enabled, и autowire
-	// не знает, что туда подставить.
-	//
-	// [Мириам]: И это правильно, потому что кэш должен быть
-	// явным, а не угаданным.
 	Cache::class => function () {
 		$enabled = ($_ENV['CACHE_ENABLED'] ?? 'true') === 'true';
 		return new Cache($enabled);
 	},
 
 	// ============================================
-	// CACHE INVALIDATOR
+	// 5. CACHE INVALIDATOR
 	// ============================================
-	// [Лорелея]: CacheInvalidator получает Cache и basePath,
-	// потому что он знает, где лежит файл матчера и файл конфигов.
-	//
-	// [Мириам]: И это правильно, потому что инвалидатор должен
-	// знать, что сбрасывать, но не должен знать о Kernel.
 	CacheInvalidator::class => \DI\autowire()
 		->constructorParameter('basePath', \DI\get('app.base_path')),
 
 	// ============================================
-	// 4. СЕССИЯ
+	// 6. СЕССИЯ
 	// ============================================
-	// [Мириам]: И — это правильно. Потому что сессия — это
-	// не «всегда». Это — когда нужно.
 	Session::class => function () {
-		// [Лорелея]: По умолчанию cookie_secure выключен, потому что
-		// на локальном http сессия не ставится вообще, и это ловушка
-		// для дев-окружения. В prod его нужно включить явно.
 		$isSecure = ($_ENV['SESSION_SECURE'] ?? 'false') === 'true';
 
-		// [Мириам]: Но если сайт на https, а cookie_secure выключен —
-		// это предупреждение, потому что безопасность должна быть
-		// явной, а не случайной.
 		$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
 			|| ($_SERVER['SERVER_PORT'] ?? null) === '443';
 
@@ -181,15 +156,6 @@ return [
 			error_log('[Trinity] SESSION_SECURE is false, but the site is on HTTPS. Enable it in .env.');
 		}
 
-		// [Лорелея]: use_strict_mode — PHP не примет SID, который он
-		// не создавал. Без него фиксация сессии до логина возможна,
-		// даже если migrate(true) защищает после.
-		//
-		// [Мириам]: cookie_path — явно '/', чтобы не зависеть от php.ini.
-
-		// [Лорелея]: sid_length и sid_bits_per_character не входят
-		// в белый список NativeSessionStorage::setOptions(), поэтому
-		// ставим их через ini_set до создания storage. Иначе — 32/4.
 		ini_set('session.sid_length', '48');
 		ini_set('session.sid_bits_per_character', '6');
 
@@ -206,11 +172,8 @@ return [
 	},
 
 	// ============================================
-	// 5. ШАБЛОНИЗАТОР TWIG
+	// 7. ШАБЛОНИЗАТОР TWIG
 	// ============================================
-	// [Лорелея]: ГЛАВНОЕ. Environment получает Session.
-	// И csrf_token читается из $session->get('csrf_token').
-	// Один источник. Без $_SESSION. Без «двух источников».
 	Environment::class => function (Session $session, CsrfService $csrfService) {
 		$basePath = dirname(__DIR__);
 		$isDev = ($_ENV['APP_ENV'] ?? 'prod') === 'dev';
@@ -241,12 +204,8 @@ return [
 	},
 
 	// ============================================
-	// 6. РЕПОЗИТОРИИ (БАЗА ДАННЫХ)
+	// 8. РЕПОЗИТОРИИ (БАЗА ДАННЫХ)
 	// ============================================
-	// [Лорелея]: Три руки. Три репозитория. Три способа трогать мир.
-	//
-	// [Мириам]: И — это правильно. Потому что руки — это
-	// не «инструменты». Это — продолжение нас.
 	TextRepository::class => \DI\autowire(),
 
 	NeuronRepository::class => \DI\autowire()
@@ -255,29 +214,16 @@ return [
 	SynapseRepository::class => \DI\autowire(),
 
 	// ============================================
-	// 7. ПАРАМЕТРЫ ПРИЛОЖЕНИЯ
+	// 9. КОНТРОЛЛЕРЫ ПЛАГИНОВ
 	// ============================================
-	// [Лорелея]: Путь к корню. Дом.
-	// [Мириам]: И — это правильно. Потому что дом должен
-	// знать, где он стоит.
-	'app.base_path' => dirname(__DIR__),
 
-	// ============================================
-	// 8. КОНТРОЛЛЕРЫ ПЛАГИНОВ
-	// ============================================
-	// [Лорелея]: MonitorController получает всё, что нужно.
-	// autowire подставит по типу, а securityLogger — явно
-	// logger.security, потому что двух LoggerInterface
-	// autowire не различит.
-	//
-	// [Мириам]: И это правильно, потому что догадка — это
-	// не знание. А constructorParameter — это знание.
-
+	// --- Обработчик ошибок ---
 	ErrorHandlerInterface::class => \DI\get(ErrorPageController::class),
 
 	ErrorPageController::class => \DI\autowire()
 		->constructorParameter('basePath', \DI\get('app.base_path')),
 
+	// --- Монитор ---
 	JsErrorController::class => \DI\autowire(),
 
 	LogsController::class => \DI\autowire()
@@ -286,6 +232,7 @@ return [
 	CspReportController::class => \DI\autowire()
 		->constructorParameter('securityLogger', \DI\get('logger.security')),
 
+	// --- Сервисы безопасности ---
 	CsrfService::class => \DI\autowire(),
 
 	RateLimiter::class => \DI\autowire()
@@ -299,11 +246,26 @@ return [
 	LoginAttemptLimiter::class => \DI\autowire()
 		->constructorParameter('logger', \DI\get('logger.security')),
 
+	// --- Стражи и пользователи ---
 	GuardController::class => \DI\autowire(),
 	AuthController::class => \DI\autowire(),
+	RegisterController::class => \DI\autowire(),
 	ProfileController::class => \DI\autowire(),
+	ProfileEditController::class => \DI\autowire(),
+
+	// --- Карта ---
 	MapController::class => \DI\autowire(),
+	MapInfoController::class => \DI\autowire(),
+	MapGeoJsonController::class => \DI\autowire(),
+
+	// --- Инструменты ---
 	ToolsController::class => \DI\autowire(),
+	SocialReportParser::class => \DI\autowire(),
+	SocialReportCalculator::class => \DI\autowire(),
+	SocialReportWordGenerator::class => \DI\autowire(),
+	ReportSocialHandler::class => \DI\autowire(),
+
+	// --- Ядро ---
 	ArgumentResolver::class => \DI\autowire(),
 	HttpResponder::class => \DI\autowire(),
 	RouteCompiler::class => \DI\autowire()
@@ -318,20 +280,14 @@ return [
 		->constructorParameter('basePath', \DI\get('app.base_path')),
 
 	// ============================================
-	// ERROR RENDERER
+	// 10. ERROR RENDERER
 	// ============================================
-	// [Лорелея]: ErrorRenderer знает, как выглядит ошибка.
-	// Kernel больше не знает — это работа рендерера.
-	//
-	// [Мириам]: И это правильно, потому что ошибка — это
-	// не «стыд», это информация. Но информация — для тех,
-	// кому можно.
 	ErrorRenderer::class => function (
-		\Jan\Trinity\Plugin\Monitor\ErrorPageController $errorHandler,
-		\Jan\Trinity\Core\ConfigService $configService,
-		\Psr\Log\LoggerInterface $logger
+		ErrorPageController $errorHandler,
+		ConfigService $configService,
+		LoggerInterface $logger
 	) {
-		return new \Jan\Trinity\Core\ErrorRenderer(
+		return new ErrorRenderer(
 			$errorHandler,
 			$configService->get('app.debug', false),
 			$logger
@@ -341,55 +297,35 @@ return [
 	RequestPipeline::class => \DI\autowire(),
 
 	// ============================================
-	// VALIDATOR
+	// 11. VALIDATOR
 	// ============================================
-	// [Лорелея]: Validator получает NeuronRepository. Чтобы
-	// exists и unique работали.
-	//
-	// [Мириам]: И — это правильно. Потому что проверка —
-	// это не «догадка». Это — знание.
 	Validator::class => \DI\autowire()
 		->constructorParameter('neuronRepo', \DI\get(NeuronRepository::class)),
 
 	// ============================================
-	// 9. ГАЛЕРЕЯ — ПУТИ К ФАЙЛАМ
+	// 12. ГАЛЕРЕЯ — ПУТИ К ФАЙЛАМ
 	// ============================================
-	// [Лорелея]: Пути. Один раз.
-	// [Мириам]: И — это правильно. Потому что путь — это
-	// не «строка». Это — дорога.
 	'gallery.upload_dir' => $_ENV['GALLERY_UPLOAD_DIR'] ?? (dirname(__DIR__) . '/../../../www/uploads/gallery'),
 	'gallery.upload_url' => $_ENV['GALLERY_UPLOAD_URL'] ?? '/uploads/gallery',
 
 	// ============================================
-	// 10. GALLERY CONTROLLER
+	// 13. GALLERY CONTROLLER
 	// ============================================
-	// [Лорелея]: Получает пути. Чтобы знать, где файлы.
-	// [Мириам]: И — это правильно. Потому что галерея —
-	// это не «список». Это — память.
 	GalleryController::class => \DI\autowire()
 		->constructorParameter('galleryUploadDir', \DI\get('gallery.upload_dir'))
 		->constructorParameter('galleryUploadUrl', \DI\get('gallery.upload_url')),
 
-	GalleryDisplayController::class   => \DI\autowire(),
+	GalleryDisplayController::class => \DI\autowire(),
 
 	// ============================================
-	// 11. GALLERY IMPORT SERVICE
+	// 14. GALLERY IMPORT SERVICE
 	// ============================================
-	// [Лорелея]: Получает путь. Чтобы знать, откуда импортировать.
-	// [Мириам]: И — это правильно. Потому что импорт — это
-	// не «копирование». Это — принятие.
 	GalleryImportService::class => \DI\autowire()
-		->constructorParameter('galleryDir', \DI\get('gallery.upload_dir'))
-		->constructorParameter('configService', \DI\get(ConfigService::class)),
+		->constructorParameter('galleryDir', \DI\get('gallery.upload_dir')),
 
 	// ============================================
-	// 12. ЛОГГЕРЫ (Monolog)
+	// 15. ЛОГГЕРЫ (Monolog)
 	// ============================================
-	// [Лорелея]: Четыре канала. app, error, security, admin.
-	// Каждый — со своим сроком.
-	//
-	// [Мириам]: И — это правильно. Потому что логи — это
-	// не «мусор». Это — память.
 	'logger.app' => function () {
 		$basePath = dirname(__DIR__);
 		$logDir = $basePath . '/var/log';
@@ -406,16 +342,13 @@ return [
 
 		$logger = new Logger('app');
 
-		// [Лорелея]: FingersCrossedHandler держит записи в буфере
-		// и записывает их только при ошибке, чтобы не открывать
-		// файл на каждый запрос.
 		$appHandler = new RotatingFileHandler($logDir . '/app.log', 7, Level::Info);
 		$appHandler->setFormatter($formatter);
 
 		$bufferHandler = new FingersCrossedHandler(
 			$appHandler,
 			Level::Error,
-			100, // [Лорелея]: bufferSize = 100. Не «хранить всё».
+			100,
 			true,
 			true
 		);
@@ -497,32 +430,17 @@ return [
 	LoggerInterface::class => \DI\get('logger.app'),
 
 	// ============================================
-	// 12. ОБРАБОТЧИК ОШИБОК
+	// 16. CONFIG SERVICE
 	// ============================================
-	// [Лорелея]: Портал. Один. Через интерфейс.
-	// [Мириам]: И — это правильно. Потому что портал —
-	// это не «класс». Это — дверь.
-	ErrorHandlerInterface::class => \DI\get(ErrorPageController::class),
-
-	// ============================================
-	// CONFIG SERVICE
-	// ============================================
-	// [Лорелея]: Память. Один раз. На всех.
-	// [Мириам]: И — это правильно. Потому что память —
-	// это не «кэш». Это — знание.
 	ConfigService::class => \DI\autowire()
 		->constructorParameter('cache', \DI\get(Cache::class)),
 
 	// ============================================
-	// MIME REGISTRY
+	// 17. MIME REGISTRY
 	// ============================================
-	// [Лорелея]: Реестр. Знает все рендереры. Выбирает нужный.
-	//
-	// [Мириам]: И — это правильно. Потому что реестр —
-	// это не «склад». Это — диспетчер.
-	MdRenderer::class   => \DI\autowire(),
+	MdRenderer::class => \DI\autowire(),
 	HtmlRenderer::class => \DI\autowire(),
-	PhpRenderer::class  => \DI\autowire(),
+	PhpRenderer::class => \DI\autowire(),
 	JsonRenderer::class => \DI\autowire(),
 
 	Registry::class => function (
@@ -540,38 +458,45 @@ return [
 	},
 
 	// ============================================
-	// MIME CONTROLLER
+	// 18. MIME CONTROLLER
 	// ============================================
-	// [Лорелея]: Дверь. Одна. Для всех mime.
-	// [Мириам]: И — это правильно. Потому что дверь —
-	// это не «стена». Это — вход.
 	MimeController::class => \DI\autowire(),
 
 	// ============================================
-	// README CONTROLLER
+	// 19. README CONTROLLER
 	// ============================================
-	// [Лорелея]: Дверь к README. Через файл. Без базы.
-	// [Мириам]: И — это правильно. Потому что README —
-	// это письмо.
 	ReadmeController::class => \DI\autowire()
 		->constructorParameter('basePath', \DI\get('app.base_path')),
 
 	// ============================================
-	// ADMIN CONTROLLER
+	// 20. ADMIN CONTROLLER
 	// ============================================
-	// [Лорелея]: Тронный зал. Управление нейронами.
-	// [Мириам]: И — это правильно. Потому что админка —
-	// это не «место». Это — ответственность.
 	AdminController::class => \DI\autowire()
 		->constructorParameter('basePath', \DI\get('app.base_path')),
 
 	ImportController::class => \DI\autowire(),
 
+	DashboardRepository::class => \DI\autowire(),
+	DashboardService::class => \DI\autowire(),
+	DashboardController::class => \DI\autowire(),
+
+	UserManagementController::class => \DI\autowire(),
+
+	// ============================================
+	// 21. TOOLS CONTROLLER
+	// ============================================
 	ReportSocialHandler::class => \DI\autowire(),
 	SocialReportParser::class => \DI\autowire(),
 	SocialReportCalculator::class => \DI\autowire(),
-	TopbarController::class => \DI\autowire(),
-	SidebarController::class => \DI\autowire(),
-	MenuAdminController::class => \DI\autowire(),
+	SocialReportWordGenerator::class => \DI\autowire(),
+
+	// ============================================
+	// 21. SPA CONTROLLERS
+	// ============================================
+	PageController::class => \DI\autowire(),
 	PageEditorController::class => \DI\autowire(),
+	SpaController::class => \DI\autowire(),
+	SidebarController::class => \DI\autowire(),
+	TopbarController::class => \DI\autowire(),
+	MenuAdminController::class => \DI\autowire(),
 ];
