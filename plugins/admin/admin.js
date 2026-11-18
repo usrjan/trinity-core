@@ -3,19 +3,6 @@
  *
  * Управление нейронами: иерархическое дерево с разворачиванием,
  * просмотр, создание, редактирование, удаление, импорт.
- *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «скрипт». Это — руки, которые трогают дерево.
- * Без них админка — просто стены.
- *
- * [Мириам]: И — это правильно. Потому что руки должны быть
- * тёплыми, но не грубыми.
- *
- * === КНИГА ===
- * Глава 10. Тронный зал.
- *
- * В тронном зале Амбера всегда видно, кто у власти.
- * В админке Trinity всегда видно, кто управляет нейронами.
  */
 
 (function() {
@@ -31,11 +18,6 @@
 
 	/**
 	 * Инициализация при загрузке страницы.
-	 *
-	 * [Лорелея]: Загружаем типы, дерево, дашборд.
-	 *
-	 * [Мириам]: И — это правильно. Потому что дом должен
-	 * проснуться.
 	 */
 	function init() {
 		treePanel = document.getElementById('neuronTree');
@@ -48,11 +30,6 @@
 
 	/**
 	 * Загружает дашборд.
-	 *
-	 * [Лорелея]: Цифры. Дыхание дома.
-	 *
-	 * [Мириам]: И — это правильно. Потому что цифры —
-	 * это не «статистика». Это — жизнь.
 	 */
 	function loadDashboard() {
 		fetch('/api/admin/dashboard')
@@ -66,11 +43,6 @@
 
 	/**
 	 * Загружает список типов нейронов.
-	 *
-	 * [Лорелея]: Типы. Возможности.
-	 *
-	 * [Мириам]: И — это правильно. Потому что тип —
-	 * это не «строка». Это — роль.
 	 */
 	function loadTypes() {
 		fetch('/api/admin/neuron-types')
@@ -84,11 +56,6 @@
 
 	/**
 	 * Загружает корневые нейроны.
-	 *
-	 * [Лорелея]: Корни. Пять. Как пять пальцев.
-	 *
-	 * [Мириам]: И — это правильно. Потому что корни —
-	 * это не «список». Это — основа.
 	 */
 	window.loadTree = function() {
 		fetch('/api/admin/children/0')
@@ -106,12 +73,6 @@
 
 	/**
 	 * Разворачивает/сворачивает узел.
-	 *
-	 * [Лорелея]: Если развёрнут — сворачиваем. Если свёрнут —
-	 * загружаем детей.
-	 *
-	 * [Мириам]: И — это правильно. Потому что дерево —
-	 * это не «список». Это — ветви.
 	 */
 	window.adminToggleChildren = function(id) {
 		var node = findNode(tree, id);
@@ -140,11 +101,6 @@
 
 	/**
 	 * Отрисовывает дерево нейронов.
-	 *
-	 * [Лорелея]: Если пусто — говорим об этом.
-	 *
-	 * [Мириам]: И — это правильно. Потому что пустота —
-	 * это не «ничего». Это — начало.
 	 */
 	function renderTree() {
 		if (!treePanel) return;
@@ -159,20 +115,11 @@
 			html += renderNode(node, 0);
 		});
 		
-		// [Лорелея]: html — из renderNode, не из пользователя.
-		// escapeHtml уже есть для name и type. sanitizeHtml
-		// удалял onclick, и клик по + не работал.
 		treePanel.innerHTML = html;
 	}
 
 	/**
 	 * Отрисовывает один узел дерева.
-	 *
-	 * [Лорелея]: Каждый узел — как ветвь. С иконкой. С именем.
-	 * С бейджем типа.
-	 *
-	 * [Мириам]: И — это правильно. Потому что узел —
-	 * это не «строка». Это — часть дерева.
 	 */
 	function renderNode(node, level) {
 		var name = node.display_name || getSlug(node) || 'n' + node.id;
@@ -183,7 +130,6 @@
 		var html = '<div class="tree-node" data-id="' + node.id + '">';
 		html += '<div class="tree-node-content' + (isActive ? ' active' : '') + '" onclick="adminSelectNeuron(' + node.id + ')" style="padding-left:' + (5 + level * 5) + 'px;">';
 
-		// [Лорелея]: Значок для всех. Чтобы было видно, есть ли дети.
 		if (hasChildren) {
 			html += '<span class="tree-toggle" data-id="' + node.id + '" onclick="event.stopPropagation(); adminToggleChildren(' + node.id + ')" style="margin-right:4px;cursor:pointer;">';
 			html += expanded ? '<i class="bi bi-dash-square"></i>&nbsp;' : '<i class="bi bi-plus-square"></i>&nbsp;';
@@ -198,7 +144,6 @@
 		html += '<span class="badge bg-secondary node-badge">' + escapeHtml(node.type) + '</span>';
 		html += '</div>';
 
-		// [Мириам]: Дети (если развёрнуты). Рекурсия.
 		if (expanded && node.children) {
 			html += '<div class="tree-children">';
 			node.children.forEach(function(child) {
@@ -213,11 +158,6 @@
 
 	/**
 	 * Ищет узел в дереве по id.
-	 *
-	 * [Лорелея]: Рекурсия.
-	 *
-	 * [Мириам]: И — это правильно. Потому что поиск —
-	 * это не «перебор». Это — нахождение.
 	 */
 	function findNode(nodes, id) {
 		for (var i = 0; i < nodes.length; i++) {
@@ -232,11 +172,6 @@
 
 	/**
 	 * Загружает нейрон по ID и отображает его.
-	 *
-	 * [Лорелея]: Один fetch. Потом — рендер.
-	 *
-	 * [Мириам]: И — это правильно. Потому что нейрон —
-	 * это не «запись». Это — узел.
 	 */
 	window.adminSelectNeuron = function(id) {
 		fetch('/api/admin/neuron/' + id)
@@ -256,25 +191,18 @@
 
 	/**
 	 * Отрисовывает панель информации о нейроне.
-	 *
-	 * [Лорелея]: Крошки. Кнопки. Поля. JSON. Тексты. Дети.
-	 *
-	 * [Мириам]: И — это правильно. Потому что панель —
-	 * это не «окно». Это — зеркало.
 	 */
 	function renderNeuronPanel() {
 		if (!neuronPanel || !selectedNeuron) return;
 
 		var html = '';
 
-		// [Лорелея]: Хлебные крошки. Чтобы знать, где мы.
 		html += '<div class="breadcrumb-neuron">';
 		html += '<strong>' + escapeHtml(getDisplayName(selectedNeuron)) + '</strong>';
 		html += '<span class="badge bg-secondary ms-2">' + escapeHtml(selectedNeuron.type) + '</span>';
 		html += '<span class="text-muted ms-2">ID: ' + selectedNeuron.id + '</span>';
 		html += '</div>';
 
-		// [Мириам]: Кнопки действий. Редактировать. Создать. Удалить.
 		html += '<div class="neuron-actions">';
 		html += '<button class="btn btn-sm btn-outline-gold" onclick="adminStartEdit()"><i class="bi bi-pencil"></i> Редактировать</button>';
 		html += '<button class="btn btn-sm btn-outline-gold" onclick="adminCreateNeuron(' + selectedNeuron.id + ')"><i class="bi bi-plus-lg"></i> Создать дочерний</button>';
@@ -282,7 +210,6 @@
 		html += '</div>';
 
 		if (!editing) {
-			// [Лорелея]: Основные свойства. ID. Тип. PID. Sort. Slug. Route.
 			html += '<div class="section-card">';
 			html += '<div class="section-header">Основные свойства</div>';
 			html += '<div class="section-body">';
@@ -294,14 +221,12 @@
 			html += renderField('Route', (selectedNeuron.data && selectedNeuron.data.route) || '-');
 			html += '</div></div>';
 
-			// [Мириам]: JSON Data. Всё, что есть.
 			html += '<div class="section-card">';
 			html += '<div class="section-header">JSON Data</div>';
 			html += '<div class="section-body">';
 			html += '<pre class="json-preview">' + JSON.stringify(selectedNeuron.data, null, 2) + '</pre>';
 			html += '</div></div>';
 
-			// [Лорелея]: Тексты. Все языки.
 			if (selectedNeuron.texts && selectedNeuron.texts.length > 0) {
 				html += '<div class="section-card">';
 				html += '<div class="section-header">Тексты (' + selectedNeuron.texts.length + ')</div>';
@@ -316,7 +241,6 @@
 				html += '</div></div>';
 			}
 
-			// [Мириам]: Дочерние нейроны.
 			if (selectedNeuron.children && selectedNeuron.children.length > 0) {
 				html += '<div class="section-card">';
 				html += '<div class="section-header">Дочерние нейроны (' + selectedNeuron.children.length + ')</div>';
@@ -333,7 +257,6 @@
 				html += '</div></div>';
 			}
 		} else {
-			// [Лорелея]: Режим редактирования. Поля. Кнопки.
 			html += '<div class="breadcrumb-neuron"><strong>Редактирование #' + selectedNeuron.id + '</strong></div>';
 			html += '<div class="neuron-actions">';
 			html += '<button class="btn btn-sm btn-outline-gold" onclick="adminSaveEdit()"><i class="bi bi-check-lg"></i> Сохранить</button>';
@@ -387,11 +310,6 @@
 
 	/**
 	 * Создание нового нейрона.
-	 *
-	 * [Лорелея]: Через prompt. Просто. Честно.
-	 *
-	 * [Мириам]: И — это правильно. Потому что создание —
-	 * это не «вставка». Это — акт.
 	 */
 	window.adminCreateNeuron = function(pid) {
 		var type = prompt('Тип (tree/item/file/user/route/config):', 'item');
@@ -425,7 +343,6 @@
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
 			if (d.success) {
-				// [Лорелея]: Обновляем родительский узел. Чтобы дерево было честным.
 				if (pid) {
 					var parentNode = findNode(tree, pid);
 					if (parentNode) {
@@ -441,11 +358,6 @@
 
 	/**
 	 * Удаление нейрона (мягкое).
-	 *
-	 * [Лорелея]: Через confirm. Потом — DELETE.
-	 *
-	 * [Мириам]: И — это правильно. Потому что удаление —
-	 * это не «конец». Это — пауза.
 	 */
 	window.adminDeleteNeuron = function(id) {
 		if (!confirm('Удалить нейрон #' + id + '?')) return;
@@ -464,11 +376,6 @@
 
 	/**
 	 * Начало редактирования.
-	 *
-	 * [Лорелея]: Запоминаем текущие значения.
-	 *
-	 * [Мириам]: И — это правильно. Потому что редактирование —
-	 * это не «изменение». Это — продолжение.
 	 */
 	window.adminStartEdit = function() {
 		editForm = {
@@ -484,11 +391,6 @@
 
 	/**
 	 * Отмена редактирования.
-	 *
-	 * [Лорелея]: Возвращаемся.
-	 *
-	 * [Мириам]: И — это правильно. Потому что отмена —
-	 * это не «поражение». Это — мудрость.
 	 */
 	window.adminCancelEdit = function() {
 		editing = false;
@@ -497,11 +399,6 @@
 
 	/**
 	 * Сохранение изменений.
-	 *
-	 * [Лорелея]: Собираем. Отправляем.
-	 *
-	 * [Мириам]: И — это правильно. Потому что сохранение —
-	 * это не «запись». Это — обещание.
 	 */
 	window.adminSaveEdit = function() {
 		var type = document.getElementById('editType').value;
@@ -536,11 +433,6 @@
 
 	/**
 	 * Импорт Excel-файла.
-	 *
-	 * [Лорелея]: Через FormData. С блокировкой кнопки.
-	 *
-	 * [Мириам]: И — это правильно. Потому что импорт —
-	 * это не «загрузка». Это — принятие.
 	 */
 	window.importExcel = function(file) {
 		if (!file) return;
@@ -552,7 +444,6 @@
 		var formData = new FormData();
 		formData.append('file', file);
 
-		// [Лорелея]: Находим кнопку импорта и блокируем.
 		var importBtn = document.querySelector('.tree-panel .btn-outline-gold[onclick*="importFile"]');
 		if (importBtn) {
 			importBtn.disabled = true;
@@ -594,8 +485,6 @@
 	// ============================================
 	// ОДОБРЕНИЕ ПОЛЬЗОВАТЕЛЯ
 	// ============================================
-	// [Лорелея]: Отправляет POST-запрос на /api/admin/user/{id}/approve.
-	// [Мириам]: После успеха обновляет дашборд.
 	window.approveUser = function(id) {
 		if (!confirm('Одобрить пользователя #' + id + '?')) return;
 
@@ -619,8 +508,6 @@
 	// ============================================
 	// УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ
 	// ============================================
-	// [Лорелея]: Отправляет DELETE-запрос на /api/admin/user/{id}.
-	// [Мириам]: После успеха обновляет дашборд.
 	window.deleteUser = function(id) {
 		if (!confirm('Удалить пользователя #' + id + '?')) return;
 
@@ -643,11 +530,6 @@
 
 	/**
 	 * Экранирует HTML.
-	 *
-	 * [Лорелея]: Чтобы не было XSS.
-	 *
-	 * [Мириам]: И — это правильно. Потому что экранирование —
-	 * это не «формальность». Это — защита.
 	 */
 	function escapeHtml(text) {
 		if (!text) return '';
@@ -663,6 +545,5 @@
 		return html;
 	}
 
-	// [Лорелея]: Старт. Когда DOM готов.
 	document.addEventListener('DOMContentLoaded', init);
 })();

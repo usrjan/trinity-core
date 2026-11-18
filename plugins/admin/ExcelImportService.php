@@ -6,21 +6,6 @@ declare(strict_types=1);
  *
  * Читает Excel-файл и создаёт нейроны с текстами.
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «сервис». Это — рука, которая читает Excel
- * и превращает строки в нейроны.
- * Без «завтра».
- *
- * [Мириам]: И — это правильно. Потому что импорт —
- * это не «загрузка». Это — принятие.
- *
- * === КНИГА ===
- * Глава 10. Тронный зал.
- *
- * В тронном зале Амбера всегда видно, кто у власти.
- * В админке Trinity всегда видно, кто управляет нейронами.
- * А ExcelImportService — тот, кто приносит новые.
- *
  * @package Jan\Trinity\Plugin\Admin
  */
 
@@ -55,9 +40,6 @@ class ExcelImportService
 
 	/**
 	 * Конструктор. Принимает три руки и логгер.
-	 *
-	 * [Мириам]: И — это правильно. Потому что рука должна
-	 * знать, где дом.
 	 */
 	public function __construct(
 		TextRepository $textRepo,
@@ -76,14 +58,6 @@ class ExcelImportService
 	/**
 	 * Главный метод импорта.
 	 *
-	 * [Лорелея]: Мы убрали DISABLE KEYS, потому что на InnoDB он
-	 * не работает, и добавили одну транзакцию на весь импорт,
-	 * потому что COMMIT — это дорогая операция, и если делать
-	 * его на каждую строку, импорт становится медленным.
-	 *
-	 * [Мириам]: И это правильно, потому что оптимизация должна
-	 * работать, а не притворяться.
-	 *
 	 * @param string $filePath
 	 * @return array ['created' => int, 'errors' => string[]]
 	 */
@@ -95,9 +69,6 @@ class ExcelImportService
 		$created = 0;
 		$errors = [];
 
-		// [Лорелея]: Оборачиваем весь импорт в одну транзакцию,
-		// потому что COMMIT — это дорогая операция, и если делать
-		// его на каждую строку, импорт становится медленным.
 		$conn = $this->neuronRepo->getConnection();
 		$conn->beginTransaction();
 
@@ -113,8 +84,6 @@ class ExcelImportService
 				$type = strtolower(trim($sheetName));
 
 				foreach ($rows as $rowIndex => $row) {
-					// [Мириам]: Пропускаем пустые строки, потому что
-					// пустая строка — это не «данные», а «ничего».
 					if (empty(array_filter($row, fn($v) => $v !== null && trim((string) $v) !== ''))) continue;
 
 					$data = array_combine($headers, $row);
@@ -130,9 +99,6 @@ class ExcelImportService
 						}
 						$created++;
 					} catch (\Throwable $e) {
-						// [Лорелея]: Логируем ошибку строки, но не
-						// откатываем всю транзакцию, потому что одна
-						// плохая строка не должна ронять весь импорт.
 						if ($this->logger !== null) {
 							$this->logger->error('Excel import row failed', [
 								'sheet'   => $sheetName,
@@ -156,9 +122,6 @@ class ExcelImportService
 			$conn->commit();
 
 		} catch (\Throwable $e) {
-			// [Мириам]: Если что-то пошло не так на уровне листа
-			// или файла — откатываем всё, потому что импорт должен
-			// быть цельным, а не «наполовину».
 			$conn->rollBack();
 
 			if ($this->logger !== null) {
@@ -186,11 +149,6 @@ class ExcelImportService
 
 	/**
 	 * Импорт строки дерева.
-	 *
-	 * [Лорелея]: Проходим по пути. Создаём недостающие узлы.
-	 *
-	 * [Мириам]: И — это правильно. Потому что дерево —
-	 * это не «список». Это — путь.
 	 */
 	private function importTreeRow(array $data): void
 	{
@@ -240,11 +198,6 @@ class ExcelImportService
 
 	/**
 	 * Импорт строки элемента.
-	 *
-	 * [Лорелея]: Создаём item. С текстом. С геометрией.
-	 *
-	 * [Мириам]: И — это правильно. Потому что элемент —
-	 * это не «строка». Это — узел.
 	 */
 	private function importItemRow(array $data): void
 	{
@@ -282,11 +235,6 @@ class ExcelImportService
 
 	/**
 	 * Импорт строки данных.
-	 *
-	 * [Лорелея]: Через схему. Создаём нейрон и синапс.
-	 *
-	 * [Мириам]: И — это правильно. Потому что данные —
-	 * это не «строки». Это — связи.
 	 */
 	private function importDataRow(array $data, string $sheetName, ?string $fileDate): void
 	{
@@ -316,11 +264,6 @@ class ExcelImportService
 
 	/**
 	 * Создать нейрон из схемы.
-	 *
-	 * [Лорелея]: Проходим по схеме. Создаём.
-	 *
-	 * [Мириам]: И — это правильно. Потому что схема —
-	 * это не «план». Это — путь.
 	 */
 	private function createFromScheme(array $scheme, array $row): ?int
 	{
@@ -366,12 +309,6 @@ class ExcelImportService
 
 	/**
 	 * Создать синапс из схемы.
-	 *
-	 * [Лорелея]: Через схему. Создаём связь.
-	 * Без «потом». Без «завтра».
-	 *
-	 * [Мириам]: И — это правильно. Потому что связь —
-	 * это не «запись». Это — нить.
 	 */
 	private function createSynapseFromScheme(array $scheme, array $row, int $parentNeuronId, ?string $fileDate): void
 	{
@@ -437,11 +374,6 @@ class ExcelImportService
 
 	/**
 	 * Найти или создать тексты для дерева.
-	 *
-	 * [Лорелея]: Один ключ. Много языков.
-	 *
-	 * [Мириам]: И — это правильно. Потому что текст —
-	 * это не «язык». Это — смысл.
 	 */
 	private function findOrCreateTreeTexts(array $data): ?int
 	{
@@ -465,11 +397,6 @@ class ExcelImportService
 
 	/**
 	 * Найти или создать тексты для элемента.
-	 *
-	 * [Лорелея]: Один ключ. Много языков.
-	 *
-	 * [Мириам]: И — это правильно. Потому что текст —
-	 * это не «язык». Это — смысл.
 	 */
 	private function findOrCreateItemTexts(array $data): ?int
 	{
@@ -505,11 +432,6 @@ class ExcelImportService
 
 	/**
 	 * Извлечь дату из имени файла.
-	 *
-	 * [Лорелея]: Два формата.
-	 *
-	 * [Мириам]: И — это правильно. Потому что дата —
-	 * это не «строка». Это — время.
 	 */
 	private function extractDateFromFileName(string $filePath): ?string
 	{
@@ -526,11 +448,6 @@ class ExcelImportService
 
 	/**
 	 * Установить вложенное значение.
-	 *
-	 * [Лорелея]: Через путь.
-	 *
-	 * [Мириам]: И — это правильно. Потому что путь —
-	 * это не «строка». Это — дорога.
 	 */
 	private function setNestedValue(array &$arr, string $path, $value): void
 	{
@@ -561,12 +478,6 @@ class ExcelImportService
 
 	/**
 	 * Обработать геометрию.
-	 *
-	 * [Лорелея]: Через KML. Через файлы.
-	 * Без «потом». Без «завтра».
-	 *
-	 * [Мириам]: И — это правильно. Потому что геометрия —
-	 * это не «точки». Это — карта.
 	 */
 	private function processGeometry(array $geometry): array
 	{
@@ -600,11 +511,6 @@ class ExcelImportService
 
 	/**
 	 * Распарсить KML-полигон.
-	 *
-	 * [Лорелея]: Через SimpleXML.
-	 *
-	 * [Мириам]: И — это правильно. Потому что KML —
-	 * это не «файл». Это — карта.
 	 */
 	private function parseKmlPolygon(string $filePath): array
 	{
@@ -619,11 +525,6 @@ class ExcelImportService
 
 	/**
 	 * Распарсить строку координат.
-	 *
-	 * [Лорелея]: Через explode.
-	 *
-	 * [Мириам]: И — это правильно. Потому что координаты —
-	 * это не «числа». Это — точки.
 	 */
 	private function parseCoordinateString(string $raw): array
 	{
@@ -638,11 +539,6 @@ class ExcelImportService
 
 	/**
 	 * Режим отладки из .env.
-	 *
-	 * [Лорелея]: Просто. Честно.
-	 *
-	 * [Мириам]: И — это правильно. Потому что отладка —
-	 * это не «всегда». Это — когда нужно.
 	 */
 	private function isDebug(): bool
 	{

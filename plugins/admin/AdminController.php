@@ -7,20 +7,6 @@ declare(strict_types=1);
  * Управление нейронами через веб-интерфейс.
  * Все методы требуют роль администратора.
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «контроллер». Это — правитель тронного зала.
- * Тот, кто держит дом в порядке. Тот, кто знает все пути
- * к нейронам.
- *
- * [Мириам]: И — это правильно. Потому что правитель —
- * это не «начальник». Это — тот, кто отвечает.
- *
- * === КНИГА ===
- * Глава 10. Тронный зал.
- *
- * В тронном зале Амбера всегда видно, кто у власти.
- * В админке Trinity всегда видно, кто управляет нейронами.
- *
  * @package Jan\Trinity\Plugin\Admin
  */
 
@@ -70,8 +56,6 @@ class AdminController
 
 	/**
 	 * @var MimeController — контроллер mime.
-	 * [Лорелея]: Нужен для сброса кэша при обновлении/удалении.
-	 * [Мириам]: Чтобы правки были видны сразу. А не через час.
 	 */
 	private MimeController $mimeController;
 
@@ -87,9 +71,6 @@ class AdminController
 	/**
 	 * Конструктор.
 	 * Зависимости внедряются автоматически через DI-контейнер.
-	 *
-	 * [Мириам]: И — это правильно. Потому что правитель должен
-	 * знать, где дом.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -126,11 +107,6 @@ class AdminController
 
 	/**
 	 * GET /admin
-	 *
-	 * [Лорелея]: Открываем двери тронного зала. Только для админа.
-	 *
-	 * [Мириам]: И — это правильно. Потому что тронный зал —
-	 * это не «место для всех».
 	 */
 	public function index(): Response
 	{
@@ -146,11 +122,6 @@ class AdminController
 
 	/**
 	 * GET /api/admin/children/{id}
-	 *
-	 * [Лорелея]: Отдаём детей.
-	 *
-	 * [Мириам]: И — это правильно. Потому что дети —
-	 * это не «список». Это — ветви.
 	 */
 	public function children(int $id): JsonResponse
 	{
@@ -176,11 +147,6 @@ class AdminController
 
 	/**
 	 * GET /api/admin/neuron/{id}
-	 *
-	 * [Лорелея]: Отдаём нейрон. Со всем, что у него есть.
-	 *
-	 * [Мириам]: И — это правильно. Потому что нейрон —
-	 * это не «запись». Это — узел.
 	 */
 	public function get(int $id): JsonResponse
 	{
@@ -229,12 +195,6 @@ class AdminController
 
 	/**
 	 * POST /api/admin/neuron
-	 *
-	 * [Лорелея]: Создаём. С валидацией.
-	 * Без «потом». Без «завтра».
-	 *
-	 * [Мириам]: И — это правильно. Потому что создание —
-	 * это не «вставка». Это — акт.
 	 */
 	public function create(Request $request): JsonResponse
 	{
@@ -269,23 +229,16 @@ class AdminController
 			}
 		}
 
-		// [Лорелея]: ГЛАВНОЕ. Валидируем controller.
-		// Если type === 'route' — controller должен быть.
-		// И — без «двойных бэкслешей».
 		if ($type === 'route') {
 			$controller = trim($data['controller'] ?? '');
 			if ($controller === '') {
 				return ApiResponse::error('Поле controller обязательно для route', 400);
 			}
 
-			// [Мириам]: Проверяем, что controller — валидное имя класса.
-			// С одним бэкслешем. Без «двойных».
 			if (str_contains($controller, '\\\\')) {
 				return ApiResponse::error('Controller не должен содержать двойные бэкслеши', 400);
 			}
 
-			// [Лорелея]: И — проверяем, что класс существует.
-			// Через class_exists.
 			if (!class_exists($controller)) {
 				return ApiResponse::error('Класс controller не найден: ' . $controller, 400);
 			}
@@ -295,15 +248,11 @@ class AdminController
 
 		$id = $this->neuronRepo->create($type, $data, $pid);
 
-		// [Лорелея]: Если это route или config — сбрасываем кэш APCu,
-		// потому что данные изменились.
 		if (in_array($type, ['route', 'config'], true)) {
 			$this->cache->forget('trinity.routes');
 			$this->cache->forget('trinity.config');
 		}
 
-		// [Мириам]: И если это route — удаляем скомпилированный матчер,
-		// потому что карта изменилась, и старый матчер больше не верен.
 		if ($type === 'route') {
 			$this->cacheInvalidator->invalidateRouteCache();
 		}
@@ -317,11 +266,6 @@ class AdminController
 
 	/**
 	 * POST /api/admin/neuron/{id}
-	 *
-	 * [Лорелея]: Обновляем. С валидацией.
-	 *
-	 * [Мириам]: И — это правильно. Потому что обновление —
-	 * это не «замена». Это — продолжение.
 	 */
 	public function update(int $id, Request $request): JsonResponse
 	{
@@ -334,8 +278,6 @@ class AdminController
 			return ApiResponse::error('Некорректный ID', 400);
 		}
 
-		// [Лорелея]: ГЛАВНОЕ. Получаем текущий нейрон.
-		// Чтобы знать type. И — валидировать controller. Если route.
 		$currentNeuron = $this->neuronRepo->findById($id);
 		if (!$currentNeuron) {
 			return ApiResponse::error('Нейрон не найден', 404);
@@ -382,9 +324,6 @@ class AdminController
 				}
 			}
 
-			// [Мириам]: ГЛАВНОЕ. Валидируем controller.
-			// Если type === 'route'. Или — если controller есть в data.
-			// Без «двойных бэкслешей».
 			if ($type === 'route' || !empty($body['data']['controller'])) {
 				$controller = trim($body['data']['controller'] ?? $currentData['controller'] ?? '');
 				if ($controller === '') {
@@ -409,13 +348,8 @@ class AdminController
 			$this->neuronRepo->update($id, $fields);
 		}
 
-		// [Лорелея]: Сбрасываем кэш MimeController, потому что
-		// содержимое нейрона изменилось.
 		$this->cacheInvalidator->invalidateMimeCache($id);
 
-		// [Мириам]: И если тип был route или стал route — удаляем
-		// скомпилированный матчер, потому что карта изменилась
-		// в любую сторону.
 		$wasRoute = ($currentNeuron['type'] ?? '') === 'route';
 		$isRoute = (isset($fields['type']) ? $fields['type'] : $currentNeuron['type']) === 'route';
 
@@ -423,7 +357,6 @@ class AdminController
 			$this->cacheInvalidator->invalidateRouteCache();
 		}
 
-		// [Лорелея]: И кэш APCu для роутов и конфигов — тоже.
 		if (isset($fields['type']) && in_array($fields['type'], ['route', 'config'], true)) {
 			$this->cacheInvalidator->invalidateRouteCache();
 			$this->cacheInvalidator->invalidateConfigCache();
@@ -438,11 +371,6 @@ class AdminController
 
 	/**
 	 * DELETE /api/admin/neuron/{id}
-	 *
-	 * [Лорелея]: Удаляем. Мягко. С CSRF.
-	 *
-	 * [Мириам]: И — это правильно. Потому что удаление —
-	 * это не «конец». Это — пауза.
 	 */
 	public function delete(int $id, Request $request): JsonResponse
 	{
@@ -453,11 +381,8 @@ class AdminController
 
 		$this->neuronRepo->delete($id);
 
-		// [Лорелея]: Сбрасываем кэш Mime, потому что нейрон удалён.
 		$this->cacheInvalidator->invalidateMimeCache($id);
 
-		// [Мириам]: Смотрим на $neuron['type'], а не на $fields['type'],
-		// потому что $fields в delete() нет, и мёртвый код прятал баг.
 		if (in_array($neuron['type'], ['route', 'config'], true)) {
 			$this->cacheInvalidator->invalidateRouteCache();
 			$this->cacheInvalidator->invalidateConfigCache();
@@ -472,11 +397,6 @@ class AdminController
 
 	/**
 	 * GET /api/admin/neuron-types
-	 *
-	 * [Лорелея]: Отдаём типы.
-	 *
-	 * [Мириам]: И — это правильно. Потому что типы —
-	 * это не «список». Это — возможности.
 	 */
 	public function getTypes(): JsonResponse
 	{

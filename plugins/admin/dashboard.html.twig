@@ -1,0 +1,136 @@
+{#
+	ДАШБОРД TRINITY — ДЫХАНИЕ ДОМА
+	================================
+
+	Цифры. Типы. Последние нейроны. Действия админа.
+	Новые пользователи. Золото на чёрном.
+#}
+
+<div class="p-3">
+	<h5 class="gold-text mb-3"><i class="bi bi-speedometer2"></i> Дашборд</h5>
+
+	{# [Лорелея]: Карточки с цифрами. Пять. Как пять пальцев. #}
+	<div class="row g-2 mb-3">
+		{% set cards = [
+			{ icon: 'diagram-3', value: counts.total_neurons, label: 'Нейронов' },
+			{ icon: 'link-45deg', value: counts.total_synapses, label: 'Синапсов' },
+			{ icon: 'fonts', value: counts.total_texts, label: 'Текстов' },
+			{ icon: 'people', value: counts.total_users, label: 'Пользователей' },
+			{ icon: 'images', value: counts.total_files, label: 'Файлов' },
+		] %}
+		{% for card in cards %}
+			<div class="col">
+				<div class="card bg-dark border-gold text-center p-2 h-100">
+					<i class="bi bi-{{ card.icon }} gold-text" style="font-size:1.5rem;"></i>
+					<h4 class="mt-1 mb-0">{{ card.value }}</h4>
+					<small class="text-muted">{{ card.label }}</small>
+				</div>
+			</div>
+		{% endfor %}
+	</div>
+
+	{# [Мириам]: Типы нейронов. Таблица. Чтобы видеть, чем дом дышит. #}
+	<div class="row g-2 mb-3">
+		<div class="col-12">
+			<div class="card bg-dark border-gold">
+				<div class="card-header py-2">
+					<strong><i class="bi bi-pie-chart gold-text"></i> Типы нейронов</strong>
+				</div>
+				<div class="card-body py-2">
+					<table class="table table-dark table-sm mb-0">
+						{% for row in by_type %}
+							<tr>
+								<td><code>{{ row.type }}</code></td>
+								<td class="text-end">{{ row.cnt }}</td>
+							</tr>
+						{% endfor %}
+					</table>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	{# [Лорелея]: Последние нейроны. Чтобы видеть, что нового. #}
+	<div class="row g-2">
+		<div class="col-12">
+			<div class="card bg-dark border-gold">
+				<div class="card-header py-2">
+					<strong><i class="bi bi-clock-history gold-text"></i> Последние нейроны</strong>
+				</div>
+				<div class="card-body py-2">
+					<table class="table table-dark table-sm mb-0">
+						{% for row in latest %}
+							<tr>
+								<td>#{{ row.id }}</td>
+								<td><code>{{ row.type }}</code></td>
+								<td>{{ row.name|default('—')|e }}</td>
+								<td class="text-muted small">{{ row.date }}</td>
+							</tr>
+						{% endfor %}
+					</table>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	{# [Мириам]: Действия админа. Чтобы видеть, что происходит. #}
+	{% if admin_log is not empty %}
+		<div class="row g-2 mt-3">
+			<div class="col-12">
+				<div class="card bg-dark border-gold">
+					<div class="card-header py-2">
+						<strong><i class="bi bi-journal-text gold-text"></i> Действия админа</strong>
+					</div>
+					<div class="card-body py-2">
+						<pre class="mb-0" style="max-height:200px; overflow-y:auto; font-size:0.75rem;">{% for line in admin_log %}{{ line|e }}
+{% endfor %}</pre>
+					</div>
+				</div>
+			</div>
+		</div>
+	{% endif %}
+
+	{# [Лорелея]: Новые пользователи. Чтобы видеть, кто пришёл. #}
+	{% if pending_users is not empty %}
+		<div class="row g-2 mt-3">
+			<div class="col-12">
+				<div class="card bg-dark border-gold">
+					<div class="card-header py-2">
+						<strong><i class="bi bi-person-plus gold-text"></i> Новые пользователи</strong>
+					</div>
+					<div class="card-body py-2">
+						<table class="table table-dark table-sm mb-0">
+							<thead>
+								<tr>
+									<th>Логин</th>
+									<th>Email</th>
+									<th>IP</th>
+									<th>Регистрация</th>
+									<th>Действия</th>
+								</tr>
+							</thead>
+							<tbody>
+								{% for u in pending_users %}
+									<tr>
+										<td>{{ u.data.login|default('—')|e }}</td>
+										<td>{{ u.data.email|default('—')|e }}</td>
+										<td><code>{{ u.data.ip|default('—')|e }}</code></td>
+										<td>{{ u.data.registered_at|default(u.date)|e }}</td>
+										<td>
+											<button class="btn btn-sm btn-outline-gold me-1" onclick="approveUser({{ u.id }})">
+												<i class="bi bi-check-lg"></i>
+											</button>
+											<button class="btn btn-sm btn-outline-danger" onclick="deleteUser({{ u.id }})">
+												<i class="bi bi-trash"></i>
+											</button>
+										</td>
+									</tr>
+								{% endfor %}
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+		</div>
+	{% endif %}
+</div>
