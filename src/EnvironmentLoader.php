@@ -5,15 +5,6 @@ declare(strict_types=1);
 /**
  * ЗАГРУЗЧИК ОКРУЖЕНИЯ
  *
- * Читает .env, проверяет обязательные переменные и настраивает
- * базовые параметры PHP. Kernel больше не знает, откуда берутся
- * настройки — это работа загрузчика.
- *
- * [Лорелея]: Ядро — скучное. Загрузчик — знает, как разбудить дом.
- *
- * [Мириам]: И это правильно, потому что утро начинается не с ядра,
- * а с того, что дом просыпается.
- *
  * @package Jan\Trinity\Core
  */
 
@@ -32,12 +23,6 @@ class EnvironmentLoader
 
 	/**
 	 * Загружает окружение.
-	 *
-	 * [Лорелея]: Fail-fast, если чего-то не хватает. Дом без конфига —
-	 * это не дом, а руины.
-	 *
-	 * [Мириам]: И это правильно, потому что лучше упасть на пороге,
-	 * чем работать вслепую.
 	 */
 	public function load(): void
 	{
@@ -101,9 +86,6 @@ class EnvironmentLoader
 
 	/**
 	 * Настраивает доверенные прокси.
-	 *
-	 * [Лорелея]: Если список пуст, не включаем X-Forwarded-*, потому что
-	 * доверие, выданное всем, — это не доверие, а его отсутствие.
 	 */
 	private function configureTrustedProxies(): void
 	{
@@ -122,9 +104,6 @@ class EnvironmentLoader
 
 	/**
 	 * Настраивает доверенные хосты.
-	 *
-	 * [Мириам]: В prod — fail-fast, потому что без trusted hosts
-	 * Symfony принимает любой Host, и это — cache poisoning.
 	 */
 	private function configureTrustedHosts(): void
 	{
@@ -135,8 +114,6 @@ class EnvironmentLoader
 			$hosts = array_map('trim', explode(',', $trustedHosts));
 			\Symfony\Component\HttpFoundation\Request::setTrustedHosts($hosts);
 		} elseif ($appEnv === 'prod') {
-			// [Лорелея]: Fail-fast. Если в prod нет trusted hosts —
-			// дом не должен работать, потому что это дыра.
 			throw new \RuntimeException(
 				'Trinity: TRUSTED_HOSTS is empty in production. Set it in .env.'
 			);

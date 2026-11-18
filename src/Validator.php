@@ -28,20 +28,6 @@ declare(strict_types=1);
  * - array — массив
  * - bool — булево
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «класс для проверки». Это — страж ворот.
- * Прежде чем данные попадут в базу, они проходят через него.
- * И если не проходят — не попадают.
- *
- * [Мириам]: И — это правильно. Потому что база — это дом.
- * А в дом не входят, не постучавшись.
- *
- * === КНИГА ===
- * Глава 5. Страж ворот.
- *
- * Прежде чем войти в Амбер, нужно пройти через Образ.
- * Прежде чем данные попадут в базу, они проходят через Validator.
- *
  * @package Jan\Trinity\Core
  */
 
@@ -64,12 +50,6 @@ class Validator
 	/**
 	 * Конструктор.
 	 *
-	 * [Лорелея]: NeuronRepository опционален. Потому что exists/unique
-	 * нужны не всегда. Если не передан — эти правила выбросят исключение.
-	 *
-	 * [Мириам]: И — это правильно. Потому что не всё нужно проверять
-	 * через базу. Иногда достаточно просто проверить формат.
-		 *
 	 * @param NeuronRepository|null $neuronRepo
 	 * @param LoggerInterface|null $logger
 	 */
@@ -84,13 +64,6 @@ class Validator
 	/**
 	 * Проверить данные по правилам.
 	 *
-	 * [Лорелея]: Проходим по всем правилам. Если поле nullable и null —
-	 * пропускаем. Если ошибка уже есть — не проверяем дальше.
-	 * Первая ошибка важнее. Остальные — шум.
-	 *
-	 * [Мириам]: И — это правильно. Потому что если поле уже не прошло,
-	 * нет смысла проверять его дальше. Это как воду в решете носить.
-	 *
 	 * @param array $data — проверяемые данные
 	 * @param array $rules — правила валидации
 	 * @return bool — true если данные валидны
@@ -102,8 +75,6 @@ class Validator
 		foreach ($rules as $field => $fieldRules) {
 			$value = $data[$field] ?? null;
 
-			// [Лорелея]: Если поле nullable и значение null — пропускаем.
-			// Но только если nullable есть в правилах.
 			if ($value === null && in_array('nullable', $fieldRules, true)) {
 				continue;
 			}
@@ -119,12 +90,6 @@ class Validator
 	/**
 	 * Применить одно правило к одному полю.
 	 *
-	 * [Лорелея]: Разбираем правило на имя и параметры.
-	 * "min:8" превращается в ['min', '8']. "required" остаётся ['required'].
-	 *
-	 * [Мириам]: И — это правильно. Потому что правило — это не «строка».
-	 * Это — указание. И его нужно понимать.
-	 *
 	 * @param string $field — имя поля
 	 * @param mixed $value — значение
 	 * @param string $rule — правило
@@ -136,8 +101,6 @@ class Validator
 		$name = $parts[0];
 		$param = $parts[1] ?? null;
 
-		// [Лорелея]: Если уже есть ошибка для этого поля — не проверяем дальше.
-		// Первая ошибка важнее. Остальные — шум.
 		if (isset($this->errors[$field])) {
 			return;
 		}
@@ -150,7 +113,6 @@ class Validator
 				break;
 
 			case 'nullable':
-				// [Мириам]: Обработано выше. Просто пропускаем.
 				break;
 
 			case 'in':
@@ -161,8 +123,6 @@ class Validator
 				break;
 
 			case 'int':
-				// [Лорелея]: Строгая проверка. true не пройдёт. float не пройдёт.
-				// Только целое число.
 				if ($value !== null && $value !== '') {
 					if (is_int($value)) {
 						// ok
@@ -222,11 +182,8 @@ class Validator
 				break;
 
 			case 'regex':
-				// [Мириам]: Проверяем, что паттерн валидный.
-				// И что есть флаг u для юникода.
 				if ($value !== null && $value !== '' && $param !== null) {
 					$pattern = $param;
-					// [Лорелея]: Добавляем u если нет.
 					if (!str_ends_with($pattern, 'u') && !str_ends_with($pattern, 'u/')) {
 						if (preg_match('/^\/.*\/[a-z]*$/', $pattern)) {
 							$pattern = preg_replace('/\/([a-z]*)$/', '/$1u', $pattern);
@@ -243,7 +200,6 @@ class Validator
 				break;
 
 			case 'min':
-				// [Мириам]: Для чисел — значение. Для строк — длина.
 				if ($value !== null && $value !== '' && $param !== null) {
 					$min = (float) $param;
 					if (is_numeric($value)) {
@@ -251,7 +207,6 @@ class Validator
 							$this->errors[$field] = "Поле '{$field}' должно быть не меньше {$param}";
 						}
 					} else {
-						// [Лорелея]: mb_strlen для юникода.
 						if (mb_strlen((string) $value) < $min) {
 							$this->errors[$field] = "Поле '{$field}' должно быть не короче {$param} символов";
 						}
@@ -267,7 +222,6 @@ class Validator
 							$this->errors[$field] = "Поле '{$field}' должно быть не больше {$param}";
 						}
 					} else {
-						// [Мириам]: mb_strlen для юникода.
 						if (mb_strlen((string) $value) > $max) {
 							$this->errors[$field] = "Поле '{$field}' должно быть не длиннее {$param} символов";
 						}
@@ -286,7 +240,6 @@ class Validator
 							$this->errors[$field] = "Поле '{$field}' должно быть между {$min} и {$max}";
 						}
 					} else {
-						// [Лорелея]: mb_strlen для юникода.
 						$len = mb_strlen((string) $value);
 						if ($len < $min || $len > $max) {
 							$this->errors[$field] = "Длина '{$field}' должна быть между {$min} и {$max} символов";
@@ -296,8 +249,6 @@ class Validator
 				break;
 
 			case 'exists':
-				// [Мириам]: exists:table,column — запись существует.
-				// Требует NeuronRepository. Без него — исключение.
 				if ($value !== null && $value !== '' && $param !== null) {
 					if ($this->neuronRepo === null) {
 						throw new \RuntimeException('Validator: exists требует NeuronRepository');
@@ -312,7 +263,6 @@ class Validator
 				break;
 
 			case 'unique':
-				// [Лорелея]: unique:table,column — запись уникальна.
 				if ($value !== null && $value !== '' && $param !== null) {
 					if ($this->neuronRepo === null) {
 						throw new \RuntimeException('Validator: unique требует NeuronRepository');
@@ -327,7 +277,6 @@ class Validator
 				break;
 
 			default:
-				// [Мириам]: Неизвестное правило. Логируем. И — не падаем.
 				if ($this->logger !== null) {
 					$this->logger->warning('Validator: unknown rule', [
 						'rule'  => $rule,
@@ -343,12 +292,6 @@ class Validator
 	/**
 	 * Проверить существование записи.
 	 *
-	 * [Лорелея]: Через NeuronRepository. Потому что он знает про БД.
-	 * И — безопасно. Без SQL-инъекций.
-	 *
-	 * [Мириам]: И — это правильно. Потому что доверять клиенту — нельзя.
-	 * Даже если он админ. Особенно если он админ.
-	 *
 	 * @param string $table
 	 * @param string $column
 	 * @param mixed $value
@@ -358,21 +301,15 @@ class Validator
 	{
 		$conn = $this->neuronRepo->getConnection();
 
-		// [Мириам]: Белый список таблиц и колонок. Чтобы не было инъекций.
-		// У нас всего три таблицы. Их и разрешаем.
 		$allowedTables = ['neuron', 'synapse', 'text'];
 		if (!in_array($table, $allowedTables, true)) {
 			throw new \RuntimeException("Validator: table '{$table}' не разрешена");
 		}
 
-		// [Лорелея]: Колонка — только буквы, цифры, подчёркивание.
 		if (!preg_match('/^[a-z_][a-z0-9_]*$/i', $column)) {
 			throw new \RuntimeException("Validator: column '{$column}' невалидна");
 		}
 
-		// [Лорелея]: Для neuron и synapse используем is_deleted = 0,
-		// потому что это тот же критерий, что и в остальном коде.
-		// Два критерия — это два места для ошибки.
 		$sql = "SELECT 1 FROM {$table} WHERE {$column} = ?";
 		if (in_array($table, ['neuron', 'synapse'], true)) {
 			$sql .= " AND is_deleted = 0";
@@ -387,11 +324,6 @@ class Validator
 	/**
 	 * Получить ошибки валидации.
 	 *
-	 * [Лорелея]: Отдаём всё. Что есть.
-	 *
-	 * [Мириам]: И — это правильно. Потому что ошибки — это не «наказание».
-	 * Это — подсказка.
-	 *
 	 * @return array [field => message]
 	 */
 	public function getErrors(): array
@@ -401,11 +333,6 @@ class Validator
 
 	/**
 	 * Получить первую ошибку.
-	 *
-	 * [Лорелея]: Иногда достаточно одной.
-	 *
-	 * [Мириам]: И — это правильно. Потому что первая ошибка — самая
-	 * важная. Остальные — шум.
 	 *
 	 * @return string|null
 	 */
@@ -417,11 +344,6 @@ class Validator
 
 	/**
 	 * Выбросить исключение если есть ошибки.
-	 *
-	 * [Лорелея]: Если есть ошибки — выбрасываем.
-	 *
-	 * [Мириам]: И — это правильно. Потому что если данные не прошли —
-	 * они не должны попасть в базу.
 	 *
 	 * @throws ValidationException
 	 */
@@ -435,12 +357,6 @@ class Validator
 
 /**
  * Исключение валидации.
- *
- * [Лорелея]: Содержит структурированный массив ошибок.
- * [field => message]. Удобно для API.
- *
- * [Мириам]: И — это правильно. Потому что ошибки — это не «текст».
- * Это — данные.
  */
 class ValidationException extends \RuntimeException
 {

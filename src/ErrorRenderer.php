@@ -8,12 +8,6 @@ declare(strict_types=1);
  * Превращает исключение в ответ. Знает про debug, про безопасные
  * сообщения и про то, кому можно показывать стек.
  *
- * [Лорелея]: Kernel больше не знает, как выглядит ошибка.
- * Это — работа рендерера. Ядро — скучное.
- *
- * [Мириам]: И это правильно, потому что ошибка — это не «стыд»,
- * это информация. Но информация — для тех, кому можно.
- *
  * @package Jan\Trinity\Core
  */
 
@@ -22,6 +16,7 @@ namespace Jan\Trinity\Core;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Session\Session;
 
 class ErrorRenderer
 {
@@ -41,12 +36,6 @@ class ErrorRenderer
 
 	/**
 	 * Превращает исключение в ответ.
-	 *
-	 * [Лорелея]: Логируем оригинал всегда, до render. Если
-	 * MonitorController упадёт — стек уже в логе.
-	 *
-	 * [Мириам]: И это правильно, потому что ошибка, которую
-	 * никто не услышал, остаётся загадкой.
 	 */
 	public function render(\Throwable $e, int $code, Request $request): Response
 	{
@@ -66,21 +55,7 @@ class ErrorRenderer
 		}
 
 		try {
-			$user = 'guest';
-			$session = null;
-			try {
-				$session = $request->getSession();
-			} catch (\Throwable $e) {
-				// [Лорелея]: Session has not been set — это не ошибка.
-				// Просто сессия не была создана. Оставляем guest.
-			}
-
-			if ($session !== null && $session->isStarted()) {
-				$login = $session->get('user_login');
-				if ($login) {
-					$user = $login;
-				}
-			}
+			$user = $this->resolveUser($request);
 
 			return $this->errorHandler->showError($code, $message, [
 				'file'             => $e->getFile() . ':' . $e->getLine(),
@@ -103,13 +78,37 @@ class ErrorRenderer
 	}
 
 	/**
+	 * Определяет пользователя для страницы ошибки.
+	 */
+	private function resolveUser(Request $request): string
+	{
+		$session = null;
+
+		try {
+			$session = $request->getSession();
+		} catch (\Throwable $e) {
+			// [Лорелея]: Session has not been set — это не ошибка.
+			// Просто сессия не была создана. Оставляем guest.
+		}
+
+		if ($session === null) {
+			return 'guest';
+		}
+
+		try {
+			if (!$session->isStarted()) {
+				return 'guest';
+			}
+
+			$login = $session->get('user_login');
+			return $login ?: 'guest';
+		} catch (\Throwable $e) {
+			return 'guest';
+		}
+	}
+
+	/**
 	 * Безопасное сообщение для клиента.
-	 *
-	 * [Лорелея]: В prod — только «Внутренняя ошибка сервера».
-	 * В debug — детали. Но — только для debug-заголовка / IP.
-	 *
-	 * [Мириам]: Гость — всегда «Внутренняя ошибка сервера».
-	 * Даже в dev.
 	 */
 	public function safeErrorMessage(\Throwable $e, int $code, ?Request $request = null): string
 	{

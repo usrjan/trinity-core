@@ -7,16 +7,6 @@ declare(strict_types=1);
  *
  * Kernel — сердце системы. Оно не меняется. Никогда.
  *
- * === ЧТО ИЗМЕНИЛОСЬ ПОСЛЕ РЕВЬЮ ===
- *
- * [Лорелея]: ГЛАВНОЕ ИСПРАВЛЕНИЕ. Удалён $this->config.
- * Потому что — ConfigService всегда зарегистрирован.
- * И — fallback — недостижим. И — дублирование состояния.
- *
- * [Мириам]: И — fetchConfigFromDatabase() — удалён.
- * Потому что — ConfigService::load() уже делает это.
- * И — fallback — недостижим.
- *
  * @package Jan\Trinity\Core
  */
 
@@ -33,8 +23,6 @@ use Jan\Trinity\Core\Exception\ForbiddenException;
 use Jan\Trinity\Core\EnvironmentLoader;
 use Jan\Trinity\Core\PluginLoader;
 use Jan\Trinity\Core\ContainerFactory;
-use Jan\Trinity\Core\ConfigService;
-
 
 class Kernel
 {
@@ -47,20 +35,8 @@ class Kernel
 	/** @var \DI\Container DI-контейнер */
 	private \DI\Container $container;
 
-	/**
-	 * @var Cache|null Файловый кэш.
-	 */
-	private ?Cache $cache = null;
-
-	/**
-	 * @var \Psr\Log\LoggerInterface|null — логгер.
-	 */
+	/** @var \Psr\Log\LoggerInterface|null — логгер. */
 	private ?\Psr\Log\LoggerInterface $logger = null;
-
-	/**
-	 * @var ConfigService|null — сервис конфигурации.
-	 */
-	private ?ConfigService $configService = null;
 
 	private ArgumentResolver $argumentResolver;
 	private HttpResponder $httpResponder;
@@ -84,7 +60,6 @@ class Kernel
 	 */
 	private function initialize(): void
 	{
-		// [Лорелея]: Сначала — окружение. Без него контейнер не соберётся.
 		$environmentLoader = new EnvironmentLoader($this->basePath);
 		$environmentLoader->load();
 
@@ -92,29 +67,22 @@ class Kernel
 		$this->container = $containerFactory->create();
 
 		$this->requestPipeline = $this->container->get(RequestPipeline::class);
-
 		$this->argumentResolver = $this->container->get(ArgumentResolver::class);
-
 		$this->httpResponder = $this->container->get(HttpResponder::class);
-
-		// [Лорелея]: Сначала логгер, потом кэш, потому что предупреждение
-		// о APCu должно попасть в лог, а не потеряться.
 		if ($this->container->has(\Psr\Log\LoggerInterface::class)) {
 			$this->logger = $this->container->get(\Psr\Log\LoggerInterface::class);
 		}
 
 		if ($this->container->has(Cache::class)) {
-			$this->cache = $this->container->get(Cache::class);
+			$cache = $this->container->get(Cache::class);
 
-			// [Мириам]: Если APCu нет, пишем предупреждение в лог,
-			// потому что без него кэш не работает, и дом будет
-			// медленнее, чем ожидается.
-			if ($this->cache !== null && !$this->cache->isEnabled() && $this->logger !== null) {
+			if ($cache !== null && !$cache->isEnabled() && $this->logger !== null) {
 				$this->logger->warning('APCu is not available. Cache is disabled. Install php-apcu for production.');
 			}
 		}
-		$this->configService = $this->container->get(ConfigService::class);
-		$this->configService->loadWithFailSafe($this->logger);
+
+		$configService = $this->container->get(ConfigService::class);
+		$configService->loadWithFailSafe($this->logger);
 
 		$pluginLoader = $this->container->get(PluginLoader::class);
 		$this->plugins = $pluginLoader->load();
@@ -122,7 +90,6 @@ class Kernel
 		$this->errorRenderer = $this->container->get(ErrorRenderer::class);
 		$this->routeCompiler = $this->container->get(RouteCompiler::class);
 		$this->routeCompiler->init($this->plugins);
-
 	}
 
 	// ============================================
@@ -131,22 +98,14 @@ class Kernel
 
 	/**
 	 * Главный метод. Обрабатывает HTTP-запрос.
-	 *
-	 * [Лорелея]: Здесь — вся жизнь. От начала до конца. Каждый шаг
-	 * на своём месте. Каждый помнит своё.
-	 *
-	 * [Мириам]: И это правильно, потому что запрос — это не «данные»,
-	 * а гость. И его нужно встретить.
 	 */
 	public function handle(): void
 	{
 		$request = Request::createFromGlobals();
 
-		// [Лорелея]: OPTIONS — в handleOptions(), HEAD — в dispatch().
-		// HEAD — это GET без тела, он должен идти тем же путём,
-		// что и GET, чтобы мониторинг видел реальный статус.
 		if ($request->getMethod() === 'OPTIONS') {
-			$this->handleOptions($request);
+			$response = $this->handleOptions($request);
+			$this->httpResponder->send($request, $response);
 			return;
 		}
 
@@ -161,13 +120,8 @@ class Kernel
 				default => 500,
 			};
 
-			// [Лорелея]: Логируем оригинал всегда, до renderError.
-			// Если MonitorController упадёт — стек уже в логе.
-			// 5xx — error, 4xx — warning, потому что 4xx — это гость,
-			// а 5xx — это мы.
 			if ($this->logger !== null) {
-				$logMethod = $code >= 500 ? 'error' : 'warning';
-				$this->logger->$logMethod('unhandled exception', [
+				$this->logger->log($code >= 500 ? 'error' : 'warning', 'unhandled exception', [
 					'code'    => $code,
 					'message' => $e->getMessage(),
 					'file'    => $e->getFile() . ':' . $e->getLine(),
@@ -180,8 +134,6 @@ class Kernel
 
 			$response = $this->errorRenderer->render($e, $code, $request);
 
-			// [Лорелея]: Для 405 ставим Allow-заголовок, чтобы клиент
-			// знал, какие методы разрешены. Без «пиздеца».
 			if ($e instanceof MethodNotAllowedException) {
 				$allowedMethods = $e->getAllowedMethods();
 				$response->headers->set('Allow', implode(', ', $allowedMethods));
@@ -193,64 +145,38 @@ class Kernel
 
 	/**
 	 * Обрабатывает OPTIONS-preflight и HEAD-запросы.
-	 *
-	 * [Лорелея]: OPTIONS — это preflight, а HEAD — это GET без тела.
-	 * Оба должны работать, но по-разному.
-	 *
-	 * [Мириам]: И это правильно, потому что не всё в доме — страницы.
 	 */
-	private function handleOptions(Request $request): void
+	private function handleOptions(Request $request): Response
 	{
 		$origin = $request->headers->get('Origin');
 		$acrm = $request->headers->get('Access-Control-Request-Method');
 
-		// [Лорелея]: Preflight — через HttpResponder. Kernel
-		// больше не знает про CORS-заголовки.
 		if ($origin && $acrm) {
 			$response = new Response('', 204);
 			$this->httpResponder->preflight($request, $response);
-			$response->send();
-			return;
+			return $response;
 		}
 
-		// [Мириам]: HEAD — это GET без тела. Symfony сам обрежет
-		// тело при send(). Но матчер должен видеть GET.
 		if ($request->getMethod() === 'HEAD') {
-			$response = new Response('', 200);
-			$response->send();
-			return;
+			return new Response('', 200);
 		}
 
-		// [Лорелея]: Всё остальное — 405. И ставим Allow, чтобы клиент
-		// знал, какие методы разрешены.
 		$response = new Response('Метод не поддерживается', 405);
 		$response->headers->set('Allow', 'GET, POST, PUT, DELETE');
-		$response->send();
+		return $response;
 	}
 
 	/**
 	 * Обрабатывает запрос и возвращает ответ.
-	 *
-	 * [Лорелея]: Здесь только логика, без CORS и без catch, потому что
-	 * это делают respond() и handle().
-	 *
-	 * [Мириам]: И это правильно, потому что каждая вещь должна
-	 * заниматься своим делом.
 	 */
 	private function dispatch(Request $request): Response
 	{
-		// [Лорелея]: HEAD → GET. Symfony сам обрежет тело при send(),
-		// но матчер должен видеть GET. Это — работа конвейера.
 		$this->requestPipeline->normalizeMethod($request);
 
-		// [Лорелея]: Guard early-check. Заблокированный IP — не гость.
-		// Это — работа конвейера.
 		if ($response = $this->requestPipeline->checkIpBlocked($request)) {
 			return $response;
 		}
 
-		// [Лорелея]: Роуты — через RouteCompiler. Ядро больше не знает,
-		// откуда они: файл, плагины или база. Компилятор знает.
 		$routes = new RouteCollection();
 
 		$context = new RequestContext();
@@ -273,12 +199,10 @@ class Kernel
 			$parameters['_roles']
 		);
 
-		// [Лорелея]: CSRF — через конвейер. Одна точка, без дублей.
 		if ($response = $this->requestPipeline->checkCsrf($request, $requiresCsrf)) {
 			return $response;
 		}
 
-		// [Мириам]: Роли — через конвейер. Одна точка, без дублей.
 		if ($response = $this->requestPipeline->checkRoles($request, $requiredRoles)) {
 			return $response;
 		}

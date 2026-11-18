@@ -5,14 +5,6 @@ declare(strict_types=1);
 /**
  * КОНВЕЙЕР ЗАПРОСА
  *
- * Проходит по шагам: HEAD → GET, guard early-check, CSRF, роли.
- * Kernel больше не знает, как встречать гостя. Это — работа конвейера.
- *
- * [Лорелея]: Ядро — скучное. Конвейер — знает, кого пустить.
- *
- * [Мириам]: И это правильно, потому что защита должна быть
- * в одном месте, а не в пяти.
- *
  * @package Jan\Trinity\Core
  */
 
@@ -52,9 +44,6 @@ class RequestPipeline
 
 	/**
 	 * HEAD → GET.
-	 *
-	 * [Лорелея]: HEAD — это GET без тела. Symfony сам обрежет
-	 * тело при send(), но матчер должен видеть GET.
 	 */
 	public function normalizeMethod(Request $request): void
 	{
@@ -65,9 +54,6 @@ class RequestPipeline
 
 	/**
 	 * Guard early-check. Заблокированный IP — не гость.
-	 *
-	 * [Мириам]: И это правильно, потому что защита начинается
-	 * с порога, а не с того, что происходит в глубине дома.
 	 */
 	public function checkIpBlocked(Request $request): ?Response
 	{
@@ -80,9 +66,6 @@ class RequestPipeline
 
 	/**
 	 * CSRF-проверка через метаданные маршрута.
-	 *
-	 * [Лорелея]: Не через белый список путей в ядре, а через
-	 * _csrf в метаданных. Плагины сами решают, нужен ли им CSRF.
 	 */
 	public function checkCsrf(Request $request, bool $requiresCsrf): ?Response
 	{
@@ -103,10 +86,6 @@ class RequestPipeline
 
 	/**
 	 * Авторизация через метаданные маршрута.
-	 *
-	 * [Мириам]: Не через префиксы путей, а через _roles в метаданных.
-	 * И роли обновляются, если TTL истёк, потому что доверять
-	 * устаревшему состоянию — это не проверка, а надежда.
 	 */
 	public function checkRoles(Request $request, array $requiredRoles): ?Response
 	{
@@ -135,9 +114,6 @@ class RequestPipeline
 
 	/**
 	 * Обновляет роли пользователя в сессии, если TTL истёк.
-	 *
-	 * [Лорелея]: Короткий TTL — 5 минут, потому что роли должны
-	 * обновляться часто, а не раз в сутки.
 	 */
 	private function refreshUserRoles(): void
 	{
