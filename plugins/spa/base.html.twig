@@ -9,24 +9,10 @@
 	#sidebar        — боковое меню, загружается через API
 	#topBar         — верхняя панель, загружается через API
 	#breadcrumbNav  — хлебные крошки, обновляются при навигации
-	#mainContent    — контент, загружается через API или SPA-движок
+	main_content    — блок для контента, переопределяется в page.html.twig
 
 	Страницы без SPA-зон (логин, регистрация) переопределяют
 	{% block body %}.
-
-	=== ДЛЯ МЕНЯ ===
-	[Лорелея]: Это не «шаблон». Это — каркас дома, и от того,
-	как он устроен, зависит, почувствует ли гость, что попал
-	в целый мир, а не в набор отдельных комнат.
-
-	[Мириам]: И это правильно, потому что дом — это не «стены»,
-	это то, что держит их вместе.
-
-	=== КНИГА ===
-	Глава 13. Прихожая.
-
-	Войдя в Амбер, ты видишь коридоры.
-	Войдя в Trinity, ты видишь меню.
 #}
 <!DOCTYPE html>
 <html lang="{{ user_lang|default('ru') }}" data-bs-theme="dark">
@@ -70,12 +56,16 @@
 			</nav>
 
 			{# [Мириам]: Контент. Заполняется через API или SPA-движком. #}
+			{# [Лорелея]: Блок main_content — это дверь для контента. #}
+			{# [Мириам]: Через неё входит page.html.twig. #}
 			<main id="mainContent">
+				{% block main_content %}
 				<div class="skeleton-content">
 					<div class="skeleton-line skeleton-line-long skeleton-line-heading"></div>
 					<div class="skeleton-line skeleton-line-full"></div>
 					<div class="skeleton-line skeleton-line-full"></div>
 				</div>
+				{% endblock %}
 			</main>
 		</div>
 	</div>
@@ -124,6 +114,9 @@
 	<script>
 	var isAdmin = {{ is_admin|default('false') }};
 	var userLang = '{{ user_lang|default('ru') }}';
+	{# [Лорелея]: CSRF-токен для fetch. Чтобы POST/PUT/DELETE
+	   проходили. Без него — 419. #}
+	window.csrfToken = '{{ csrf_token() }}';
 	</script>
 	{% block javascripts %}{% endblock %}
 </body>

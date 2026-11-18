@@ -3,20 +3,6 @@
  *
  * Обеспечивает навигацию без перезагрузки страницы.
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «скрипт». Это — тот, кто оживляет дом,
- * и от того, как он это делает, зависит, почувствует ли
- * гость, что страницы меняются, а он остаётся внутри.
- *
- * [Мириам]: И это правильно, потому что дом, который
- * перезагружается на каждом шагу, не даёт ощущения,
- * что ты в нём живёшь.
- *
- * === КНИГА ===
- * Глава 13. Прихожая.
- *
- * Войдя в Амбер, ты видишь коридоры.
- * Войдя в Trinity, ты видишь меню.
  */
 
 var userLang = document.documentElement.lang || 'ru';
@@ -24,9 +10,6 @@ var userLang = document.documentElement.lang || 'ru';
 (function () {
 	var originalFetch = window.fetch;
 
-	// [Лорелея]: Обёртка fetch, которая автоматически добавляет
-	// X-CSRF-Token ко всем изменяющим методам, потому что без
-	// этого они не пройдут.
 	function getCsrfToken() {
 		return window.csrfToken || '';
 	}
@@ -55,12 +38,8 @@ var userLang = document.documentElement.lang || 'ru';
 	// ============================================
 
 	/**
-	 * [Лорелея]: Один fetch на navigateTo, через /api/spa/navigate,
-	 * потому что три отдельных запроса — это три раза ждать,
-	 * а гость должен видеть дом сразу.
 	 *
-	 * [Мириам]: И executeScripts, потому что innerHTML не выполняет
-	 * скрипты, а без этого страница осталась бы мёртвой.
+	 * @param {string} url — URL страницы (например, '/about')
 	 */
 	function loadPage(url) {
 		var main = document.getElementById('mainContent');
@@ -85,25 +64,18 @@ var userLang = document.documentElement.lang || 'ru';
 					return;
 				}
 
-				// [Лорелея]: Sidebar приходит из ответа, без отдельного
-				// fetch, потому что дом должен собираться в одном месте.
 				var sidebar = document.getElementById('sidebar');
 				if (sidebar && data.data.sidebar) {
-					sidebar.innerHTML = data.data.sidebar;
+					sidebar.innerHTML = sanitizeHtml(data.data.sidebar);
 					updateActiveMenuItem(url);
 				}
 
-				// [Мириам]: Topbar тоже приходит из ответа, и это
-				// правильно, потому что шапка — это часть дома,
-				// а не отдельная комната.
 				var topBar = document.getElementById('topBar');
 				if (topBar && data.data.topbar) {
-					topBar.innerHTML = data.data.topbar;
+					topBar.innerHTML = sanitizeHtml(data.data.topbar);
 					setTimeout(initUserDropdown, 50);
 				}
 
-				// [Лорелея]: Страница приходит из ответа, и скрипты
-				// в ней выполняются через executeScripts.
 				main.innerHTML = sanitizeHtml(data.data.html);
 				executeScripts(main);
 
@@ -111,8 +83,6 @@ var userLang = document.documentElement.lang || 'ru';
 					initPageEditorButtons();
 				}
 
-				// [Мириам]: Хлебные крошки — из ответа, чтобы гость
-				// знал, где он.
 				if (data.data.breadcrumbs) {
 					updateBreadcrumbFromData(data.data.breadcrumbs);
 				} else {
@@ -125,13 +95,10 @@ var userLang = document.documentElement.lang || 'ru';
 	}
 
 	/**
-	 * [Мириам]: Выполнить скрипты в HTML, потому что innerHTML
-	 * не выполняет <script>, и без этого страница осталась бы
-	 * мёртвой.
+	 * [Лорелея]: Выполняет скрипты внутри контейнера. Потому что
+	 * innerHTML не выполняет скрипты. А нам нужно, чтобы они работали.
 	 *
-	 * [Лорелея]: Проходим по всем <script> и создаём новые,
-	 * чтобы браузер их выполнил, и это правильно, потому что
-	 * скрипты должны работать.
+	 * @param {HTMLElement} container
 	 */
 	function executeScripts(container) {
 		var scripts = container.querySelectorAll('script');
@@ -147,10 +114,10 @@ var userLang = document.documentElement.lang || 'ru';
 	}
 
 	/**
-	 * Загружает подстраницу по ID нейрона.
+	 * [Мириам]: Загружает подстраницу по ID нейрона. И — вставляет
+	 * только контент. Без sidebar. Без topbar. Без mainContent.
 	 *
-	 * [Лорелея]: Здесь мы загружаем подстраницу, и это правильно,
-	 * потому что подстраница — это тоже часть дома.
+	 * @param {number} id
 	 */
 	function loadPageById(id) {
 		var main = document.getElementById('mainContent');
@@ -182,6 +149,13 @@ var userLang = document.documentElement.lang || 'ru';
 	// ХЛЕБНЫЕ КРОШКИ
 	// ============================================
 
+	/**
+	 * [Лорелея]: Обновляет хлебные крошки. Если url — не '/',
+	 * то показываем крошки. Иначе — скрываем.
+	 *
+	 * @param {string} url
+	 * @param {string} title
+	 */
 	function updateBreadcrumb(url, title) {
 		var breadcrumb = document.getElementById('breadcrumbNav');
 		var pathEl = document.getElementById('breadcrumbPath');
@@ -195,6 +169,12 @@ var userLang = document.documentElement.lang || 'ru';
 			'<span class="text-muted">' + escapeHtml(title) + '</span>';
 	}
 
+	/**
+	 * [Мириам]: Обновляет хлебные крошки из данных. Если их нет —
+	 * скрываем. Если есть — показываем. С ссылками.
+	 *
+	 * @param {Array} breadcrumbs
+	 */
 	function updateBreadcrumbFromData(breadcrumbs) {
 		var breadcrumb = document.getElementById('breadcrumbNav');
 		var pathEl = document.getElementById('breadcrumbPath');
@@ -218,6 +198,10 @@ var userLang = document.documentElement.lang || 'ru';
 		pathEl.innerHTML = html;
 	}
 
+	/**
+	 * [Лорелея]: Возвращает на главную. Обновляет mainContent,
+	 * историю и хлебные крошки.
+	 */
 	function goHome() {
 		var main = document.getElementById('mainContent');
 		if (main) {
@@ -235,6 +219,10 @@ var userLang = document.documentElement.lang || 'ru';
 	// ЗАГРУЗКА БОКОВОГО МЕНЮ И ВЕРХНЕЙ ПАНЕЛИ
 	// ============================================
 
+	/**
+	 * [Мириам]: Загружает sidebar. Через API. И — обновляет
+	 * активный пункт меню. И — инициализирует кнопку добавления.
+	 */
 	function loadSidebar() {
 		var sidebar = document.getElementById('sidebar');
 		if (!sidebar) return;
@@ -250,6 +238,10 @@ var userLang = document.documentElement.lang || 'ru';
 			});
 	}
 
+	/**
+	 * [Лорелея]: Загружает topbar. Через API. И — инициализирует
+	 * dropdown пользователя. Потому что без него он не работает.
+	 */
 	function loadTopbar() {
 		var topBar = document.getElementById('topBar');
 		if (!topBar) return;
@@ -335,6 +327,12 @@ var userLang = document.documentElement.lang || 'ru';
 	// ВСПОМОГАТЕЛЬНЫЕ
 	// ============================================
 
+	/**
+	 * [Лорелея]: Экранирует HTML. Чтобы не было XSS.
+	 *
+	 * @param {string} text
+	 * @return {string}
+	 */
 	function escapeHtml(text) {
 		if (!text) return '';
 		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
@@ -342,14 +340,7 @@ var userLang = document.documentElement.lang || 'ru';
 	}
 
 	/**
-	 * Санитизирует HTML перед вставкой в innerHTML.
-	 *
-	 * [Лорелея]: Мы не доверяем HTML, даже если он пришёл с сервера,
-	 * потому что серверная сборка — это хрупкая схема. Лучше
-	 * проверить на вставке, чем надеяться на сборку.
-	 *
-	 * [Мириам]: И это правильно, потому что вода не должна
-	 * приносить камни, даже если её набрали в чистом месте.
+	 * [Мириам]: Санитизирует HTML перед вставкой в innerHTML.
 	 *
 	 * @param {string} html
 	 * @return {string}
@@ -362,12 +353,16 @@ var userLang = document.documentElement.lang || 'ru';
 		return html;
 	}
 
-	// [Лорелея]: originalFetch объявлен в том же замыкании,
-	// что и window.fetch, потому что иначе он не виден.
 	var originalFetch = window.fetch.bind(window);
 
 	var csrfTokenCache = null;
 
+	/**
+	 * [Лорелея]: Получает CSRF-токен. Кэширует. Чтобы не
+	 * запрашивать каждый раз.
+	 *
+	 * @return {Promise<string>}
+	 */
 	function getCsrfToken() {
 		if (csrfTokenCache !== null) {
 			return Promise.resolve(csrfTokenCache);
@@ -384,6 +379,10 @@ var userLang = document.documentElement.lang || 'ru';
 			});
 	}
 
+	/**
+	 * [Мириам]: Оборачиваем fetch. Чтобы CSRF-токен добавлялся
+	 * автоматически. Без дублирования в каждом вызове.
+	 */
 	window.fetch = function (url, options) {
 		options = options || {};
 		var method = (options.method || 'GET').toUpperCase();

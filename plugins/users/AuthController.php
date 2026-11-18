@@ -1,25 +1,11 @@
 <?php
+
 declare(strict_types=1);
 
 /**
  * КОНТРОЛЛЕР АУТЕНТИФИКАЦИИ
  *
  * Управление входом, регистрацией и выходом пользователей.
- *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «контроллер». Это — тот, кто открывает двери
- * и проверяет, кто пришёл, и от того, как он это делает, зависит,
- * войдёт ли гость в дом или останется на пороге.
- *
- * [Мириам]: И это правильно, потому что вход — это не «форма»,
- * это встреча, и она должна быть тёплой, даже если гость пришёл
- * впервые.
- *
- * === КНИГА ===
- * Глава 16. Страж ворот.
- *
- * Прежде чем войти в Амбер, нужно пройти через Образ.
- * Прежде чем войти в Trinity, нужно пройти через стража.
  *
  * @package Jan\Trinity\Plugin\Users
  */
@@ -28,7 +14,6 @@ namespace Jan\Trinity\Plugin\Users;
 
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
-use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Service\CsrfService;
@@ -41,7 +26,6 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Twig\Environment;
-use Psr\Log\LoggerInterface;
 
 class AuthController
 {
@@ -50,17 +34,15 @@ class AuthController
 	// ============================================
 	// ПАРАМЕТРЫ ХЕША — ОДИН ИСТОЧНИК
 	// ============================================
-	// [Лорелея]: Один алгоритм, одни опции, и все места, где
-	// создаётся хеш, используют именно их, чтобы не было
-	// даунгрейда и рассинхрона.
 	private const PASSWORD_HASH_ALGO = PASSWORD_BCRYPT;
 	private const PASSWORD_HASH_OPTIONS = ['cost' => 12];
 
 	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
 
-	/** @var TextRepository — работа с текстами. */
-	private TextRepository $textRepo;
+	/**
+	 * @var Session — сессия.
+	 */
 
 	/** @var NeuronRepository — поиск пользователей. */
 	private NeuronRepository $neuronRepo;
@@ -85,22 +67,12 @@ class AuthController
 
 	private Validator $validator;
 
-	/** @var LoggerInterface — логгер. */
-	private LoggerInterface $logger;
-
 	/**
 	 * Конструктор.
-	 *
-	 * [Лорелея]: Мы передаём SynapseRepository, чтобы refreshRoles()
-	 * работал по-настоящему, а не оставался красивой декорацией.
-	 *
-	 * [Мириам]: И это правильно, потому что роли должны обновляться,
-	 * даже если человек вошёл давно.
 	 */
 	public function __construct(
 		Environment $twig,
 		Session $session,
-		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		SynapseRepository $synapseRepo,
 		RateLimiter $rateLimiter,
@@ -108,11 +80,9 @@ class AuthController
 		CsrfService $csrfService,
 		CaptchaService $captchaService,
 		LoginAttemptLimiter $loginAttemptLimiter,
-		Validator $validator,
-		LoggerInterface $logger
+		Validator $validator
 	) {
 		$this->twig = $twig;
-		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->synapseRepo = $synapseRepo;
 		$this->rateLimiter = $rateLimiter;
@@ -121,7 +91,6 @@ class AuthController
 		$this->captchaService = $captchaService;
 		$this->loginAttemptLimiter = $loginAttemptLimiter;
 		$this->validator = $validator;
-		$this->logger = $logger;
 
 		$this->initAuth($session, $synapseRepo);
 	}
@@ -132,13 +101,6 @@ class AuthController
 
 	/**
 	 * GET /login
-	 *
-	 * [Лорелея]: Здесь мы открываем форму входа. Если гость
-	 * уже вошёл, мы не показываем ему дверь, а ведём домой,
-	 * потому что второй раз входить не нужно.
-	 *
-	 * [Мириам]: И это правильно, потому что дверь, которая
-	 * открыта, не должна просить ключ.
 	 */
 	public function loginForm(Request $request): Response
 	{
@@ -155,8 +117,6 @@ class AuthController
 
 		$captchaQuestion = $this->session->get('captcha_question', null);
 
-		// [Лорелея]: redirect из query — только локальный путь.
-		// Иначе — open redirect.
 		$redirect = $request->query->get('redirect', '');
 		if (!$this->isLocalPath($redirect)) {
 			$redirect = '';
@@ -177,17 +137,6 @@ class AuthController
 
 	/**
 	 * POST /login
-	 *
-	 * [Лорелея]: Здесь мы проверяем гостя. Сначала валидация,
-	 * потом блокировка IP, потом captcha, потом попытки входа,
-	 * потом поиск пользователя, потом пароль, потом статус.
-	 *
-	 * [Мириам]: И это правильно, потому что каждый шаг — это
-	 * ещё одна дверь, и каждая должна быть закрыта для тех,
-	 * кто пришёл не с добром.
-	 *
-	 * @param Request $request
-	 * @return Response
 	 */
 	public function login(Request $request): Response
 	{
@@ -199,8 +148,6 @@ class AuthController
 		$password = $request->request->get('password') ?? '';
 		$ip = $request->getClientIp();
 
-		// [Лорелея]: Валидация — это не «формальность», а забота
-		// о том, чтобы данные были честными.
 		if (!$this->validator->validate([
 			'login'    => $login,
 			'password' => $password,
@@ -212,16 +159,11 @@ class AuthController
 			return new RedirectResponse('/login');
 		}
 
-		// [Мириам]: Проверяем, не заблокирован ли IP. Если да —
-		// не пускаем, но не говорим, что именно заблокирован.
-		// Без «пиздеца».
 		if ($this->ipBlocker->isBlocked($ip)) {
 			$this->session->set('login_error', 'Ваш IP-адрес заблокирован. Попробуйте позже.');
 			return new RedirectResponse('/login');
 		}
 
-		// [Лорелея]: Проверяем captcha, если она была запрошена.
-		// Captcha отличает человека от бота, не наказывая всю сеть.
 		$captchaRequired = (bool) $this->session->get('captcha_required', false);
 		$captchaSolved = false;
 
@@ -240,8 +182,6 @@ class AuthController
 			$this->session->remove('captcha_question');
 		}
 
-		// [Мириам]: Проверяем попытки входа. Если лимит исчерпан
-		// и captcha не решена — показываем captcha, а не блокируем.
 		$check = $this->loginAttemptLimiter->checkLoginAttempt($login, $ip, $captchaSolved);
 		if (!$check['success']) {
 			if (!empty($check['captcha'])) {
@@ -258,7 +198,7 @@ class AuthController
 		$user = $this->neuronRepo->findByLoginOrEmail($login);
 
 		if (!$user) {
-			$this->rateLimiter->recordFailedLogin($login, $ip);
+			$this->loginAttemptLimiter->recordFailedLogin($login, $ip);
 			$this->session->set('login_error', 'Неверный логин или пароль');
 			return new RedirectResponse('/login');
 		}
@@ -270,8 +210,6 @@ class AuthController
 		$authMethod = $userData['auth_method'] ?? 'local';
 		if ($authMethod !== 'local') {
 			$this->loginAttemptLimiter->recordFailedLogin($login, $ip);
-			// [Лорелея]: Сообщение то же, что и при неверном пароле,
-			// чтобы не было утечки существования аккаунта.
 			$this->session->set('login_error', 'Неверный логин или пароль');
 			return new RedirectResponse('/login');
 		}
@@ -280,8 +218,6 @@ class AuthController
 		if (!password_verify($password, $hash)) {
 			$this->loginAttemptLimiter->recordFailedLogin($login, $ip);
 
-			// [Лорелея]: Блокируем IP только если captcha была решена
-			// и попыток всё равно слишком много.
 			if ($captchaSolved) {
 				$ipKey = 'login_ip_' . $ip;
 				$maxAttempts = $this->rateLimiter->getMaxAttempts() * 3;
@@ -297,8 +233,6 @@ class AuthController
 			return new RedirectResponse('/login');
 		}
 
-		// [Лорелея]: Если хеш устарел, обновляем его, потому что
-		// безопасность — это не «однажды настроил», а «поддерживаю».
 		if (password_needs_rehash($hash, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS)) {
 			$newHash = password_hash($password, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS);
 			$userData['password_hash'] = $newHash;
@@ -313,9 +247,6 @@ class AuthController
 
 		$this->loginAttemptLimiter->clearLoginAttempts($login, $ip);
 
-		// [Мириам]: Мигрируем сессию, чтобы старый ID не остался
-		// в браузере, и это правильно, потому что вход — это
-		// новый этап, а не продолжение старого.
 		$this->session->migrate(true);
 
 		$this->csrfService->generateToken();
@@ -323,8 +254,6 @@ class AuthController
 		$this->session->set('user_id', $user['id']);
 		$this->session->set('user_login', $userData['login'] ?? 'user');
 		$this->session->set('user_roles', $this->synapseRepo->findRolesByUser($user['id']));
-
-		$this->neuronRepo->logAdminAction('user_login', ['login' => $login]);
 
 		$redirect = $request->request->get('redirect', '');
 		if ($this->isLocalPath($redirect)) {
@@ -340,13 +269,6 @@ class AuthController
 
 	/**
 	 * POST /logout
-	 *
-	 * [Лорелея]: Здесь мы закрываем дверь. Сначала пишем в лог,
-	 * потом очищаем сессию, потом мигрируем, и только потом
-	 * уходим домой.
-	 *
-	 * [Мириам]: И это правильно, потому что выход — это не
-	 * «конец», это пауза, после которой можно вернуться.
 	 */
 	public function logout(Request $request): Response
 	{
@@ -354,25 +276,15 @@ class AuthController
 			$this->session->start();
 		}
 
-		$login = $this->session->get('user_login');
-		if ($login) {
-			$this->neuronRepo->logAdminAction('user_logout', ['login' => $login]);
-		}
+		$this->session->migrate(true);
 
 		$this->session->clear();
-
-		$this->session->migrate(true);
 
 		$this->csrfService->generateToken();
 
 		return new RedirectResponse('/');
 	}
 
-	/**
-	 * [Мириам]: Локальный путь — это /profile, /profile/edit,
-	 * но не //evil.com и не http://evil.com.
-	 * Первый символ — /, второй — не / и не \.
-	 */
 	private function isLocalPath(string $path): bool
 	{
 		if ($path === '') return false;

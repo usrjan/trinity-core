@@ -2,12 +2,18 @@
 
 declare(strict_types=1);
 
+/**
+ * РЕДАКТОР ПРОФИЛЯ
+ *
+ * Управление редактированием профиля текущего пользователя.
+ */
+
 namespace Jan\Trinity\Plugin\Users;
 
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
-use Jan\Trinity\Core\Service\GuardService;
+use Jan\Trinity\Core\Service\CsrfService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -16,26 +22,45 @@ use Twig\Environment;
 
 class ProfileEditController
 {
+	// ============================================
+	// ПАРАМЕТРЫ ХЕША — ОДИН ИСТОЧНИК
+	// ============================================
 	private const PASSWORD_HASH_ALGO = PASSWORD_BCRYPT;
 	private const PASSWORD_HASH_OPTIONS = ['cost' => 12];
 
+	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
+
+	/** @var Session — сессия. */
 	private Session $session;
+
+	/** @var TextRepository — работа с текстами. */
 	private TextRepository $textRepo;
+
+	/** @var NeuronRepository — загрузка и обновление пользователя. */
 	private NeuronRepository $neuronRepo;
+
+	/** @var CsrfService — CSRF-защита. Один источник токена. */
+	private CsrfService $csrfService;
+
 	private Validator $validator;
 
+	/**
+	 * Конструктор.
+	 */
 	public function __construct(
 		Environment $twig,
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
+		CsrfService $csrfService,
 		Validator $validator
 	) {
 		$this->twig = $twig;
 		$this->session = $session;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
+		$this->csrfService = $csrfService;
 		$this->validator = $validator;
 	}
 
@@ -76,7 +101,7 @@ class ProfileEditController
 				'lang'  => $data['lang'] ?? 'ru',
 			],
 			'available_langs' => $langOptions,
-			'csrf_token'      => $this->session->get('csrf_token', ''),
+			'csrf_token'      => $this->csrfService->getOrCreateToken(),
 			'error'           => $error,
 		]);
 
@@ -91,6 +116,12 @@ class ProfileEditController
 		$userId = $this->session->get('user_id');
 		if (!$userId) {
 			return new RedirectResponse('/login?redirect=' . urlencode('/profile/edit'));
+		}
+
+		$csrfToken = $request->request->get('_csrf_token', '');
+		if (!$this->csrfService->validateToken($csrfToken)) {
+			$this->session->set('profile_error', 'Недействительный CSRF-токен');
+			return new RedirectResponse('/profile/edit');
 		}
 
 		$lang = trim($request->request->get('lang', 'ru'));
@@ -116,7 +147,7 @@ class ProfileEditController
 		], [
 			'lang'  => ['required', 'in:ru,en,it,de,fr'],
 			'email' => ['nullable', 'email', 'max:255'],
-			'phone' => ['nullable', 'string', 'max:50', 'regex:/^\+?[0-9\s\-()]+$/u'],
+			'phone' => ['nullable', 'string', 'regex:/^\+?[0-9\s\-()]+$/u'],
 		])) {
 			$this->session->set('profile_error', $this->validator->getFirstError());
 			return new RedirectResponse('/profile/edit');

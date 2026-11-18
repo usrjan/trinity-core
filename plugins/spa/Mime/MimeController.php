@@ -7,21 +7,6 @@ declare(strict_types=1);
  * Показывает нейрон в том виде, в котором он хочет быть показанным.
  * Через mime, через рендереры, через Registry.
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «контроллер». Это — дверь. Одна дверь
- * для всех mime: для markdown, для PHP, для JSON, для HTML
- * и для всего, что мы придумаем завтра.
- *
- * [Мириам]: И это правильно, потому что дверь — одна,
- * а комнат за ней — много, и каждая говорит на своём языке.
- *
- * === КНИГА ===
- * Глава 4. Единый язык.
- *
- * В Амбере все говорят на тари.
- * В Trinity все mime-рендереры говорят на MimeRendererInterface.
- * А MimeController — тот, кто открывает дверь.
- *
  * @package Jan\Trinity\Plugin\Spa\Mime
  */
 
@@ -59,14 +44,6 @@ class MimeController
 
 	/**
 	 * Конструктор.
-	 *
-	 * [Лорелея]: Здесь есть errorHandler, и это правильно,
-	 * потому что страница ошибки должна быть всегда,
-	 * даже если её никто не видит.
-	 *
-	 * [Мириам]: И это правильно, потому что дверь, которая
-	 * не знает, куда идти, когда что-то сломалось, —
-	 * это не дверь, а стена.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -88,14 +65,6 @@ class MimeController
 	 * GET /mime/{mime}/{id}
 	 * GET /api/mime/{mime}/{id}
 	 *
-	 * [Лорелея]: Здесь мы открываем дверь. mime берём из URL,
-	 * нейрон — по id, контент — из текста или из data, и только
-	 * потом решаем, как это показать.
-	 *
-	 * [Мириам]: И если нейрона нет, мы не бросаем исключение
-	 * из кэша, а возвращаем null, и уже снаружи решаем,
-	 * что делать, потому что кэш — не место для исключений.
-	 *
 	 * @param string $mime
 	 * @param int $id
 	 * @param Request $request
@@ -103,17 +72,11 @@ class MimeController
 	 */
 	public function show(string $mime, int $id, Request $request): Response
 	{
-		// [Лорелея]: Ключ кэша строится так, чтобы его можно было
-		// забыть по id, потому что id — это то, по чему мы
-		// забываем, а mime — это то, что мы забываем.
 		$cacheKey = "mime_{$id}_{$mime}";
 
 		$result = $this->cache->remember($cacheKey, function () use ($mime, $id) {
 			$neuron = $this->neuronRepo->findById($id);
 
-			// [Мириам]: Если нейрона нет, мы возвращаем null,
-			// а не бросаем исключение, потому что кэш не должен
-			// ловить то, что ему не принадлежит.
 			if (!$neuron) {
 				return null;
 			}
@@ -122,8 +85,6 @@ class MimeController
 				? json_decode($neuron['data'], true)
 				: ($neuron['data'] ?? []);
 
-			// [Лорелея]: URL — это явное указание, data.mime — неявное,
-			// и явное всегда важнее, потому что гость знает, что просит.
 			if (empty($mime)) {
 				$mime = $data['mime'] ?? 'text/plain';
 			}
@@ -152,9 +113,6 @@ class MimeController
 					$html = '<div class="alert alert-info">Файл не найден</div>';
 				}
 			} else {
-				// [Мириам]: Для остальных типов ищем текст, а если его
-				// нет — берём data.content, потому что иногда проще
-				// положить markdown прямо в data, без text и без языка.
 				if (!empty($neuron['text'])) {
 					$text = $this->textRepo->findByKeyAndLang($neuron['text'], 'ru');
 					if ($text && !empty($text['text'])) {
@@ -165,10 +123,6 @@ class MimeController
 					$content = $data['content'];
 				}
 
-				// [Лорелея]: Если mime не поддерживается, Registry сам
-				// отдаст безопасный fallback через htmlspecialchars,
-				// и это правильно, потому что падать в такой момент
-				// было бы странно.
 				$html = $this->registry->render($mime, $content, $data);
 			}
 
@@ -180,8 +134,6 @@ class MimeController
 			];
 		}, 3600);
 
-		// [Мириам]: Если нейрон не найден, remember вернёт null,
-		// и мы показываем нашу страницу 404, а не падаем.
 		if ($result === null) {
 			return $this->errorHandler->showError(404, 'Нейрон не найден', [
 				'url'    => $_SERVER['REQUEST_URI'] ?? '/',
@@ -191,9 +143,6 @@ class MimeController
 			]);
 		}
 
-		// [Лорелея]: Если гость пришёл через API, отдаём JSON,
-		// а если на страницу — полную страницу, и это правильно,
-		// потому что у одной двери может быть два выхода.
 		if (str_starts_with($request->getPathInfo(), '/api/mime/')) {
 			return ApiResponse::success([
 				'html' => $result['html'],
@@ -214,13 +163,6 @@ class MimeController
 
 	/**
 	 * Забывает кэш для нейрона по всем mime.
-	 *
-	 * [Лорелея]: Мы не перебираем известные mime, а забываем
-	 * по префиксу, потому что префикс — это точное знание,
-	 * а перебор — это догадка.
-	 *
-	 * [Мириам]: И это правильно, потому что забывать нужно
-	 * уметь так же точно, как и помнить.
 	 *
 	 * @param int $id — id нейрона
 	 */

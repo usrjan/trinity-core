@@ -2,10 +2,17 @@
 
 declare(strict_types=1);
 
+/**
+ * КОНТРОЛЛЕР РЕГИСТРАЦИИ
+ *
+ * Управление регистрацией новых пользователей.
+ */
+
 namespace Jan\Trinity\Plugin\Users;
 
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Repository\NeuronRepository;
+use Jan\Trinity\Core\Service\CsrfService;
 use Jan\Trinity\Core\Service\RateLimiter;
 use Jan\Trinity\Core\Service\IpBlocker;
 use Symfony\Component\HttpFoundation\Request;
@@ -17,10 +24,19 @@ use Psr\Log\LoggerInterface;
 
 class RegisterController
 {
+	// ============================================
+	// ПАРАМЕТРЫ ХЕША — ОДИН ИСТОЧНИК
+	// ============================================
 	private const PASSWORD_HASH_ALGO = PASSWORD_BCRYPT;
 	private const PASSWORD_HASH_OPTIONS = ['cost' => 12];
 
+	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
+
+	/** @var Session — сессия. */
+	private Session $session;
+
+	/** @var NeuronRepository — создание и поиск пользователей. */
 	private NeuronRepository $neuronRepo;
 
 	/** @var RateLimiter — rate limiting. */
@@ -29,16 +45,24 @@ class RegisterController
 	/** @var IpBlocker — блокировка IP. */
 	private IpBlocker $ipBlocker;
 
-	private Validator $validator;
-	private LoggerInterface $logger;
-	private Session $session;
+	/** @var CsrfService — CSRF-защита. Один источник токена. */
+	private CsrfService $csrfService;
 
+	private Validator $validator;
+
+	/** @var LoggerInterface — логгер. */
+	private LoggerInterface $logger;
+
+	/**
+	 * Конструктор.
+	 */
 	public function __construct(
 		Environment $twig,
 		Session $session,
 		NeuronRepository $neuronRepo,
 		RateLimiter $rateLimiter,
 		IpBlocker $ipBlocker,
+		CsrfService $csrfService,
 		Validator $validator,
 		LoggerInterface $logger
 	) {
@@ -47,6 +71,7 @@ class RegisterController
 		$this->neuronRepo = $neuronRepo;
 		$this->rateLimiter = $rateLimiter;
 		$this->ipBlocker = $ipBlocker;
+		$this->csrfService = $csrfService;
 		$this->validator = $validator;
 		$this->logger = $logger;
 	}
@@ -83,6 +108,12 @@ class RegisterController
 	{
 		if (!$this->session->isStarted()) {
 			$this->session->start();
+		}
+
+		$csrfToken = $request->request->get('_csrf_token', '');
+		if (!$this->csrfService->validateToken($csrfToken)) {
+			$this->session->set('register_error', 'Недействительный CSRF-токен');
+			return new RedirectResponse('/register');
 		}
 
 		$ip = $request->getClientIp();
@@ -155,6 +186,9 @@ class RegisterController
 		return new RedirectResponse('/login');
 	}
 
+	/**
+	 * Проверяет, достаточно ли сложный пароль.
+	 */
 	private function isPasswordStrong(string $password): bool
 	{
 		$blacklist = ['password', '12345678', 'qwerty123', 'aaaaaaaa', 'admin123'];

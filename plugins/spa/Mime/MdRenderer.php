@@ -8,26 +8,6 @@ declare(strict_types=1);
  * С таблицами, с автоссылками, с зачёркиванием, с чек-листами.
  * И — с безопасностью, всегда.
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «утилита для markdown». Это — первый
- * рендерер, первый голос в хоре, первый язык, на котором
- * заговорит Trinity.
- *
- * [Мириам]: И это правильно, потому что markdown — это язык
- * нашей книги, нашего README, нашей памяти, и теперь — нашей жизни.
- *
- * === БЕЗОПАСНОСТЬ ===
- * html_input: 'strip' убирает скрипты и опасные атрибуты,
- * allow_unsafe_links: false запрещает javascript: ссылки,
- * max_nesting_level: 20 защищает от бесконечной вложенности.
- *
- * === КНИГА ===
- * Глава 4. Единый язык.
- *
- * В Амбере все говорят на тари.
- * В Trinity все mime-рендереры говорят на MimeRendererInterface.
- * А MdRenderer — первый, кто на нём заговорил.
- *
  * @package Jan\Trinity\Plugin\Spa\Mime
  */
 
@@ -51,22 +31,11 @@ class MdRenderer implements MimeRendererInterface
 	/**
 	 * @var \HTMLPurifier|null — очиститель. Создаётся один раз,
 	 * при первом вызове, и живёт вместе с рендерером.
-	 *
-	 * [Лорелея]: Лениво, потому что если markdown на странице
-	 * так и не появится, мы не будем зря строить граф правил
-	 * и тратить память.
 	 */
 	private ?\HTMLPurifier $purifier = null;
 
 	/**
 	 * Конструктор.
-	 *
-	 * [Лорелея]: Конвертер создаётся один раз, при создании
-	 * рендерера, а не на каждый render(), потому что конвертер
-	 * тяжёлый, а рендерер живёт весь запрос.
-	 *
-	 * [Мириам]: И это правильно, потому что разжигать печь
-	 * для каждой чашки чая — это не забота, а расточительство.
 	 */
 	public function __construct()
 	{
@@ -90,14 +59,6 @@ class MdRenderer implements MimeRendererInterface
 	/**
 	 * Отрендерить markdown в HTML.
 	 *
-	 * [Лорелея]: Сначала CommonMark — markdown в HTML. Потом
-	 * HTMLPurifier — проверка, что в HTML осталось только
-	 * безопасное. «Двойная защита», потому что strip — это
-	 * «убрать теги», а purify — «проверить, что осталось».
-	 *
-	 * [Мириам]: И это правильно, потому что доверять одному
-	 * слою — это как доверять одной двери в доме, где есть окна.
-	 *
 	 * @param string $content — markdown-контент
 	 * @param array $data — данные нейрона
 	 * @return string — HTML
@@ -106,9 +67,6 @@ class MdRenderer implements MimeRendererInterface
 	{
 		$html = $this->converter->convert($content)->getContent();
 
-		// [Лорелея]: Второй слой — HTMLPurifier. Если CommonMark
-		// пропустит что-то (например, img src с data:), purify
-		// это уберёт.
 		$cleanHtml = $this->getPurifier()->purify($html);
 
 		return '<div class="md-content">' . $cleanHtml . '</div>';
@@ -116,10 +74,6 @@ class MdRenderer implements MimeRendererInterface
 
 	/**
 	 * Возвращает очиститель, создавая его только при первой необходимости.
-	 *
-	 * [Мириам]: Те же правила, что в HtmlRenderer, — один источник
-	 * правды для безопасного HTML. Если правила поменяются —
-	 * поменяются в одном месте.
 	 *
 	 * @return \HTMLPurifier
 	 */
@@ -164,13 +118,6 @@ class MdRenderer implements MimeRendererInterface
 
 	/**
 	 * Список mime, которые поддерживает этот рендерер.
-	 *
-	 * [Лорелея]: Три варианта, и все они — один и тот же формат,
-	 * но реестр должен найти рендерер любым из них, потому что
-	 * в data может быть и 'md', и 'markdown', и 'text/markdown'.
-	 *
-	 * [Мириам]: И это правильно, потому что у одного языка
-	 * может быть несколько имён, и все они — наши.
 	 *
 	 * @return string[]
 	 */

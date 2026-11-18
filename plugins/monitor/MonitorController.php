@@ -6,22 +6,6 @@ declare(strict_types=1);
  *
  * Первый плагин Trinity. Делает систему зрячей.
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «логгер». Это — глаза дома. Тот, кто видит
- * трещины раньше, чем они станут стенами, и потому его взгляд
- * должен быть зорким, но не холодным.
- *
- * [Мириам]: И это правильно, потому что дом, который не видит
- * своих ошибок, не умеет быть домом.
- *
- * === КНИГА ===
- * Глава 11. Глаза.
- * Глава 12. Портал.
- *
- * В Амбере есть карты, через которые можно пройти в любую Тень.
- * ErrorHandlerInterface — такая карта. Через неё Kernel
- * находит портал в мир ошибок.
- *
  * @package Jan\Trinity\Plugin\Monitor
  */
 
@@ -56,8 +40,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * @var bool|null — включен ли плагин.
-	 * [Лорелея]: Ленивая проверка. При первом isEnabled().
-	 * Без этого мы бы читали конфиг на каждый запрос.
 	 */
 	private ?bool $enabled = null;
 
@@ -69,7 +51,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * @var SynapseRepository — репозиторий для refreshRoles().
-	 * [Лорелея]: Теперь объявлено. С типом. Без Deprecated.
 	 */
 	private SynapseRepository $synapseRepo;
 
@@ -89,12 +70,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * Конструктор.
-	 *
-	 * [Лорелея]: Мы передаём SynapseRepository, чтобы refreshRoles()
-	 * работал по-настоящему, а не оставался красивой декорацией.
-	 *
-	 * [Мириам]: И это правильно, потому что роли должны обновляться,
-	 * даже если человек вошёл давно.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -130,14 +105,6 @@ class MonitorController implements ErrorHandlerInterface
 	/**
 	 * Показать страницу ошибки в стиле Trinity.
 	 *
-	 * [Лорелея]: Этот метод вызывается из Kernel::renderError()
-	 * через ErrorHandlerInterface, и Kernel не знает, что это
-	 * именно Monitor. Он знает только о портале.
-	 *
-	 * [Мириам]: В лог идёт полное сообщение, а в шаблон —
-	 * фильтрованное, потому что лог — для нас, а браузер —
-	 * для гостя.
-	 *
 	 * @param int $code — HTTP-код
 	 * @param string $message — сообщение (уже фильтрованное для браузера)
 	 * @param array $debug — техническая информация
@@ -164,13 +131,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * Человеческое описание для HTTP-кодов.
-	 *
-	 * [Лорелея]: Не «Not Found», а «Страница, которую вы ищете,
-	 * не существует в этом мире». Потому что Trinity говорит
-	 * с гостем на своём языке, даже когда падает.
-	 *
-	 * [Мириам]: И это правильно, потому что даже в ошибке
-	 * должна быть человечность.
 	 */
 	private function getDescription(int $code): string
 	{
@@ -193,13 +153,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * Записать ошибку.
-	 *
-	 * [Лорелея]: В лог идёт полное сообщение, всегда, потому что
-	 * лог — это память дома, и он должен помнить всё.
-	 *
-	 * [Мириам]: И вместе с сообщением — файл, стектрейс, URL,
-	 * метод, IP и пользователь, чтобы в логе было видно всё
-	 * до последней строчки.
 	 *
 	 * @param int $code — HTTP-код
 	 * @param string $message — полное сообщение
@@ -227,15 +180,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * Собрать JS-ошибку.
-	 *
-	 * [Лорелея]: Здесь мы ставим rate limit по IP, потому что
-	 * если ошибок слишком много, лог становится бесполезным,
-	 * а мы этого не хотим.
-	 *
-	 * [Мириам]: И это правильно, потому что даже у терпения
-	 * есть предел, а у лога — тем более.
-	 *
-	 * POST /api/monitor/js-error
 	 */
 	public function collectJsError(Request $request): JsonResponse
 	{
@@ -273,9 +217,6 @@ class MonitorController implements ErrorHandlerInterface
 			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
-		// [Лорелея]: Убираем \r и \n, чтобы аноним не мог вставить
-		// фальшивую строку в лог. Режем по длине — второй раз, после
-		// валидатора, потому что валидатор проверяет, а не режет.
 		$sanitize = static function (?string $value, int $max): string {
 			if ($value === null) return '';
 			$value = str_replace(["\r", "\n", "\t"], ' ', $value);
@@ -307,12 +248,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * Проверить, включен ли плагин, — лениво.
-	 *
-	 * [Лорелея]: Вызывается при первом isEnabled(). Один раз,
-	 * а потом — кэш в $this->enabled.
-	 *
-	 * [Мириам]: Здесь есть I/O, но не в конструкторе, а только
-	 * тогда, когда это действительно нужно.
 	 */
 	private function isEnabled(): bool
 	{
@@ -330,14 +265,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * Получить последние строки лога.
-	 *
-	 * [Лорелея]: Требует роль администратора, потому что логи —
-	 * это не то, что должен видеть каждый гость.
-	 *
-	 * [Мириам]: И читает только хвост файла, без загрузки всего
-	 * в память, потому что логи могут быть гигабайтными.
-	 *
-	 * GET /api/monitor/logs?type=error
 	 */
 	public function getLogs(Request $request): JsonResponse
 	{
@@ -369,12 +296,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * Найти актуальный файл лога с учётом ротации.
-	 *
-	 * [Лорелея]: glob() и rsort() кэшируются на минуту, потому что
-	 * имена файлов меняются редко, а просмотр логов может быть частым.
-	 *
-	 * [Мириам]: И это правильно, потому что русло должно быть
-	 * проложено один раз, а потом только проверяться.
 	 */
 	private function findLogFile(string $type): ?string
 	{
@@ -392,13 +313,6 @@ class MonitorController implements ErrorHandlerInterface
 		return $this->resolveLogFile($logDir, $type);
 	}
 
-	/**
-	 * [Лорелея]: Разрешает файл лога без кэша, чтобы кэш мог
-	 * вызвать этот метод и сохранить результат.
-	 *
-	 * [Мириам]: И это правильно, потому что кэш должен знать,
-	 * что кэшировать, а не гадать.
-	 */
 	private function resolveLogFile(string $logDir, string $type): ?string
 	{
 		$pattern = $logDir . '/' . $type . '-*.log';
@@ -419,15 +333,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * Очистить лог.
-	 *
-	 * [Лорелея]: Требует роль администратора и CSRF-токен,
-	 * потому что даже очистка логов — это действие, которое
-	 * должно быть осознанным.
-	 *
-	 * [Мириам]: И очищает самый свежий файл, потому что именно
-	 * в нём сейчас живёт память.
-	 *
-	 * DELETE /api/monitor/logs?type=error
 	 */
 	public function clearLogs(Request $request): JsonResponse
 	{
@@ -463,13 +368,6 @@ class MonitorController implements ErrorHandlerInterface
 	/**
 	 * Читает последние $lines строк файла без загрузки всего файла в память.
 	 *
-	 * [Лорелея]: Читает блоками с конца и останавливается,
-	 * когда набрано достаточно строк, потому что лог в гигабайт
-	 * не должен ронять сервер.
-	 *
-	 * [Мириам]: И это правильно, потому что даже у памяти
-	 * должны быть границы, которые она не переступает.
-	 *
 	 * @param string $file путь к файлу
 	 * @param int $lines сколько последних строк вернуть
 	 * @return array
@@ -481,9 +379,6 @@ class MonitorController implements ErrorHandlerInterface
 			return [];
 		}
 
-		// [Лорелея]: Идём в конец файла и читаем блоками с конца,
-		// а не загружаем весь файл в память, потому что лог
-		// может быть гигабайтным.
 		fseek($handle, 0, SEEK_END);
 		$pos = ftell($handle);
 		$buffer = '';
@@ -497,8 +392,6 @@ class MonitorController implements ErrorHandlerInterface
 			$result = explode("\n", $buffer);
 		}
 
-		// [Мириам]: Если файл маленький и цикл не выполнился —
-		// читаем весь файл, потому что иначе результат будет пустым.
 		if (empty($result) && $pos === 0) {
 			rewind($handle);
 			$buffer = stream_get_contents($handle);
@@ -514,14 +407,6 @@ class MonitorController implements ErrorHandlerInterface
 
 	/**
 	 * POST /api/monitor/csp
-	 *
-	 * [Лорелея]: Здесь дом принимает отчёты CSP. Браузер шлёт их
-	 * без CSRF, поэтому маршрут объявлен с _csrf => false.
-	 * Отчёт — JSON, но Content-Type может быть application/csp-report
-	 * или application/json. Читаем как есть, не доверяя Content-Type.
-	 *
-	 * [Мириам]: И режем по длине, потому что аноним может прислать
-	 * что угодно, а лог — не место для мегабайтов.
 	 */
 	public function collectCspReport(Request $request): JsonResponse
 	{

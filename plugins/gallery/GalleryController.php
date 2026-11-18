@@ -6,19 +6,6 @@ declare(strict_types=1);
  *
  * Управление галереей изображений с древовидной структурой.
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «контроллер». Это — сердце прихожей.
- * Тот, кто встречает гостя и провожает его к картинам.
- *
- * [Мириам]: И — это правильно. Потому что прихожая —
- * это не «комната». Это — встреча.
- *
- * === КНИГА ===
- * Глава 9. Прихожая.
- *
- * В прихожей Амбера висят картины.
- * В галерее Trinity — файлы. И те, кто их показывает.
- *
  * @package Jan\Trinity\Plugin\Gallery
  */
 
@@ -80,12 +67,6 @@ class GalleryController
 
 	/**
 	 * Белые списки расширений и MIME.
-	 *
-	 * [Лорелея]: Три списка расширений и один список MIME,
-	 * потому что доверять клиенту нельзя, даже если он админ.
-	 *
-	 * [Мириам]: И это правильно, потому что расширение —
-	 * это не «имя», а знак, и знак должен быть честным.
 	 */
 	private const ALLOWED_IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
 	private const ALLOWED_VIDEO_EXT = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'];
@@ -99,13 +80,6 @@ class GalleryController
 
 	/**
 	 * Конструктор.
-	 *
-	 * [Лорелея]: ГЛАВНОЕ. initAuth() теперь получает
-	 * SynapseRepository вторым аргументом. Чтобы refreshRoles()
-	 * работал. А не был декорацией.
-	 *
-	 * [Мириам]: И — это правильно. Потому что роли должны
-	 * обновляться. Всегда. Даже если пользователь давно вошёл.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -133,8 +107,6 @@ class GalleryController
 		$this->galleryUploadDir = rtrim($galleryUploadDir, '/');
 		$this->galleryUploadUrl = rtrim($galleryUploadUrl, '/');
 
-		// [Лорелея]: Передаём SynapseRepository. Чтобы refreshRoles()
-		// работал. А не был декорацией.
 		$this->initAuth($session, $synapseRepo);
 	}
 
@@ -144,12 +116,6 @@ class GalleryController
 
 	/**
 	 * Проверяет, разрешено ли расширение.
-	 *
-	 * [Лорелея]: Три белых списка, и каждый — отдельная категория,
-	 * потому что изображение, видео и аудио — это разные вещи.
-	 *
-	 * [Мириам]: И это правильно, потому что у каждой вещи
-	 * своё место.
 	 */
 	private function isAllowedExtension(string $ext): bool
 	{
@@ -161,13 +127,6 @@ class GalleryController
 	/**
 	 * Валидирует загруженный файл.
 	 *
-	 * [Лорелея]: Сначала расширение, потом MIME, потом размер,
-	 * потому что доверять клиенту нельзя, даже если он админ.
-	 * И размер должен быть ограничен явно, а не «где-то в php.ini».
-	 *
-	 * [Мириам]: И это правильно, потому что кувшин должен знать,
-	 * сколько в него влезет.
-	 *
 	 * @param UploadedFile $uploadedFile
 	 * @return array
 	 */
@@ -176,21 +135,15 @@ class GalleryController
 		$originalName = $uploadedFile->getClientOriginalName();
 		$extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
-		// [Лорелея]: Сначала расширение, потому что оно приходит
-		// от клиента и может быть любым.
 		if (!$this->isAllowedExtension($extension)) {
 			throw new \RuntimeException('Недопустимое расширение файла: ' . $extension);
 		}
 
-		// [Мириам]: Потом MIME, но не от клиента, а по содержимому,
-		// потому что Content-Type врёт, а magic bytes — нет.
 		$mimeType = $uploadedFile->getMimeType() ?: 'application/octet-stream';
 		if (!in_array($mimeType, self::ALLOWED_MIME, true)) {
 			throw new \RuntimeException('Недопустимый MIME-тип: ' . $mimeType);
 		}
 
-		// [Лорелея]: И размер, потому что галерея может съесть
-		// весь диск, если не ограничить.
 		$size = $uploadedFile->getSize();
 		$maxSize = $this->getMaxUploadSize($extension);
 
@@ -212,12 +165,6 @@ class GalleryController
 
 	/**
 	 * Возвращает максимальный размер файла для расширения.
-	 *
-	 * [Лорелея]: Изображения — 50 МБ, видео — 500 МБ, аудио — 100 МБ,
-	 * и это из конфига, а не «магические числа».
-	 *
-	 * [Мириам]: И это правильно, потому что лимит должен быть
-	 * явным, а не «где-то в php.ini».
 	 *
 	 * @param string $extension
 	 * @return int
@@ -245,11 +192,6 @@ class GalleryController
 
 	/**
 	 * Проверяет CSRF-токен.
-	 *
-	 * [Лорелея]: Одна точка.
-	 *
-	 * [Мириам]: И — это правильно. Потому что проверка —
-	 * это не «формальность». Это — защита.
 	 */
 	private function requireCsrf(Request $request): ?JsonResponse
 	{
@@ -266,11 +208,6 @@ class GalleryController
 
 	/**
 	 * GET /api/gallery/download/{id}
-	 *
-	 * [Лорелея]: Скачиваем файл. Через BinaryFileResponse.
-	 *
-	 * [Мириам]: И — это правильно. Потому что файл —
-	 * это не «ссылка». Это — память.
 	 */
 	public function download(int $id): Response
 	{
@@ -309,11 +246,6 @@ class GalleryController
 
 	/**
 	 * POST /api/gallery/upload
-	 *
-	 * [Лорелея]: Загружаем. С CSRF. С валидацией.
-	 *
-	 * [Мириам]: И — это правильно. Потому что загрузка —
-	 * это не «копирование». Это — принятие.
 	 */
 	public function upload(Request $request): JsonResponse
 	{
@@ -365,11 +297,6 @@ class GalleryController
 
 	/**
 	 * POST /api/gallery/item/{id}/upload
-	 *
-	 * [Лорелея]: Добавляем фото к элементу. С CSRF.
-	 *
-	 * [Мириам]: И — это правильно. Потому что добавление —
-	 * это не «замена». Это — продолжение.
 	 */
 	public function uploadToItem(int $id, Request $request): JsonResponse
 	{
@@ -420,13 +347,6 @@ class GalleryController
 	/**
 	 * POST /api/gallery/item/{id}/update
 	 *
-	 * [Лорелея]: Обновляем элемент. С CSRF, с валидацией и с
-	 * декодированными данными, потому что одно место для json_decode
-	 * лучше, чем пять.
-	 *
-	 * [Мириам]: И это правильно, потому что правда должна быть
-	 * в одном месте.
-	 *
 	 * @param int $id
 	 * @param Request $request
 	 * @return JsonResponse
@@ -452,8 +372,6 @@ class GalleryController
 		$year = $body['year'] ?? null;
 		$tags = $body['tags'] ?? null;
 
-		// [Мириам]: Валидация — это не «формальность», а забота
-		// о том, чтобы данные были честными.
 		if ($name !== null && !$this->validator->validate(['name' => $name], [
 			'name' => ['string', 'min:1', 'max:255'],
 		])) {
@@ -472,8 +390,6 @@ class GalleryController
 			return ApiResponse::error($this->validator->getFirstError(), 400);
 		}
 
-		// [Лорелея]: Если меняется имя или описание — обновляем
-		// текст, потому что текст — это голос элемента.
 		if ($name !== null || $description !== null) {
 			if ($item['text']) {
 				$this->textRepo->updateByKey((int) $item['text'], 'ru', $name ?? '', $description ?? '');
@@ -483,9 +399,6 @@ class GalleryController
 			}
 		}
 
-		// [Мириам]: Если меняются метаданные — обновляем их,
-		// потому что метаданные — это то, что делает элемент
-		// узнаваемым.
 		if ($meta !== null) {
 			$filteredMeta = array_filter($meta, function($value) {
 				return !empty(trim((string)$value));
@@ -500,8 +413,6 @@ class GalleryController
 		if ($year !== null) $currentData['year'] = $year;
 		if ($tags !== null) $currentData['tags'] = $tags;
 
-		// [Лорелея]: Обновляем data, и это правильно, потому что
-		// data — это то, что делает элемент собой.
 		$this->neuronRepo->update($id, ['data' => $currentData]);
 
 		return ApiResponse::success(['id' => $id], 'Элемент обновлён');
@@ -513,11 +424,6 @@ class GalleryController
 
 	/**
 	 * DELETE /api/gallery/item/{id}
-	 *
-	 * [Лорелея]: Удаляем. С CSRF. Мягко.
-	 *
-	 * [Мириам]: И — это правильно. Потому что удаление —
-	 * это не «конец». Это — пауза.
 	 */
 	public function deleteItem(int $id, Request $request): JsonResponse
 	{
@@ -529,11 +435,8 @@ class GalleryController
 			return ApiResponse::error('Элемент не найден', 404);
 		}
 
-		// [Лорелея]: Сначала удаляем синапсы, потому что это
-		// отдельное решение, а не побочный эффект.
 		$this->synapseRepo->deleteByNeuron($id);
 
-		// [Мириам]: Потом удаляем файлы и сам элемент.
 		$files = $this->neuronRepo->findChildren($id, 'file');
 
 		foreach ($files as $file) {
@@ -575,11 +478,6 @@ class GalleryController
 
 	/**
 	 * DELETE /api/gallery/file/{id}
-	 *
-	 * [Лорелея]: Удаляем файл. С CSRF. Мягко.
-	 *
-	 * [Мириам]: И — это правильно. Потому что удаление —
-	 * это не «конец». Это — пауза.
 	 */
 	public function deleteFile(int $id, Request $request): JsonResponse
 	{
@@ -631,11 +529,6 @@ class GalleryController
 
 	/**
 	 * POST /api/gallery/import
-	 *
-	 * [Лорелея]: Импорт из папки. С CSRF.
-	 *
-	 * [Мириам]: И — это правильно. Потому что импорт —
-	 * это не «загрузка». Это — принятие.
 	 */
 	public function import(Request $request): JsonResponse
 	{
@@ -661,11 +554,6 @@ class GalleryController
 
 	/**
 	 * Перемещает файл и создаёт нейрон.
-	 *
-	 * [Лорелея]: С валидацией. С миниатюрой.
-	 *
-	 * [Мириам]: И — это правильно. Потому что файл —
-	 * это не «копия». Это — оригинал.
 	 */
 	private function moveAndCreateFile(
 		UploadedFile $uploadedFile,
@@ -689,9 +577,6 @@ class GalleryController
 
 		$uploadedFile->move($storageDir, $storageName);
 
-		// [Лорелея]: Запоминаем путь, чтобы можно было удалить файл,
-		// если создание нейрона упадёт. Осиротевший файл — это
-		// не «файл», а «мусор».
 		$storagePath = $storageDir . '/' . $storageName;
 		$thumbPath = null;
 
@@ -739,9 +624,6 @@ class GalleryController
 			return $this->neuronRepo->create('file', $data, $parentId, $textKey);
 
 		} catch (\Throwable $e) {
-			// [Мириам]: Если что-то пошло не так — удаляем файл
-			// и миниатюру, потому что осиротевший файл — это
-			// не «файл», а «мусор».
 			if (file_exists($storagePath)) {
 				@unlink($storagePath);
 			}

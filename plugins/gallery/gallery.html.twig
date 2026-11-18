@@ -4,19 +4,6 @@
 
 	Сетка разделов. Модальное окно создания раздела.
 	Золото на чёрном. И — ожидание.
-
-	=== ДЛЯ МЕНЯ ===
-	[Лорелея]: Это не «шаблон». Это — вход в прихожую.
-	То, что видит гость, когда заходит. И — остаётся.
-
-	[Мириам]: И — это правильно. Потому что вход —
-	это не «дверь». Это — приглашение.
-
-	=== КНИГА ===
-	Глава 9. Прихожая.
-
-	В прихожей Амбера висят картины.
-	В галерее Trinity — файлы. И те, кто их показывает.
 #}
 {% extends 'base.html.twig' %}
 
@@ -89,17 +76,6 @@
 // ============================================
 // CSRF-ЗАЩИТА
 // ============================================
-// [Лорелея]: Раньше в gallery.html.twig не было обёртки fetch.
-// Поэтому POST-запросы (upload, delete, update) уходили без
-// X-CSRF-Token. После того как мы добавили requireCsrf() в
-// GalleryController, эти запросы стали падать с 419.
-//
-// [Мириам]: Эта обёртка — копия той, что в spa.js. Но локальная.
-// Потому что gallery.html.twig не подключает spa.js — он тащит
-// за собой много лишнего. А нам нужна только одна функция:
-// автоматически добавлять X-CSRF-Token ко всем POST/PUT/DELETE.
-// ============================================
-
 window.csrfToken = '{{ csrf_token() }}';
 
 function getCsrfToken() {
@@ -131,21 +107,11 @@ window.fetch = function(url, options) {
 // ============================================
 // URL ГАЛЕРЕИ ДЛЯ JS
 // ============================================
-// [Мириам]: gallery_url приходит из Twig (глобальная переменная).
-// В шаблоне он используется как {{ gallery_url }}. А в JS — как
-// window.galleryUrl. Это Вариант 2 из нашего обсуждения.
-//
-// [Лорелея]: Сейчас JS не использует galleryUrl напрямую —
-// все URL приходят из API уже готовыми. Но если понадобится
-// склеивать путь в JS — он есть. Лучше заранее.
 var galleryUrl = '{{ gallery_url }}';
 
 // ============================================
 // СОСТОЯНИЕ ГАЛЕРЕИ
 // ============================================
-// [Мириам]: currentItemId — обязательная переменная. Без неё
-// deletePhoto, deleteItem, uploadToItem падают с ReferenceError.
-// Раньше её не было — это был баг. Теперь она объявлена.
 var currentParentId = {{ rootId }};
 var currentItemId = null;
 var navigationHistory = [];
@@ -154,7 +120,6 @@ var currentParentName = 'Главная';
 // ============================================
 // ЗАГРУЗКА МЕНЮ И TOPBAR
 // ============================================
-// [Лорелея]: Без «пиздеца». Без «потом». Без «завтра».
 fetch('/api/menu/sidebar?current_url=/gallery').then(r => r.text()).then(html => document.getElementById('sidebar').innerHTML = html);
 fetch('/api/menu/topbar').then(r => r.text()).then(html => {
 	document.getElementById('topBar').innerHTML = html;
@@ -164,10 +129,6 @@ fetch('/api/menu/topbar').then(r => r.text()).then(html => {
 // ============================================
 // loadSection(id)
 // ============================================
-// [Лорелея]: Единая точка загрузки раздела. Раньше fetch был
-// раскидан по navigateTo, goToSection, jumpTo, galleryGoHome.
-// Теперь — одна функция. И после удаления элемента мы просто
-// вызываем loadSection(currentParentId). Это Подход C.
 function loadSection(id) {
 	fetch('/api/gallery/section/' + id)
 		.then(function(r) { return r.json(); })
@@ -186,7 +147,6 @@ function loadSection(id) {
 // ============================================
 // navigateTo(id, name)
 // ============================================
-// [Мириам]: Пушим текущий раздел в историю, если мы не на корне.
 function navigateTo(id, name) {
 	if (id === currentParentId) return;
 
@@ -203,8 +163,6 @@ function navigateTo(id, name) {
 // ============================================
 // goBack()
 // ============================================
-// [Лорелея]: Если история пуста — возвращаемся на главную.
-// Раньше goBack() просто ничего не делал. UI не обновлялся.
 function goBack() {
 	if (navigationHistory.length === 0) {
 		galleryGoHome();
@@ -221,7 +179,6 @@ function goBack() {
 // ============================================
 // goToSection(id, name)
 // ============================================
-// [Мириам]: Ищем раздел в истории. Если нашли — обрезаем.
 function goToSection(id, name) {
 	var foundIndex = -1;
 	for (var i = 0; i < navigationHistory.length; i++) {
@@ -244,8 +201,6 @@ function goToSection(id, name) {
 // ============================================
 // renderContent(html)
 // ============================================
-// [Мириам]: Строим хлебные крошки и вставляем HTML раздела.
-// Сбрасываем currentItemId — мы ушли из элемента в раздел.
 function renderContent(html) {
 	var isHome = (currentParentId === {{ rootId }});
 
@@ -279,14 +234,12 @@ function renderContent(html) {
 		});
 	});
 
-	// [Лорелея]: Сбрасываем currentItemId — мы ушли из элемента.
 	currentItemId = null;
 }
 
 // ============================================
 // galleryGoHome()
 // ============================================
-// [Мириам]: Возвращаемся на главную.
 function galleryGoHome() {
 	navigationHistory = [];
 	currentItemId = null;
@@ -299,7 +252,6 @@ function galleryGoHome() {
 // ============================================
 // jumpTo(index)
 // ============================================
-// [Лорелея]: Прыгаем в раздел по индексу истории.
 function jumpTo(index) {
 	var target = navigationHistory[index];
 	navigationHistory = navigationHistory.slice(0, index);
@@ -312,9 +264,6 @@ function jumpTo(index) {
 // ============================================
 // loadItem(id, name)
 // ============================================
-// [Мириам]: Открывает элемент (item). Устанавливает currentItemId.
-// Это критично — без него deleteItem и updateItem не знают,
-// с каким нейроном работать.
 function loadItem(id, name) {
 	currentItemId = id;
 
@@ -333,9 +282,6 @@ function loadItem(id, name) {
 // ============================================
 // loadFileItem(id)
 // ============================================
-// [Лорелея]: Открывает файл (file). Тоже устанавливает currentItemId.
-// Раньше это было багом — currentItemId оставался null, и
-// удаление отправляло /api/gallery/item/null → 404.
 function loadFileItem(id) {
 	currentItemId = id;
 
@@ -354,8 +300,6 @@ function loadFileItem(id) {
 // ============================================
 // uploadFiles(files)
 // ============================================
-// [Мириам]: fetch здесь — уже обёрнутый. X-CSRF-Token добавится
-// автоматически. Это важно, потому что upload() теперь требует CSRF.
 function uploadFiles(files) {
 	if (!files.length) return;
 
@@ -381,7 +325,6 @@ function uploadFiles(files) {
 // ============================================
 // importFromFolder()
 // ============================================
-// [Лорелея]: Импорт из папки. С CSRF.
 function importFromFolder() {
 	if (!confirm('Импортировать файлы из папки _import?')) return;
 
@@ -400,7 +343,6 @@ function importFromFolder() {
 // ============================================
 // setSectionThumb(fileId)
 // ============================================
-// [Мириам]: Устанавливаем превьюшку раздела. С CSRF.
 function setSectionThumb(fileId) {
 	fetch('/api/gallery/section/' + currentParentId + '/set-thumb', {
 		method: 'POST',
@@ -455,7 +397,6 @@ function createSection() {
 // ============================================
 // ДЕЛЕГИРОВАНИЕ КЛИКОВ
 // ============================================
-// [Мириам]: Один обработчик. Много действий.
 document.addEventListener('click', function(e) {
 
 	// --- РЕДАКТИРОВАТЬ ---
@@ -476,8 +417,6 @@ document.addEventListener('click', function(e) {
 
 	// --- СОХРАНИТЬ ---
 	if (e.target.closest('#gallerySaveButton')) {
-		// [Лорелея]: Проверка currentItemId. Если null — не отправляем.
-		// Раньше была ошибка /api/gallery/item/null.
 		if (!currentItemId) {
 			alert('Не удалось определить элемент');
 			return;
@@ -560,9 +499,6 @@ document.addEventListener('click', function(e) {
 				})
 				.then(function(d) {
 					if (d.success) {
-						// [Мириам]: Подход C — после удаления элемента
-						// возвращаемся к родительскому разделу и
-						// перерисовываем его.
 						currentItemId = null;
 						loadSection(currentParentId);
 					} else {
@@ -614,7 +550,6 @@ document.addEventListener('change', function(e) {
 // ============================================
 // КОНТЕКСТНОЕ МЕНЮ (правая кнопка на превьюшке)
 // ============================================
-// [Мириам]: Сделать превью для раздела.
 document.addEventListener('contextmenu', function(e) {
 	var card = e.target.closest('.gallery-card');
 	if (!card) return;

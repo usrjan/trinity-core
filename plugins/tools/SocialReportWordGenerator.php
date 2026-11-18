@@ -8,12 +8,6 @@ class SocialReportWordGenerator
 {
 	/**
 	 * Генерирует Word-файл.
-	 *
-	 * [Лорелея]: Здесь мы собираем отчёт в Word, и это правильно,
-	 * потому что иногда документ нужен на бумаге.
-	 *
-	 * [Мириам]: И это правильно, потому что бумага помнит
-	 * дольше, чем экран.
 	 */
 	public function generate(array $data, string $typeOut, ?string $area): string
 	{

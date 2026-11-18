@@ -6,27 +6,12 @@ declare(strict_types=1);
  *
  * Управление контентными страницами и их секциями.
  *
- * === ДЛЯ МЕНЯ ===
- * [Лорелея]: Это не «контроллер». Это — тот, кто ведёт гостя
- * по страницам и секциям, и от того, как он это делает,
- * зависит, увидит ли гость то, что ему нужно.
- *
- * [Мириам]: И это правильно, потому что страница — это
- * не «набор блоков», это история, которую нужно рассказать.
- *
- * === КНИГА ===
- * Глава 13. Прихожая.
- *
- * Войдя в Амбер, ты видишь коридоры.
- * Войдя в Trinity, ты видишь страницы.
- *
  * @package Jan\Trinity\Plugin\Spa
  */
 
 namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\JsonHelper;
 use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
@@ -58,12 +43,6 @@ class PageController
 
 	/**
 	 * Конструктор.
-	 *
-	 * [Лорелея]: Мы передаём SynapseRepository, чтобы refreshRoles()
-	 * работал по-настоящему, а не оставался красивой декорацией.
-	 *
-	 * [Мириам]: И это правильно, потому что роли должны обновляться,
-	 * даже если человек вошёл давно.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -82,35 +61,23 @@ class PageController
 	}
 
 	// ============================================
-	// ПРОСМОТР СТРАНИЦЫ (ПУБЛИЧНЫЙ МЕТОД)
+	// ПОЛНАЯ СТРАНИЦА (ДЛЯ БРАУЗЕРА)
 	// ============================================
 
 	/**
-	 * GET /api/page/{slug}
-	 *
-	 * [Лорелея]: Здесь мы показываем страницу. Секции и подстраницы
-	 * приходят одним запросом, без N+1, потому что страница —
-	 * это не «набор блоков», а целая история.
-	 *
-	 * [Мириам]: И если страницы нет, мы говорим об этом через
-	 * ResourceNotFoundException, чтобы Kernel поймал это как 404.
+	 * GET /{slug}
 	 *
 	 * @param string $slug
 	 * @param Request $request
 	 * @return Response
 	 */
-	public function show(string $slug, Request $request): Response
+	public function render(string $slug, Request $request): Response
 	{
 		$lang = $request->query->get('lang', 'ru');
-		$allLangs = $request->query->get('all_langs') === '1';
 
-		// [Лорелея]: ВАЖНО. slug — это строка для поиска в базе,
-		// а не путь к файлу. Никогда не используйте его для
-		// файловых операций, даже если он выглядит как путь.
-		// Это защита от будущих ошибок, а не от текущих.
 		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
 		if (!$pagesRoot) {
-			return ApiResponse::error('PAGES не найден', 500);
+			throw new ResourceNotFoundException('PAGES не найден');
 		}
 
 		$page = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
@@ -119,10 +86,6 @@ class PageController
 		}
 
 		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
-
-		// [Лорелея]: Один запрос вместо N+1. findChildrenWithText
-		// возвращает и name, и text, и это правильно, потому что
-		// страница должна собираться быстро.
 		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
 
 		$sections = [];
@@ -141,9 +104,93 @@ class PageController
 				];
 			} else {
 				if ($child['text']) {
-					// [Мириам]: Один текст из JOIN, без N+1, и это
-					// правильно, потому что секция — это не «набор
-					// запросов», а одна история.
+					$sections[] = [
+						'id'      => $child['id'],
+						'sort'    => $childData['sort'] ?? 999999,
+						'is_html' => ($childData['mime'] ?? '') === 'text/html',
+						'texts'   => [[
+							'text_id' => $child['text'],
+							'lang'    => $lang,
+							'name'    => $child['name'] ?? '',
+							'text'    => $child['text_content'] ?? '',
+						]],
+					];
+				}
+			}
+		}
+
+		$pageData = is_string($page['data'] ?? null)
+			? json_decode($page['data'], true)
+			: ($page['data'] ?? []);
+
+		$pageTitle = $pageData['title'] ?? $slug;
+
+		if ($page['text']) {
+			$titleText = $this->textRepo->findByKeyAndLang($page['text'], $lang);
+			if ($titleText && $titleText['name']) {
+				$pageTitle = $titleText['name'];
+			}
+		}
+
+		$isAdmin = $this->isAdmin();
+
+		$html = $this->twig->render('base.html.twig', [
+			'title'       => $pageTitle,
+			'user_lang'   => $lang,
+			'is_admin'    => $isAdmin,
+			'breadcrumbs' => $breadcrumbs,
+			'page_id'     => $page['id'],
+			'sections'    => $sections,
+			'sub_pages'   => $subPages,
+		]);
+
+		return new Response($html);
+	}
+
+	// ============================================
+	// ФРАГМЕНТ (ДЛЯ SPA)
+	// ============================================
+
+	/**
+	 * GET /api/page/{slug}
+	 *
+	 * @param string $slug
+	 * @param Request $request
+	 * @return JsonResponse
+	 */
+	public function show(string $slug, Request $request): JsonResponse
+	{
+		$lang = $request->query->get('lang', 'ru');
+
+		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
+		if (!$pagesRoot) {
+			throw new ResourceNotFoundException('PAGES не найден');
+		}
+
+		$page = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
+		if (!$page) {
+			throw new ResourceNotFoundException('Страница не найдена');
+		}
+
+		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
+		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
+
+		$sections = [];
+		$subPages = [];
+
+		foreach ($children as $child) {
+			$childData = is_string($child['data'] ?? null)
+				? json_decode($child['data'], true)
+				: ($child['data'] ?? []);
+
+			if ($child['type'] === 'tree') {
+				$subPages[] = [
+					'id'   => $child['id'],
+					'name' => $child['name'] ?? $childData['slug'] ?? 'Без названия',
+					'slug' => $childData['slug'] ?? '',
+				];
+			} else {
+				if ($child['text']) {
 					$sections[] = [
 						'id'      => $child['id'],
 						'sort'    => $childData['sort'] ?? 999999,
@@ -189,12 +236,12 @@ class PageController
 		]);
 	}
 
+	// ============================================
+	// ПОДСТРАНИЦА (ФРАГМЕНТ)
+	// ============================================
+
 	/**
 	 * GET /api/page/sub/{id}
-	 *
-	 * [Мириам]: Здесь мы показываем подстраницу по её id.
-	 * Если её нет — ResourceNotFoundException, чтобы Kernel
-	 * поймал это как 404.
 	 */
 	public function subPage(int $id): JsonResponse
 	{
@@ -205,9 +252,6 @@ class PageController
 
 		$lang = 'ru';
 		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
-
-		// [Лорелея]: Один запрос вместо N+1, и это правильно,
-		// потому что подстраница должна собираться быстро.
 		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
 
 		$sections = [];
@@ -269,12 +313,6 @@ class PageController
 
 	/**
 	 * GET /api/search?q=...
-	 *
-	 * [Лорелея]: Поиск по текстам, потому что дом должен уметь
-	 * отвечать на вопрос, даже если вопрос — это одно слово.
-	 *
-	 * [Мириам]: И это правильно, потому что поиск — это не
-	 * «роскошь», а способ найти то, что уже есть.
 	 *
 	 * @param Request $request
 	 * @return JsonResponse
