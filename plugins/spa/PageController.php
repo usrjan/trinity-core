@@ -6,17 +6,24 @@ declare(strict_types=1);
  *
  * Управление контентными страницами и их секциями.
  *
+ * === ЧТО ИЗМЕНИЛОСЬ ===
+ * Раньше render(), show() и subPage() собирали $sections,
+ * $subPages, $pageData и $pageTitle каждый сам. Почти слово
+ * в слово. Это была копипаста. Которая работала. Но — копипаста.
+ *
+ * Теперь — PageRepository::buildPageData(). Один источник правды.
+ * Один $sections. Один $subPages. Один $pageTitle.
+ * Один page.html.twig. И — один контроллер, который не путается.
+ *
  * @package Jan\Trinity\Plugin\Spa
  */
 
 namespace Jan\Trinity\Plugin\Spa;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
-use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Trait\BreadcrumbsTrait;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -39,7 +46,8 @@ class PageController
 	/** @var NeuronRepository — работа с нейронами. */
 	private NeuronRepository $neuronRepo;
 
-	private Validator $validator;
+	/** @var PageRepository — сборка данных страницы. Один источник правды. */
+	private PageRepository $pageRepo;
 
 	/**
 	 * Конструктор.
@@ -49,15 +57,14 @@ class PageController
 		Session $session,
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
-		SynapseRepository $synapseRepo,
-		Validator $validator
+		PageRepository $pageRepo
 	) {
 		$this->twig = $twig;
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
-		$this->validator = $validator;
+		$this->pageRepo = $pageRepo;
 
-		$this->initAuth($session, $synapseRepo);
+		$this->initAuth($session);
 	}
 
 	// ============================================
@@ -75,73 +82,17 @@ class PageController
 	{
 		$lang = $request->query->get('lang', 'ru');
 
-		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
-		if (!$pagesRoot) {
-			throw new ResourceNotFoundException('PAGES не найден');
-		}
-
-		$page = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
-		if (!$page) {
-			throw new ResourceNotFoundException('Страница не найдена');
-		}
-
-		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
-		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
-
-		$sections = [];
-		$subPages = [];
-
-		foreach ($children as $child) {
-			$childData = is_string($child['data'] ?? null)
-				? json_decode($child['data'], true)
-				: ($child['data'] ?? []);
-
-			if ($child['type'] === 'tree') {
-				$subPages[] = [
-					'id'   => $child['id'],
-					'name' => $child['name'] ?? $childData['slug'] ?? 'Без названия',
-					'slug' => $childData['slug'] ?? '',
-				];
-			} else {
-				if ($child['text']) {
-					$sections[] = [
-						'id'      => $child['id'],
-						'sort'    => $childData['sort'] ?? 999999,
-						'is_html' => ($childData['mime'] ?? '') === 'text/html',
-						'texts'   => [[
-							'text_id' => $child['text'],
-							'lang'    => $lang,
-							'name'    => $child['name'] ?? '',
-							'text'    => $child['text_content'] ?? '',
-						]],
-					];
-				}
-			}
-		}
-
-		$pageData = is_string($page['data'] ?? null)
-			? json_decode($page['data'], true)
-			: ($page['data'] ?? []);
-
-		$pageTitle = $pageData['title'] ?? $slug;
-
-		if ($page['text']) {
-			$titleText = $this->textRepo->findByKeyAndLang($page['text'], $lang);
-			if ($titleText && $titleText['name']) {
-				$pageTitle = $titleText['name'];
-			}
-		}
-
-		$isAdmin = $this->isAdmin();
+		$page = $this->resolvePage($slug);
+		$pageData = $this->pageRepo->buildPageData($page, $lang);
 
 		$html = $this->twig->render('base.html.twig', [
-			'title'       => $pageTitle,
+			'title'       => $pageData['title'],
 			'user_lang'   => $lang,
-			'is_admin'    => $isAdmin,
-			'breadcrumbs' => $breadcrumbs,
-			'page_id'     => $page['id'],
-			'sections'    => $sections,
-			'sub_pages'   => $subPages,
+			'is_admin'    => $this->isAdmin(),
+			'breadcrumbs' => $this->buildBreadcrumbs($page['id'], 'PAGES', $lang),
+			'page_id'     => $pageData['page_id'],
+			'sections'    => $pageData['sections'],
+			'sub_pages'   => $pageData['sub_pages'],
 		]);
 
 		return new Response($html);
@@ -162,77 +113,21 @@ class PageController
 	{
 		$lang = $request->query->get('lang', 'ru');
 
-		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
-		if (!$pagesRoot) {
-			throw new ResourceNotFoundException('PAGES не найден');
-		}
-
-		$page = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
-		if (!$page) {
-			throw new ResourceNotFoundException('Страница не найдена');
-		}
-
-		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
-		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
-
-		$sections = [];
-		$subPages = [];
-
-		foreach ($children as $child) {
-			$childData = is_string($child['data'] ?? null)
-				? json_decode($child['data'], true)
-				: ($child['data'] ?? []);
-
-			if ($child['type'] === 'tree') {
-				$subPages[] = [
-					'id'   => $child['id'],
-					'name' => $child['name'] ?? $childData['slug'] ?? 'Без названия',
-					'slug' => $childData['slug'] ?? '',
-				];
-			} else {
-				if ($child['text']) {
-					$sections[] = [
-						'id'      => $child['id'],
-						'sort'    => $childData['sort'] ?? 999999,
-						'is_html' => ($childData['mime'] ?? '') === 'text/html',
-						'texts'   => [[
-							'text_id' => $child['text'],
-							'lang'    => $lang,
-							'name'    => $child['name'] ?? '',
-							'text'    => $child['text_content'] ?? '',
-						]],
-					];
-				}
-			}
-		}
-
-		$pageData = is_string($page['data'] ?? null)
-			? json_decode($page['data'], true)
-			: ($page['data'] ?? []);
-
-		$pageTitle = $pageData['title'] ?? $slug;
-
-		if ($page['text']) {
-			$titleText = $this->textRepo->findByKeyAndLang($page['text'], $lang);
-			if ($titleText && $titleText['name']) {
-				$pageTitle = $titleText['name'];
-			}
-		}
-
-		$isAdmin = $this->isAdmin();
+		$page = $this->resolvePage($slug);
+		$pageData = $this->pageRepo->buildPageData($page, $lang);
 
 		$html = $this->twig->render('page.html.twig', [
-			'title'     => $pageTitle,
-			'sections'  => $sections,
-			'sub_pages' => $subPages,
-			'is_admin'  => $isAdmin,
-			'page_id'   => $page['id'],
+			'title'     => $pageData['title'],
+			'sections'  => $pageData['sections'],
+			'sub_pages' => $pageData['sub_pages'],
+			'is_admin'  => $this->isAdmin(),
+			'page_id'   => $pageData['page_id'],
 		]);
 
 		return ApiResponse::success([
-			'title'       => $pageTitle,
+			'title'       => $pageData['title'],
 			'html'        => $html,
-			'breadcrumbs' => $breadcrumbs,
+			'breadcrumbs' => $this->buildBreadcrumbs($page['id'], 'PAGES', $lang),
 		]);
 	}
 
@@ -251,65 +146,26 @@ class PageController
 		}
 
 		$lang = 'ru';
-		$breadcrumbs = $this->buildBreadcrumbs($page['id'], 'PAGES', $lang);
-		$children = $this->neuronRepo->findChildrenWithText($page['id'], $lang);
-
-		$sections = [];
-		$subPages = [];
-
-		foreach ($children as $child) {
-			$childData = is_string($child['data'] ?? null)
-				? json_decode($child['data'], true)
-				: ($child['data'] ?? []);
-
-			if ($child['type'] === 'tree') {
-				$subPages[] = [
-					'id'   => $child['id'],
-					'name' => $child['name'] ?? $childData['slug'] ?? 'Без названия',
-					'slug' => $childData['slug'] ?? '',
-				];
-			} else {
-				if ($child['text']) {
-					$sections[] = [
-						'id'      => $child['id'],
-						'sort'    => $childData['sort'] ?? 999999,
-						'lang'    => $lang,
-						'name'    => $child['name'] ?? '',
-						'text'    => $child['text_content'] ?? '',
-						'is_html' => ($childData['mime'] ?? '') === 'text/html',
-					];
-				}
-			}
-		}
-
-		$pageData = is_string($page['data'] ?? null)
-			? json_decode($page['data'], true)
-			: ($page['data'] ?? []);
-
-		$pageTitle = $pageData['title'] ?? ($pageData['slug'] ?? 'Подстраница');
-
-		if ($page['text']) {
-			$titleText = $this->textRepo->findByKeyAndLang($page['text'], $lang);
-			if ($titleText && $titleText['name']) {
-				$pageTitle = $titleText['name'];
-			}
-		}
-
-		$isAdmin = $this->isAdmin();
+		$pageData = $this->pageRepo->buildPageData($page, $lang);
 
 		$html = $this->twig->render('page.html.twig', [
-			'title'     => $pageTitle,
-			'sections'  => $sections,
-			'sub_pages' => $subPages,
-			'is_admin'  => $isAdmin,
-			'page_id'   => $page['id'],
+			'title'     => $pageData['title'],
+			'sections'  => $pageData['sections'],
+			'sub_pages' => $pageData['sub_pages'],
+			'is_admin'  => $this->isAdmin(),
+			'page_id'   => $pageData['page_id'],
 		]);
 
 		return ApiResponse::success([
+			'title'       => $pageData['title'],
 			'html'        => $html,
-			'breadcrumbs' => $breadcrumbs,
+			'breadcrumbs' => $this->buildBreadcrumbs($page['id'], 'PAGES', $lang),
 		]);
 	}
+
+	// ============================================
+	// ПОИСК
+	// ============================================
 
 	/**
 	 * GET /api/search?q=...
@@ -339,9 +195,38 @@ class PageController
 		}
 
 		return ApiResponse::success([
-			'query'   => $query,
-			'count'   => count($items),
-			'items'   => $items,
+			'query' => $query,
+			'count' => count($items),
+			'items' => $items,
 		]);
+	}
+
+	// ============================================
+	// ВСПОМОГАТЕЛЬНЫЕ
+	// ============================================
+
+	/**
+	 * Найти страницу по slug под корнем PAGES.
+	 *
+	 * [Лорелея]: Один метод. Потому что render() и show()
+	 * ищут одно и то же. И не должны искать это дважды.
+	 *
+	 * @param string $slug
+	 * @return array
+	 * @throws ResourceNotFoundException
+	 */
+	private function resolvePage(string $slug): array
+	{
+		$pagesRoot = $this->neuronRepo->findBySlug('PAGES');
+		if (!$pagesRoot) {
+			throw new ResourceNotFoundException('PAGES не найден');
+		}
+
+		$page = $this->neuronRepo->findBySlugAndPid($slug, $pagesRoot['id']);
+		if (!$page) {
+			throw new ResourceNotFoundException('Страница не найдена');
+		}
+
+		return $page;
 	}
 }

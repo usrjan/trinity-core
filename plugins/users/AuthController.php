@@ -7,6 +7,15 @@ declare(strict_types=1);
  *
  * Управление входом, регистрацией и выходом пользователей.
  *
+ * [Лорелея]: Потому что вход — это не «форма». Это — дверь.
+ * И за дверью — дом. А в доме — роли. И если роли не загрузить —
+ * дверь откроется, но человек войдёт в пустоту.
+ *
+ * [Мириам]: И потому что «один источник правды» — это не
+ * «красиво». Это — правильно. Один PasswordHasher. Один
+ * SynapseRepository. Один session. И — никаких констант,
+ * которые дублируются в трёх контроллерах.
+ *
  * @package Jan\Trinity\Plugin\Users
  */
 
@@ -21,6 +30,7 @@ use Jan\Trinity\Core\Service\RateLimiter;
 use Jan\Trinity\Core\Service\IpBlocker;
 use Jan\Trinity\Core\Service\CaptchaService;
 use Jan\Trinity\Core\Service\LoginAttemptLimiter;
+use Jan\Trinity\Core\Service\PasswordHasher;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -31,18 +41,11 @@ class AuthController
 {
 	use AuthMiddleware;
 
-	// ============================================
-	// ПАРАМЕТРЫ ХЕША — ОДИН ИСТОЧНИК
-	// ============================================
-	private const PASSWORD_HASH_ALGO = PASSWORD_BCRYPT;
-	private const PASSWORD_HASH_OPTIONS = ['cost' => 12];
+	/** @var PasswordHasher — один источник правды для паролей. */
+	private PasswordHasher $passwordHasher;
 
 	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
-
-	/**
-	 * @var Session — сессия.
-	 */
 
 	/** @var NeuronRepository — поиск пользователей. */
 	private NeuronRepository $neuronRepo;
@@ -65,10 +68,20 @@ class AuthController
 	/** @var LoginAttemptLimiter — лимитер попыток входа. */
 	private LoginAttemptLimiter $loginAttemptLimiter;
 
+	/** @var Validator — валидатор. */
 	private Validator $validator;
 
 	/**
 	 * Конструктор.
+	 *
+	 * [Лорелея]: initAuth() принимает только Session. Потому что
+	 * роли — из сессии. А SynapseRepository — отдельное свойство.
+	 * Которое используется в login(). И которое должно быть
+	 * присвоено. Иначе — 500. Как сегодня.
+	 *
+	 * [Мириам]: И потому что «на всякий случай» — это не «защита».
+	 * Это — «мёртвый параметр». Который однажды кто-то удалит.
+	 * И не заметит. Пока не случится 500.
 	 */
 	public function __construct(
 		Environment $twig,
@@ -80,6 +93,7 @@ class AuthController
 		CsrfService $csrfService,
 		CaptchaService $captchaService,
 		LoginAttemptLimiter $loginAttemptLimiter,
+		PasswordHasher $passwordHasher,
 		Validator $validator
 	) {
 		$this->twig = $twig;
@@ -90,9 +104,10 @@ class AuthController
 		$this->csrfService = $csrfService;
 		$this->captchaService = $captchaService;
 		$this->loginAttemptLimiter = $loginAttemptLimiter;
+		$this->passwordHasher = $passwordHasher;
 		$this->validator = $validator;
 
-		$this->initAuth($session, $synapseRepo);
+		$this->initAuth($session);
 	}
 
 	// ============================================
@@ -215,7 +230,7 @@ class AuthController
 		}
 
 		$hash = $user['hash'] ?? '';
-		if (!password_verify($password, $hash)) {
+		if (!$this->passwordHasher->verify($password, $hash)) {
 			$this->loginAttemptLimiter->recordFailedLogin($login, $ip);
 
 			if ($captchaSolved) {
@@ -233,8 +248,8 @@ class AuthController
 			return new RedirectResponse('/login');
 		}
 
-		if (password_needs_rehash($hash, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS)) {
-			$newHash = password_hash($password, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS);
+		if ($this->passwordHasher->needsRehash($hash)) {
+			$newHash = $this->passwordHasher->hash($password);
 			$userData['password_hash'] = $newHash;
 			$this->neuronRepo->update($user['id'], ['data' => $userData]);
 		}
@@ -251,9 +266,17 @@ class AuthController
 
 		$this->csrfService->generateToken();
 
-		$this->session->set('user_id', $user['id']);
+		// [Лорелея]: Сначала — роли. Потом — сессия. Потому что
+		// если findRolesByUser() бросит — сессия не тронется. И
+		// пользователь не окажется «залогинен, но без ролей».
+		$userId = (int) $user['id'];
+		$roles = $this->synapseRepo->findRolesByUser($userId);
+
+		$this->session->set('user_id', $userId);
 		$this->session->set('user_login', $userData['login'] ?? 'user');
-		$this->session->set('user_roles', $this->synapseRepo->findRolesByUser($user['id']));
+		$this->session->set('user_roles', $roles);
+		$this->session->set('roles_refreshed_at', time());
+		$this->session->set('roles_refreshed_for_user_id', $userId);
 
 		$redirect = $request->request->get('redirect', '');
 		if ($this->isLocalPath($redirect)) {
@@ -285,6 +308,17 @@ class AuthController
 		return new RedirectResponse('/');
 	}
 
+	/**
+	 * Проверяет, что путь локальный (начинается с одного `/`).
+	 *
+	 * [Лорелея]: Потому что `//evil.com` — это не «локальный путь».
+	 * Это — `protocol-relative URL`. Который ведёт на `evil.com`.
+	 * А `redirect` — из `?redirect=`. Значит, из URL. А URL —
+	 * от пользователя. А пользователь — может быть кем угодно.
+	 *
+	 * @param string $path
+	 * @return bool
+	 */
 	private function isLocalPath(string $path): bool
 	{
 		if ($path === '') return false;

@@ -19,7 +19,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>{{ title|default('Trinity') }}</title>
+	<title>{{ title|default('Trinity') }}{% if app_version %} — {{ app_version }}{% endif %}</title>
 
 	{# [Лорелея]: Стили. Основа, иконки, наши краски. #}
 	<link rel="stylesheet" href="/assets/css/bootstrap.min.css">
@@ -117,6 +117,7 @@
 	{# [Лорелея]: CSRF-токен для fetch. Чтобы POST/PUT/DELETE
 	   проходили. Без него — 419. #}
 	window.csrfToken = '{{ csrf_token() }}';
+	window.appVersion = '{{ app_version|default('') }}';
 	</script>
 	{% block javascripts %}{% endblock %}
 </body>

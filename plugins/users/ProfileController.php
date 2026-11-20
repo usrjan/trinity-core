@@ -5,49 +5,37 @@ declare(strict_types=1);
  * КОНТРОЛЛЕР ПРОФИЛЯ
  *
  * Управление профилем текущего пользователя.
+ *
+ * [Лорелея]: Потому что ProfileController — это не «редактор».
+ * Это — «отражатель». Он показывает. А не меняет. Меняет —
+ * ProfileEditController. А этот — только читает и рендерит.
+ *
+ * [Мириам]: И потому что «меньше зависимостей» — это не
+ * «красиво». Это — «быстрее создаётся контейнером». И —
+ * «меньше поводов сломаться». Потому что каждая зависимость —
+ * это ещё один шанс, что её не передадут. И тогда — 500.
  */
 
 namespace Jan\Trinity\Plugin\Users;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Middleware\AuthMiddleware;
-use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
-use Jan\Trinity\Core\Repository\SynapseRepository;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Twig\Environment;
-use Psr\Log\LoggerInterface;
 
 class ProfileController
 {
 	use AuthMiddleware;
 
-	// ============================================
-	// ПАРАМЕТРЫ ХЕША — ОДИН ИСТОЧНИК
-	// ============================================
-	private const PASSWORD_HASH_ALGO = PASSWORD_BCRYPT;
-	private const PASSWORD_HASH_OPTIONS = ['cost' => 12];
-
 	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
 
-	/** @var TextRepository — работа с текстами. */
-	private TextRepository $textRepo;
-
-	/** @var NeuronRepository — загрузка и обновление пользователя. */
+	/** @var NeuronRepository — загрузка пользователя. */
 	private NeuronRepository $neuronRepo;
-
-	/** @var SynapseRepository — получение ролей. */
-	private SynapseRepository $synapseRepo;
-
-	private Validator $validator;
-
-	/** @var LoggerInterface — логгер. */
-	private LoggerInterface $logger;
 
 	/**
 	 * Конструктор.
@@ -55,20 +43,12 @@ class ProfileController
 	public function __construct(
 		Environment $twig,
 		Session $session,
-		TextRepository $textRepo,
-		NeuronRepository $neuronRepo,
-		SynapseRepository $synapseRepo,
-		Validator $validator,
-		LoggerInterface $logger
+		NeuronRepository $neuronRepo
 	) {
 		$this->twig = $twig;
-		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
-		$this->synapseRepo = $synapseRepo;
-		$this->validator = $validator;
-		$this->logger = $logger;
 
-		$this->initAuth($session, $synapseRepo);
+		$this->initAuth($session);
 	}
 
 	// ============================================

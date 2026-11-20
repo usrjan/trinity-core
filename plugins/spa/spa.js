@@ -88,6 +88,7 @@ var userLang = document.documentElement.lang || 'ru';
 				} else {
 					updateBreadcrumb(url, data.data.title || url);
 				}
+				updateTitle(data.data.title || url);
 			})
 			.catch(function () {
 				main.innerHTML = '<div class="alert alert-danger m-4">Ошибка загрузки страницы</div>';
@@ -137,6 +138,9 @@ var userLang = document.documentElement.lang || 'ru';
 					executeScripts(main);
 					if (data.data.breadcrumbs) {
 						updateBreadcrumbFromData(data.data.breadcrumbs);
+					}
+					if (data.data.title) {
+						updateTitle(data.data.title);
 					}
 				}
 			})
@@ -213,6 +217,7 @@ var userLang = document.documentElement.lang || 'ru';
 		history.pushState({}, '', '/');
 		updateActiveMenuItem('/');
 		updateBreadcrumb('/', '');
+		updateTitle('Главная');
 	}
 
 	// ============================================
@@ -377,6 +382,20 @@ var userLang = document.documentElement.lang || 'ru';
 				}
 				return '';
 			});
+	}
+
+	/**
+	 * Обновляет <title> страницы. С версией, если она есть.
+	 *
+	 * @param {string} title
+	 */
+	function updateTitle(title) {
+		if (!title) return;
+
+		var appVersion = window.appVersion || '';
+		document.title = appVersion
+			? title + ' — ' + appVersion
+			: title;
 	}
 
 	/**

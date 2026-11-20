@@ -15,6 +15,7 @@ use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Service\CsrfService;
 use Jan\Trinity\Core\Service\RateLimiter;
 use Jan\Trinity\Core\Service\IpBlocker;
+use Jan\Trinity\Core\Service\PasswordHasher;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -27,8 +28,7 @@ class RegisterController
 	// ============================================
 	// ПАРАМЕТРЫ ХЕША — ОДИН ИСТОЧНИК
 	// ============================================
-	private const PASSWORD_HASH_ALGO = PASSWORD_BCRYPT;
-	private const PASSWORD_HASH_OPTIONS = ['cost' => 12];
+	private PasswordHasher $passwordHasher;
 
 	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
@@ -63,6 +63,7 @@ class RegisterController
 		RateLimiter $rateLimiter,
 		IpBlocker $ipBlocker,
 		CsrfService $csrfService,
+		PasswordHasher $passwordHasher,
 		Validator $validator,
 		LoggerInterface $logger
 	) {
@@ -72,6 +73,7 @@ class RegisterController
 		$this->rateLimiter = $rateLimiter;
 		$this->ipBlocker = $ipBlocker;
 		$this->csrfService = $csrfService;
+		$this->passwordHasher = $passwordHasher;
 		$this->validator = $validator;
 		$this->logger = $logger;
 	}
@@ -170,7 +172,7 @@ class RegisterController
 				'status'        => 'pending',
 				'ip'            => $request->getClientIp(),
 				'registered_at' => date('Y-m-d H:i:s'),
-			], null, null, null, password_hash($password, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS));
+			], null, null, null, $this->passwordHasher->hash($password));
 		} catch (\Doctrine\DBAL\Exception\UniqueConstraintViolationException $e) {
 			$this->session->set('register_error', 'Логин или email уже занят');
 			return new RedirectResponse('/register');

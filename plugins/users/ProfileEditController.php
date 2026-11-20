@@ -14,6 +14,7 @@ use Jan\Trinity\Core\Validator;
 use Jan\Trinity\Core\Repository\TextRepository;
 use Jan\Trinity\Core\Repository\NeuronRepository;
 use Jan\Trinity\Core\Service\CsrfService;
+use Jan\Trinity\Core\Service\PasswordHasher;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -25,8 +26,7 @@ class ProfileEditController
 	// ============================================
 	// ПАРАМЕТРЫ ХЕША — ОДИН ИСТОЧНИК
 	// ============================================
-	private const PASSWORD_HASH_ALGO = PASSWORD_BCRYPT;
-	private const PASSWORD_HASH_OPTIONS = ['cost' => 12];
+	private PasswordHasher $passwordHasher;
 
 	/** @var Environment — шаблонизатор Twig. */
 	private Environment $twig;
@@ -54,6 +54,7 @@ class ProfileEditController
 		TextRepository $textRepo,
 		NeuronRepository $neuronRepo,
 		CsrfService $csrfService,
+		PasswordHasher $passwordHasher,
 		Validator $validator
 	) {
 		$this->twig = $twig;
@@ -61,6 +62,7 @@ class ProfileEditController
 		$this->textRepo = $textRepo;
 		$this->neuronRepo = $neuronRepo;
 		$this->csrfService = $csrfService;
+		$this->passwordHasher = $passwordHasher;
 		$this->validator = $validator;
 	}
 
@@ -168,7 +170,7 @@ class ProfileEditController
 			}
 
 			$hash = $data['password_hash'] ?? '';
-			if (!password_verify($currentPassword, $hash)) {
+			if (!$this->passwordHasher->verify($currentPassword, $hash)) {
 				$this->session->set('profile_error', 'Неверный текущий пароль');
 				return new RedirectResponse('/profile/edit');
 			}
@@ -178,7 +180,7 @@ class ProfileEditController
 				return new RedirectResponse('/profile/edit');
 			}
 
-			$data['password_hash'] = password_hash($newPassword, self::PASSWORD_HASH_ALGO, self::PASSWORD_HASH_OPTIONS);
+			$data['password_hash'] = $this->passwordHasher->hash($newPassword);
 		}
 
 		$this->neuronRepo->update($userId, ['data' => $data]);
