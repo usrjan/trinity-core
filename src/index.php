@@ -16,27 +16,35 @@ use Jan\Trinity\Core\Kernel;
 // AUTOLOAD — С FALLBACK
 // ============================================
 $autoloadPaths = [
-	__DIR__ . '/../../../autoload.php'
+    __DIR__ . '/../../../autoload.php'
 ];
 
 $autoloadFound = false;
 foreach ($autoloadPaths as $autoloadPath) {
-	if (file_exists($autoloadPath)) {
-		require_once $autoloadPath;
-		$autoloadFound = true;
-		break;
-	}
+    if (file_exists($autoloadPath)) {
+        require_once $autoloadPath;
+        $autoloadFound = true;
+        break;
+    }
 }
 
 if (!$autoloadFound) {
-	http_response_code(500);
-	echo 'Composer autoload not found. Run `composer install` first.';
-	exit(1);
+    http_response_code(500);
+    echo 'Composer autoload not found. Run `composer install` first.';
+    exit(1);
 }
 
-$kernel = new Kernel(__DIR__ . '/..');
+// ============================================
+// BOOTSTRAP — С ОБРАБОТКОЙ ОШИБОК
+// ============================================
+try {
+    $kernel = new Kernel(__DIR__ . '/..');
+    $kernel->handle();
+} catch (\Throwable $e) {
+    error_log('[Trinity] Bootstrap failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
-/**
- * handle() — единственный публичный метод ядра.
- */
-$kernel->handle();
+    http_response_code(503);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Сервис временно недоступен.';
+    exit(1);
+}

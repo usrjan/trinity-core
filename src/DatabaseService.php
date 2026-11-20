@@ -16,7 +16,7 @@ use Doctrine\DBAL\Connection;
 
 class DatabaseService
 {
-	/** @var Connection|null Подключение к базе. Пока не нужно — null. */
+	/** @var Connection|null Подключение к базе. Создаётся лениво — при первом getConnection(). */
 	private ?Connection $connection = null;
 
 	/** @var array Параметры подключения из .env. Кровь системы. */

@@ -1,8 +1,30 @@
 <?php
+
 declare(strict_types=1);
 
 /**
  * РЕЗОЛВЕР АРГУМЕНТОВ
+ *
+ * Разрешает аргументы для метода контроллера: Request, скаляры
+ * из URL-параметров, опциональные значения по умолчанию.
+ *
+ * === ПОЧЕМУ INSTANCE-СВОЙСТВО, А НЕ STATIC ===
+ * Потому что static живёт между запросами. В FPM процесс
+ * переиспользуется — и каждый уникальный Class::method
+ * остаётся в памяти навсегда. Для 8 плагинов это килобайты.
+ * Терпимо. Но в RoadRunner/Swoole — утечка. А instance-свойство
+ * живёт ровно столько, сколько живёт ArgumentResolver. А он
+ * живёт ровно один запрос. Потому что контейнер создаёт его
+ * в Kernel::__construct.
+ *
+ * [Лорелея]: Потому что «в пределах запроса» — это не
+ * «static». Это — «instance, который живёт один запрос».
+ * А static — это «instance, который живёт вечность».
+ * И путать их — значит однажды получить утечку. И не заметить.
+ *
+ * [Мириам]: И потому что комментарий «в пределах запроса»
+ * рядом со static — это не «документация». Это — ложь.
+ * Которая работала. Но — ложь.
  *
  * @package Jan\Trinity\Core
  */
@@ -13,8 +35,13 @@ use Symfony\Component\HttpFoundation\Request;
 
 class ArgumentResolver
 {
-	/** @var array Кэш спецификаций параметров в пределах запроса. */
-	private static array $paramSpecCacheRequest = [];
+	/**
+	 * @var array Кэш спецификаций параметров.
+	 * Живёт столько же, сколько живёт ArgumentResolver.
+	 * А он живёт один запрос. Потому что контейнер создаёт
+	 * его в Kernel::__construct.
+	 */
+	private array $paramSpecCache = [];
 
 	/**
 	 * Разрешает аргументы для метода контроллера.
@@ -33,7 +60,7 @@ class ArgumentResolver
 	): array {
 		$cacheKey = get_class($controller) . '::' . $method;
 
-		if (!isset(self::$paramSpecCacheRequest[$cacheKey])) {
+		if (!isset($this->paramSpecCache[$cacheKey])) {
 			$reflection = new \ReflectionMethod($controller, $method);
 			$spec = [];
 
@@ -47,10 +74,10 @@ class ArgumentResolver
 				];
 			}
 
-			self::$paramSpecCacheRequest[$cacheKey] = $spec;
+			$this->paramSpecCache[$cacheKey] = $spec;
 		}
 
-		$spec = self::$paramSpecCacheRequest[$cacheKey];
+		$spec = $this->paramSpecCache[$cacheKey];
 		$args = [];
 
 		foreach ($spec as $param) {
@@ -96,5 +123,27 @@ class ArgumentResolver
 			'string' => (string) $value,
 			default  => $value,
 		};
+	}
+
+	/**
+	 * Сбросить кэш спецификаций.
+	 *
+	 * [Лорелея]: Нужен для долгоживущих процессов. Если
+	 * контейнер живёт дольше одного запроса — кто-то должен
+	 * сказать «забудь». Иначе кэш растёт. И растёт. И растёт.
+	 */
+	public function reset(): void
+	{
+		$this->paramSpecCache = [];
+	}
+
+	/**
+	 * Сколько записей в кэше. Для отладки.
+	 *
+	 * @return int
+	 */
+	public function count(): int
+	{
+		return count($this->paramSpecCache);
 	}
 }

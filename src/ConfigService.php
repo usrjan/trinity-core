@@ -64,17 +64,13 @@ class ConfigService
 		if ($this->loaded) {
 			return;
 		}
+		
+		$rawConfig = $this->cache !== null && $this->cache->isEnabled()
+			? $this->cache->remember('trinity.config', fn() => $this->loadFromDatabase(), 3600)
+			: $this->loadFromDatabase();
 
-		$rawConfig = null;
-
-		if ($this->cache !== null && $this->cache->isEnabled()) {
-			$rawConfig = $this->cache->remember('trinity.config', function () {
-				return $this->loadFromDatabase();
-			}, 3600);
-		}
-
-		if ($rawConfig === null) {
-			$rawConfig = $this->loadFromDatabase();
+		if (!is_array($rawConfig)) {
+			$rawConfig = [];
 		}
 
 		$this->config = [];

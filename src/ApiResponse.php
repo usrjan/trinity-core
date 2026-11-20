@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -30,12 +31,36 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 class ApiResponse
 {
 	/**
-	 * Версия системы — из .env. Или 'unknown'.
+	 * @var ConfigService|null — сервис конфигурации.
+	 * Устанавливается один раз в Bootstrap::boot().
+	 * Если не установлен — getVersion() использует $_ENV.
+	 */
+	private static ?ConfigService $configService = null;
+
+	/**
+	 * Устанавливает ConfigService.
+	 *
+	 * @param ConfigService $configService
+	 */
+	public static function setConfigService(ConfigService $configService): void
+	{
+		self::$configService = $configService;
+	}
+
+	/**
+	 * Версия системы.
 	 *
 	 * @return string
 	 */
 	public static function getVersion(): string
 	{
+		if (self::$configService !== null) {
+			$version = self::$configService->get('app.version');
+			if ($version !== null && $version !== '') {
+				return (string) $version;
+			}
+		}
+
 		return $_ENV['APP_VERSION'] ?? 'unknown';
 	}
 

@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -28,12 +29,17 @@ declare(strict_types=1);
  * - array — массив
  * - bool — булево
  *
+ * [Лорелея]: Validator не знает о схеме. Он знает только
+ * «спроси у RecordChecker». Потому что знание о том, что text
+ * помечает удалённое через is_active, а neuron — через is_deleted,
+ * — это знание о схеме. А схема — не его дело.
+ *
  * @package Jan\Trinity\Core
  */
 
 namespace Jan\Trinity\Core;
 
-use Jan\Trinity\Core\Repository\NeuronRepository;
+use Jan\Trinity\Core\Service\RecordChecker;
 use Psr\Log\LoggerInterface;
 
 class Validator
@@ -41,8 +47,8 @@ class Validator
 	/** @var array Ошибки валидации [field => message]. */
 	private array $errors = [];
 
-	/** @var NeuronRepository|null Репозиторий для exists/unique. */
-	private ?NeuronRepository $neuronRepo;
+	/** @var RecordChecker|null Проверка существования записей. */
+	private ?RecordChecker $recordChecker;
 
 	/** @var LoggerInterface|null Логгер. */
 	private ?LoggerInterface $logger;
@@ -50,14 +56,14 @@ class Validator
 	/**
 	 * Конструктор.
 	 *
-	 * @param NeuronRepository|null $neuronRepo
+	 * @param RecordChecker|null $recordChecker
 	 * @param LoggerInterface|null $logger
 	 */
 	public function __construct(
-		?NeuronRepository $neuronRepo = null,
+		?RecordChecker $recordChecker = null,
 		?LoggerInterface $logger = null
 	) {
-		$this->neuronRepo = $neuronRepo;
+		$this->recordChecker = $recordChecker;
 		$this->logger = $logger;
 	}
 
@@ -183,17 +189,13 @@ class Validator
 
 			case 'regex':
 				if ($value !== null && $value !== '' && $param !== null) {
-					$pattern = $param;
-					if (!str_ends_with($pattern, 'u') && !str_ends_with($pattern, 'u/')) {
-						if (preg_match('/^\/.*\/[a-z]*$/', $pattern)) {
-							$pattern = preg_replace('/\/([a-z]*)$/', '/$1u', $pattern);
-						} else {
-							$pattern = '/' . $pattern . '/u';
-						}
-					}
-					if (@preg_match($pattern, (string) $value) === false) {
+					$pattern = $this->normalizeRegexPattern($param);
+
+					$result = @preg_match($pattern, (string) $value);
+
+					if ($result === false) {
 						$this->errors[$field] = "Ошибка в regex для '{$field}'";
-					} elseif (!preg_match($pattern, (string) $value)) {
+					} elseif ($result === 0) {
 						$this->errors[$field] = "Поле '{$field}' не соответствует формату";
 					}
 				}
@@ -250,13 +252,13 @@ class Validator
 
 			case 'exists':
 				if ($value !== null && $value !== '' && $param !== null) {
-					if ($this->neuronRepo === null) {
-						throw new \RuntimeException('Validator: exists требует NeuronRepository');
+					if ($this->recordChecker === null) {
+						throw new \RuntimeException('Validator: exists требует RecordChecker');
 					}
 					$parts2 = explode(',', $param);
 					$table = $parts2[0] ?? null;
 					$column = $parts2[1] ?? 'id';
-					if ($table && !$this->recordExists($table, $column, $value)) {
+					if ($table && !$this->recordChecker->exists($table, $column, $value)) {
 						$this->errors[$field] = "Запись '{$value}' не найдена в '{$table}.{$column}'";
 					}
 				}
@@ -264,13 +266,13 @@ class Validator
 
 			case 'unique':
 				if ($value !== null && $value !== '' && $param !== null) {
-					if ($this->neuronRepo === null) {
-						throw new \RuntimeException('Validator: unique требует NeuronRepository');
+					if ($this->recordChecker === null) {
+						throw new \RuntimeException('Validator: unique требует RecordChecker');
 					}
 					$parts2 = explode(',', $param);
 					$table = $parts2[0] ?? null;
 					$column = $parts2[1] ?? 'id';
-					if ($table && $this->recordExists($table, $column, $value)) {
+					if ($table && $this->recordChecker->exists($table, $column, $value)) {
 						$this->errors[$field] = "Значение '{$value}' уже занято в '{$table}.{$column}'";
 					}
 				}
@@ -287,38 +289,6 @@ class Validator
 				}
 				break;
 		}
-	}
-
-	/**
-	 * Проверить существование записи.
-	 *
-	 * @param string $table
-	 * @param string $column
-	 * @param mixed $value
-	 * @return bool
-	 */
-	private function recordExists(string $table, string $column, $value): bool
-	{
-		$conn = $this->neuronRepo->getConnection();
-
-		$allowedTables = ['neuron', 'synapse', 'text'];
-		if (!in_array($table, $allowedTables, true)) {
-			throw new \RuntimeException("Validator: table '{$table}' не разрешена");
-		}
-
-		if (!preg_match('/^[a-z_][a-z0-9_]*$/i', $column)) {
-			throw new \RuntimeException("Validator: column '{$column}' невалидна");
-		}
-
-		$sql = "SELECT 1 FROM {$table} WHERE {$column} = ?";
-		if (in_array($table, ['neuron', 'synapse'], true)) {
-			$sql .= " AND is_deleted = 0";
-		}
-		$sql .= " LIMIT 1";
-
-		$result = $conn->executeQuery($sql, [$value])->fetchOne();
-
-		return $result !== false;
 	}
 
 	/**
@@ -375,5 +345,48 @@ class ValidationException extends \RuntimeException
 	public function getErrors(): array
 	{
 		return $this->errors;
+	}
+
+	/**
+	 * Нормализует regex-паттерн: добавляет разделители и модификатор `u`.
+	 *
+	 * === ЧТО ДЕЛАЕТ ===
+	 * - Если паттерн уже с разделителями (`/foo/`, `/foo/i`, `/foo/u`) —
+	 *   добавляет `u`, если его нет. Или оставляет как есть.
+	 * - Если паттерн без разделителей (`foo`, `[a-z]+`) — оборачивает
+	 *   в `/.../u`.
+	 *
+	 * === ПОЧЕМУ `u` ===
+	 * Потому что проект работает с юникодом (русский, английский,
+	 * итальянский, немецкий, французский). Без `u` `\w`, `\d`, `.`
+	 * не видят юникодные символы. А `preg_match('/^[а-я]+$/')` без `u`
+	 * не сработает на «привет» — потому что `[а-я]` в байтовом режиме
+	 * это не «кириллица», а «байты от 0xD0 до 0xBF».
+	 *
+	 * @param string $pattern — паттерн, возможно без разделителей
+	 * @return string — паттерн с разделителями и модификатором `u`
+	 */
+	private function normalizeRegexPattern(string $pattern): string
+	{
+		$firstChar = $pattern[0] ?? '';
+		$hasDelimiters = in_array($firstChar, ['/', '#', '~', '%', '!', '@'], true);
+
+		if (!$hasDelimiters) {
+			return '/' . $pattern . '/u';
+		}
+
+		$lastDelimiterPos = strrpos($pattern, $firstChar);
+		if ($lastDelimiterPos === false || $lastDelimiterPos === 0) {
+			return '/' . $pattern . '/u';
+		}
+
+		$body = substr($pattern, 0, $lastDelimiterPos + 1);
+		$modifiers = substr($pattern, $lastDelimiterPos + 1);
+
+		if (str_contains($modifiers, 'u')) {
+			return $pattern;
+		}
+
+		return $body . $modifiers . 'u';
 	}
 }

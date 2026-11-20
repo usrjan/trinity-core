@@ -217,10 +217,6 @@
 │   │   │                               для slug, icon, route. findBySlugAndPid('PUBLIC', $menuRoot['id']).
 │   │   │                               maxSort + 100. neuronRepo->create('tree', [...]).
 │   │   │
-│   │   ├── MenuController.php        — рука. меню. сайдбар. топбар. sidebar(), topbar(), addItem(),
-│   │   │                               updateItem(), getMenu(). findBySlugAndPid('PUBLIC', $menuRoot['id']).
-│   │   │                               findChildrenWithText(). maxSort + 100. Validator для slug, icon, route.
-│   │   │
 │   │   ├── mime.html.twig            — лицо. mime. контент. подсветка. extends base.html.twig.
 │   │   │                               content|raw. highlight.js. hljs.highlightAll().
 │   │   │
@@ -243,6 +239,14 @@
 │   │   │                               addSectionById(), updateSection(), updateSectionFull(), deleteSection(),
 │   │   │                               addSubPage(), addSubPageById(), deleteSubPage(), slugify(), requireCsrf().
 │   │   │                               CsrfService::validateToken(). Validator. textRepo->getNextKey().
+│   │   │
+│   │   ├── PageRepository.php        — один источник правды для сборки данных страницы. buildPageData().
+│   │   │                               page_id, title, page_data, sections, sub_pages. decodeData() — строка,
+│   │   │                               массив, null → массив. resolveTitle() — text.name → data.title →
+│   │   │                               data.slug → «Без названия». findChildrenWithText(). type === 'tree' →
+│   │   │                               подстраница. empty($child['text']) → не секция. «раньше render(),
+│   │   │                               show(), subPage() собирали $sections, $subPages, $pageData почти
+│   │   │                               слово в слово. теперь — один buildPageData()».
 │   │   │
 │   │   ├── plugin.php                — двери. маршруты. вход в морду. spa_navigate, menu_sidebar,
 │   │   │                               menu_topbar, menu_add_item, menu_update_item, page_delete_sub,
@@ -384,6 +388,14 @@
 │   │   │                               $data['combine'] = $this->calculator->combine($data).
 │   │   │                               $data['word_file'] = $wordFile.
 │   │   │
+│   │   ├── Mapping.php               — один источник правды об организациях. getName(), getInstitution(),
+│   │   │                               getShortName(), getFullName(), mapCategory(). NAMES — сокращения → полные
+│   │   │                               имена. MUNICIPALITIES — двадцать девять. MINISTRIES — тридцать шесть.
+│   │   │                               ORGANIZATIONS — двенадцать. CATEGORY_MAP — тридцать восемь записей
+│   │   │                               POS → социальные группы. «потому что один источник правды — это
+│   │   │                               не красиво. это — правильно. и это — единственный способ не путать
+│   │   │                               Администрацию города Симферополя с ГК по делам архивов».
+│   │   │
 │   │   ├── plugin.php                — двери. маршруты. вход в инструменты. tools_page — /tools.
 │   │   │                               tools_report_social — /api/tools/report-social. _roles => ['role_admin'].
 │   │   │                               POST.
@@ -500,6 +512,17 @@
 │   ├── Mime
 │   │   ├── MimeRendererInterface.php — контракт. все рендереры говорят на нём. render(string $content,
 │   │   │                               array $data = []): string. supports(): array.
+│   │   │
+│   │   ├── PurifierTrait.php         — один источник правды для HTMLPurifier. getPurifier() — ленивый.
+│   │   │                               HTML.Allowed — p, br, strong, em, u, s, del, ins, h1–h6, ul, ol, li,
+│   │   │                               blockquote, pre, code, table, thead, tbody, tr, th, td,
+│   │   │                               a[href|title|target|rel], img[src|alt|title|width|height], hr, span, div.
+│   │   │                               HTML.ForbiddenElements — iframe, form, script, style, object, embed, link,
+│   │   │                               meta, base. URI.AllowedSchemes — http, https, mailto.
+│   │   │                               Cache.DefinitionImpl = 'Serializer'. Cache.SerializerPath = var/cache/htmlpurifier.
+│   │   │                               создаётся один раз, при первом вызове. и живёт вместе с рендерером.
+│   │   │                               «потому что безопасность — это не каждый раз заново. а один раз, но правильно».
+│   │   │
 │   │   └── Registry.php              — реестр. знает все рендереры. выбирает нужный. add(). render().
 │   │                                   supports(). in_array($mime, $renderer->supports(), true).
 │   │                                   fallback — <pre>' . htmlspecialchars($content, ENT_QUOTES, 'UTF-8') . '</pre>.
@@ -543,9 +566,21 @@
 │   │   ├── LoginAttemptLimiter.php   — тот, кто лимитирует попытки входа. checkLoginAttempt(), recordFailedLogin(),
 │   │   │                               clearLoginAttempts(). RateLimiter. CaptchaService. logger->info('failed_login').
 │   │   │
-│   │   └── RateLimiter.php           — тот, кто считает попытки. tooManyAttempts(), hit(), clear(), getAttempts(),
-│   │                                   getAttemptsFile(), cleanupAttempts(), getMaxAttempts(), getDecaySeconds(),
-│   │                                   getBlockDuration(). apcuAvailable. flock(LOCK_EX). ftruncate(). fflush().
+│   │   ├── PasswordHasher.php        — один источник правды для паролей. hash(), verify(), needsRehash().
+│   │   │                               PASSWORD_BCRYPT. cost => 12. один алгоритм. один cost. на всех.
+│   │   │                               «один источник правды — это не красиво. это — правильно».
+│   │   │
+│   │   ├── RateLimiter.php           — тот, кто считает попытки. tooManyAttempts(), hit(), clear(), getAttempts(),
+│   │   │                               getAttemptsFile(), cleanupAttempts(), getMaxAttempts(), getDecaySeconds(),
+│   │   │                               getBlockDuration(). apcuAvailable. flock(LOCK_EX). ftruncate(). fflush().
+│   │   │
+│   │   └── RecordChecker.php         — тот, кто знает, какая таблица как помечает удалённое. exists().
+│   │                                   ALLOWED_TABLES — neuron, synapse, text. SOFT_DELETE_COLUMN —
+│   │                                   neuron => is_deleted, synapse => is_deleted, text => is_active.
+│   │                                   SOFT_DELETE_ACTIVE_VALUE — neuron => 0, synapse => 0, text => 1.
+│   │                                   Validator спрашивает. RecordChecker отвечает. схема — его дело.
+│   │                                   «потому что in_array($table, ['neuron', 'synapse']) — это не правило.
+│   │                                   это — список, который однажды забудут обновить».
 │   ├── Trait
 │   │   ├── BreadcrumbsTrait.php      — карта. один метод. без багов. buildBreadcrumbs($id, $stopSlug, $lang).
 │   │   │                               findById(). findByKeyAndLang(). array_unshift. «Без названия».
@@ -559,6 +594,13 @@
 │   ├── ArgumentResolver.php          — тот, кто разрешает аргументы. resolve(). $paramSpecCacheRequest.
 │   │                                   ReflectionMethod. castScalar(). 'int', 'float', 'bool', 'string'.
 │   │                                   Request::class. Cannot resolve parameter.
+│   │
+│   ├── Bootstrap.php                 — сборщик дома. знает, как собрать приложение. boot(). EnvironmentLoader.
+│   │                                   ContainerFactory. loadLogger() — предупреждение про APCu. loadConfig() —
+│   │                                   loadWithFailSafe(). loadPlugins() — glob, mtime, var/cache/plugins.php.
+│   │                                   getContainer(), getPlugins(), getLogger(). «Kernel — это не сборка.
+│   │                                   Это — жизнь. А жизнь начинается после сборки». initialize() больше нет.
+│   │                                   он — здесь. в трёх маленьких методах. потому что каждая забота — отдельно.
 │   │
 │   ├── Cache.php                     — башня которая ждёт. отключаемая. CacheInterface. remember(),
 │   │                                   forget(), forgetByPrefix(), isEnabled(). apcu_entry(). ['v' => $value].

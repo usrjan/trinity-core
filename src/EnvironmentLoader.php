@@ -80,7 +80,7 @@ class EnvironmentLoader
 		} else {
 			ini_set('display_errors', '0');
 			ini_set('display_startup_errors', '0');
-			error_reporting(E_ALL & ~E_DEPRECATED & ~E_STRICT);
+			error_reporting(E_ALL & ~E_DEPRECATED);
 		}
 	}
 
@@ -113,10 +113,15 @@ class EnvironmentLoader
 		if (!empty($trustedHosts)) {
 			$hosts = array_map('trim', explode(',', $trustedHosts));
 			\Symfony\Component\HttpFoundation\Request::setTrustedHosts($hosts);
-		} elseif ($appEnv === 'prod') {
-			throw new \RuntimeException(
-				'Trinity: TRUSTED_HOSTS is empty in production. Set it in .env.'
-			);
+			return;
 		}
+
+		if ($appEnv === 'prod') {
+			$message = 'Trinity: TRUSTED_HOSTS is empty in production. Set it in .env.';
+			error_log('[Trinity] ' . $message);
+			throw new \RuntimeException($message);
+		}
+
+		error_log('[Trinity] TRUSTED_HOSTS is empty. Host header is not validated.');
 	}
 }

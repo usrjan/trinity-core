@@ -211,7 +211,21 @@ class TextRepository
 	}
 
 	/**
-	 * Нормализует кавычки: «» → ""
+	 * Нормализует кавычки: «» → "", затем расставляет «» по контексту.
+	 *
+	 * === ЧТО ДЕЛАЕТ ===
+	 * 1. Раскодирует HTML-сущности: &quot; → ", &#039; → ', &amp; → &.
+	 * 2. Заменяет «ёлочки» на обычные кавычки: «» → "".
+	 * 3. Расставляет «ёлочки» по контексту:
+	 *    - "" (две и более подряд) → «»
+	 *    - " перед буквой → « (открывающая)
+	 *    - " после не-пробела, перед не-буквой → » (закрывающая)
+	 *
+	 * === ПРИМЕРЫ ===
+	 * - 'Он сказал "привет"' → 'Он сказал «привет»'
+	 * - '""' → '«»'
+	 * - '«привет»' → '«привет»'
+	 * - '&quot;привет&quot;' → '«привет»'
 	 *
 	 * @param string $text
 	 * @return string
@@ -219,18 +233,22 @@ class TextRepository
 	private function normalizeQuotes(string $text): string
 	{
 		$text = htmlspecialchars_decode($text, ENT_QUOTES);
+
 		$text = str_replace(['«', '»'], '"', $text);
 
 		return preg_replace_callback(
-			'/(([\"]{2,})|(?![^\W])(\"))|([^\s][\"]+(?![\w]))/u',
-			function ($matches) {
-				if (count($matches) == 3) {
+			'/(?<double>"{2,})|(?<open>(?<!\w)"(?=\w))|(?<close>(?<=\S)"(?!\w))/u',
+			function (array $matches): string {
+				if (!empty($matches['double'])) {
 					return '«»';
-				} elseif (!empty($matches[1])) {
-					return str_replace('"', '«', $matches[1]);
-				} else {
-					return str_replace('"', '»', $matches[4]);
 				}
+				if (!empty($matches['open'])) {
+					return '«';
+				}
+				if (!empty($matches['close'])) {
+					return '»';
+				}
+				return $matches[0];
 			},
 			$text
 		);

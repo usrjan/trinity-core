@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -20,21 +21,19 @@ class CacheInvalidator
 	/** @var Cache — кэш. */
 	private Cache $cache;
 
+	/** @var RouteCompiler — компилятор маршрутов. */
+	private RouteCompiler $routeCompiler;
+
 	/** @var string — путь к корню проекта. */
 	private string $basePath;
 
 	/**
-	 * @var array|null — ссылка на статическую переменную матчера.
-	 * Передаётся через сеттер, потому что статическая переменная
-	 * живёт в Kernel, но сбрасывать её должен инвалидатор.
+	 * Конструктор.
+	 *
+	 * @param Cache $cache
+	 * @param RouteCompiler $routeCompiler
+	 * @param string $basePath
 	 */
-	private ?array $matcherCompiled = null;
-
-	/**
-	 * @var callable|null — колбэк для сброса статической переменной.
-	 */
-	private $onMatcherReset = null;
-
 	public function __construct(
 		Cache $cache,
 		RouteCompiler $routeCompiler,
@@ -43,14 +42,6 @@ class CacheInvalidator
 		$this->cache = $cache;
 		$this->routeCompiler = $routeCompiler;
 		$this->basePath = rtrim($basePath, '/');
-	}
-
-	/**
-	 * Регистрирует колбэк для сброса статической переменной матчера.
-	 */
-	public function setMatcherResetCallback(callable $callback): void
-	{
-		$this->onMatcherReset = $callback;
 	}
 
 	/**
@@ -76,6 +67,8 @@ class CacheInvalidator
 
 	/**
 	 * Сбрасывает кэш Mime для нейрона.
+	 *
+	 * @param int $id — id нейрона
 	 */
 	public function invalidateMimeCache(int $id): void
 	{

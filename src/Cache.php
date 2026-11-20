@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -35,11 +36,16 @@ class Cache implements CacheInterface
 		$this->enabled = $enabled;
 		$this->apcuAvailable = extension_loaded('apcu') && function_exists('apcu_fetch');
 
-			if (!$this->apcuAvailable) {
+		if (!$this->apcuAvailable) {
 			$this->enabled = false;
 		}
 	}
 
+	/**
+	 * Активен ли кэш.
+	 *
+	 * @return bool
+	 */
 	private function isActive(): bool
 	{
 		return $this->enabled && $this->apcuAvailable;
@@ -47,6 +53,16 @@ class Cache implements CacheInterface
 
 	/**
 	 * Получить значение из кэша или создать новое.
+	 *
+	 * === ПОВЕДЕНИЕ ===
+	 * - Если кэш выключен — вызывается $callback() напрямую.
+	 * - Если $callback() вернул значение — оно кэшируется.
+	 * - Если $callback() вернул null — null кэшируется (array_key_exists
+	 *   отличает «ключ есть, значение null» от «ключа нет»).
+	 * - Если $callback() бросил исключение — исключение пробросится,
+	 *   кэш не запишется. Следующий вызов снова пойдёт в $callback().
+	 * - Если APCu вернул аномалию (не массив, нет ключа 'v') —
+	 *   это логируется, и вызывается $callback() напрямую.
 	 *
 	 * @param string $key — ключ кэша
 	 * @param callable $callback — функция для создания значения
@@ -59,13 +75,24 @@ class Cache implements CacheInterface
 			return $callback();
 		}
 
+		// [Лорелея]: apcu_entry вызывает callback только при промахе.
+		// Если callback бросит — apcu_entry пробросит, APCu не закэширует.
+		// Это правильно: ошибку не кэшируем. Следующий запрос попробует снова.
 		$wrapped = apcu_entry($key, function () use ($callback) {
 			return ['v' => $callback()];
 		}, $ttl);
 
-		return $wrapped['v'] ?? null;
-	}
+		// [Мириам]: Не ?? — а array_key_exists. Потому что ?? не отличает
+		// «ключ есть, значение null» от «ключа нет». А нам нужно отличать.
+		if (!is_array($wrapped) || !array_key_exists('v', $wrapped)) {
+			// [Лорелея]: Это не «нормальный промах». Это — аномалия.
+			// APCu вернул что-то не то. Логируем и идём в callback.
+			error_log('[Trinity] Cache: apcu_entry returned unexpected value for key "' . $key . '"');
+			return $callback();
+		}
 
+		return $wrapped['v'];
+	}
 
 	/**
 	 * Удалить значение из кэша.

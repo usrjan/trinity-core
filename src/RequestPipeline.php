@@ -122,16 +122,33 @@ class RequestPipeline
 			return;
 		}
 
+		$refreshedForUserId = $this->session->get('roles_refreshed_for_user_id');
+		if ((int) $refreshedForUserId !== (int) $userId) {
+			$this->reloadUserRoles($userId);
+			return;
+		}
+
 		$lastRefresh = $this->session->get('roles_refreshed_at', 0);
 		if (time() - $lastRefresh < 300) {
 			return;
 		}
 
+		$this->reloadUserRoles($userId);
+	}
+
+	/**
+	 * Перезагружает роли пользователя из базы.
+	 *
+	 * @param int $userId
+	 */
+	private function reloadUserRoles(int $userId): void
+	{
 		try {
 			$roles = $this->synapseRepo->findRolesByUser($userId);
 
 			$this->session->set('user_roles', $roles);
 			$this->session->set('roles_refreshed_at', time());
+			$this->session->set('roles_refreshed_for_user_id', $userId);
 		} catch (\Throwable $e) {
 			if ($this->logger !== null) {
 				$this->logger->warning('refreshUserRoles failed', [

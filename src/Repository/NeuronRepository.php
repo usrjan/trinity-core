@@ -328,8 +328,14 @@ class NeuronRepository
 	{
 		$conn = $this->db->getConnection();
 
-		$sql = "SELECT n.*
+		$sql = "SELECT n.*, COALESCE(c.cnt, 0) AS child_count
 				FROM neuron n
+				LEFT JOIN (
+					SELECT pid, COUNT(*) AS cnt
+					FROM neuron
+					WHERE is_deleted = 0
+					GROUP BY pid
+				) c ON c.pid = n.id
 				WHERE n.pid " . ($parentId === null ? "IS NULL" : "= ?") . "
 				AND n.is_deleted = 0";
 
@@ -344,40 +350,10 @@ class NeuronRepository
 
 		$children = $conn->executeQuery($sql, $params)->fetchAllAssociative();
 
-		// [Лорелея]: Если детей нет — считать нечего.
-		if (empty($children)) {
-			return $children;
-		}
-
-		$childIds = array_column($children, 'id');
-		$placeholders = implode(',', array_fill(0, count($childIds), '?'));
-
-		$counts = $conn->executeQuery(
-			"SELECT pid, COUNT(*) as child_count
-			FROM neuron
-			WHERE pid IN ({$placeholders})
-			AND is_deleted = 0
-			GROUP BY pid",
-			$childIds
-		)->fetchAllAssociative();
-
+		// [Лорелея]: decode data. Один раз. Без второго запроса.
 		foreach ($children as &$child) {
-			if (isset($child['data']) && is_string($child['data'])) {
-				$decoded = json_decode($child['data'], true);
-				$child['data'] = is_array($decoded) ? $decoded : [];
-			} elseif (!isset($child['data'])) {
-				$child['data'] = [];
-			}
-		}
-		unset($child);
-
-		$countMap = [];
-		foreach ($counts as $row) {
-			$countMap[(int) $row['pid']] = (int) $row['child_count'];
-		}
-
-		foreach ($children as &$child) {
-			$child['child_count'] = $countMap[(int) $child['id']] ?? 0;
+			$child['data'] = $this->decodeData($child['data'] ?? null);
+			$child['child_count'] = (int) $child['child_count'];
 		}
 		unset($child);
 
@@ -398,12 +374,19 @@ class NeuronRepository
 
 		$sql = "SELECT n.*,
 				t.name,
-				t.text as text_content
+				t.text as text_content,
+				COALESCE(c.cnt, 0) AS child_count
 				FROM neuron n
 				LEFT JOIN text t
 					ON t.key = n.text
 					AND t.lang = ?
 					AND t.is_active = 1
+				LEFT JOIN (
+					SELECT pid, COUNT(*) AS cnt
+					FROM neuron
+					WHERE is_deleted = 0
+					GROUP BY pid
+				) c ON c.pid = n.id
 				WHERE n.pid " . ($parentId === null ? "IS NULL" : "= ?") . "
 				AND n.is_deleted = 0";
 
@@ -422,43 +405,34 @@ class NeuronRepository
 
 		$children = $conn->executeQuery($sql, $params)->fetchAllAssociative();
 
-		if (empty($children)) {
-			return $children;
-		}
-
-		$childIds = array_column($children, 'id');
-		$placeholders = implode(',', array_fill(0, count($childIds), '?'));
-
-		$counts = $conn->executeQuery(
-			"SELECT pid, COUNT(*) as child_count
-			FROM neuron
-			WHERE pid IN ({$placeholders})
-			AND is_deleted = 0
-			GROUP BY pid",
-			$childIds
-		)->fetchAllAssociative();
-
 		foreach ($children as &$child) {
-			if (isset($child['data']) && is_string($child['data'])) {
-				$decoded = json_decode($child['data'], true);
-				$child['data'] = is_array($decoded) ? $decoded : [];
-			} elseif (!isset($child['data'])) {
-				$child['data'] = [];
-			}
-		}
-		unset($child);
-
-		$countMap = [];
-		foreach ($counts as $row) {
-			$countMap[(int) $row['pid']] = (int) $row['child_count'];
-		}
-
-		foreach ($children as &$child) {
-			$child['child_count'] = $countMap[(int) $child['id']] ?? 0;
+			$child['data'] = $this->decodeData($child['data'] ?? null);
+			$child['child_count'] = (int) $child['child_count'];
 		}
 		unset($child);
 
 		return $children;
+	}
+
+	/**
+	 * Декодировать поле data нейрона в массив.
+	 *
+	 * [Лорелея]: Вынесено, потому что раньше код декодирования
+	 * дублировался в findChildren() и findChildrenWithText().
+	 * Почти слово в слово. Это была копипаста. Которая работала.
+	 * Но — копипаста.
+	 *
+	 * @param mixed $data
+	 * @return array
+	 */
+	private function decodeData($data): array
+	{
+		if (is_string($data)) {
+			$decoded = json_decode($data, true);
+			return is_array($decoded) ? $decoded : [];
+		}
+
+		return is_array($data) ? $data : [];
 	}
 
 	// ============================================
@@ -527,10 +501,13 @@ class NeuronRepository
 	{
 		$conn = $this->db->getConnection();
 
-		$sql = "SELECT n.id, n.data, n.type,
-				(SELECT t.name FROM text t WHERE t.key = n.text AND t.lang = 'ru' LIMIT 1) as display_name
+		$sql = "SELECT n.id, n.data, n.type, t.name AS display_name
 				FROM neuron n
-				WHERE JSON_EXTRACT(n.data, '$.geometry') IS NOT NULL
+				LEFT JOIN text t
+					ON t.key = n.text
+					AND t.lang = 'ru'
+					AND t.is_active = 1
+				WHERE n.has_geometry = 1
 				AND n.is_deleted = 0";
 
 		$params = [];

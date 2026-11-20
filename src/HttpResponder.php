@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -19,6 +20,9 @@ class HttpResponder
 
 	/** @var ConfigService — сервис конфигурации. */
 	private ConfigService $configService;
+
+	/** @var array|null Разобранные allowed_origins. Ленивый кэш. */
+	private ?array $allowedOriginsCache = null;
 
 	public function __construct(ConfigService $configService)
 	{
@@ -41,9 +45,19 @@ class HttpResponder
 			$response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 		}
 
-		$response->headers->set('Access-Control-Allow-Methods', self::CORS_ALLOW_METHODS);
-		$response->headers->set('Access-Control-Allow-Headers', self::CORS_ALLOW_HEADERS);
 		$response->send();
+	}
+
+	/**
+	 * Preflight-ответ для OPTIONS.
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 */
+	public function preflight(Request $request, Response $response): void
+	{
+		$this->applyCorsHeaders($request, $response);
+		$response->headers->set('Access-Control-Max-Age', '86400');
 	}
 
 	/**
@@ -51,19 +65,20 @@ class HttpResponder
 	 */
 	private function applyCorsHeaders(Request $request, Response $response): void
 	{
-		$allowed = $this->configService->get('cors.allowed_origins', '');
-		if (empty($allowed)) {
-			return;
-		}
-
 		$origin = $request->headers->get('Origin');
 		if (!$origin) {
 			return;
 		}
 
-		$response->headers->set('Vary', 'Origin');
+		$response->headers->set('Access-Control-Allow-Methods', self::CORS_ALLOW_METHODS);
+		$response->headers->set('Access-Control-Allow-Headers', self::CORS_ALLOW_HEADERS);
 
-		$allowedOrigins = array_map('trim', explode(',', $allowed));
+		$allowedOrigins = $this->getAllowedOrigins();
+		if (empty($allowedOrigins)) {
+			return;
+		}
+
+		$response->headers->set('Vary', 'Origin');
 
 		if (in_array('*', $allowedOrigins, true)) {
 			$response->headers->set('Access-Control-Allow-Origin', '*');
@@ -77,17 +92,25 @@ class HttpResponder
 	}
 
 	/**
-	 * Preflight-ответ для OPTIONS.
+	 * Возвращает разобранный список allowed_origins.
 	 *
-	 * @param Request $request
-	 * @param Response $response
+	 * @return array
 	 */
-	public function preflight(Request $request, Response $response): void
+	private function getAllowedOrigins(): array
 	{
-		$this->applyCorsHeaders($request, $response);
-		$response->headers->set('Access-Control-Allow-Methods', self::CORS_ALLOW_METHODS);
-		$response->headers->set('Access-Control-Allow-Headers', self::CORS_ALLOW_HEADERS);
-		$response->headers->set('Access-Control-Max-Age', '86400');
-		$response->headers->set('Vary', 'Origin');
+		if ($this->allowedOriginsCache !== null) {
+			return $this->allowedOriginsCache;
+		}
+
+		$allowed = $this->configService->get('cors.allowed_origins', '');
+		if (empty($allowed)) {
+			$this->allowedOriginsCache = [];
+			return $this->allowedOriginsCache;
+		}
+
+		$this->allowedOriginsCache = array_map('trim', explode(',', $allowed));
+
+		return $this->allowedOriginsCache;
 	}
+
 }

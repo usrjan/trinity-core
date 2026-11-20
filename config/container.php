@@ -34,7 +34,8 @@ use Jan\Trinity\Core\Service\RateLimiter;
 use Jan\Trinity\Core\Service\IpBlocker;
 use Jan\Trinity\Core\Service\CaptchaService;
 use Jan\Trinity\Core\Service\LoginAttemptLimiter;
-
+use Jan\Trinity\Core\Service\PasswordHasher;
+use Jan\Trinity\Core\Service\RecordChecker;
 use Jan\Trinity\Plugin\Admin\AdminController;
 use Jan\Trinity\Plugin\Admin\ImportController;
 use Jan\Trinity\Plugin\Admin\DashboardRepository;
@@ -63,6 +64,7 @@ use Jan\Trinity\Plugin\Gallery\GalleryDisplayController;
 use Jan\Trinity\Plugin\Gallery\GalleryImportService;
 use Jan\Trinity\Plugin\Spa\PageController;
 use Jan\Trinity\Plugin\Spa\PageEditorController;
+use Jan\Trinity\Plugin\Spa\PageRepository;
 use Jan\Trinity\Plugin\Spa\SpaController;
 use Jan\Trinity\Plugin\Spa\SidebarController;
 use Jan\Trinity\Plugin\Spa\TopbarController;
@@ -174,7 +176,11 @@ return [
 	// ============================================
 	// 7. ШАБЛОНИЗАТОР TWIG
 	// ============================================
-	Environment::class => function (Session $session, CsrfService $csrfService) {
+	Environment::class => function (
+			Session $session,
+			CsrfService $csrfService,
+			ConfigService $configService
+		) {
 		$basePath = dirname(__DIR__);
 		$isDev = ($_ENV['APP_ENV'] ?? 'prod') === 'dev';
 
@@ -200,6 +206,9 @@ return [
 
 		$twig->addGlobal('gallery_url', rtrim($_ENV['GALLERY_UPLOAD_URL'] ?? '/uploads/gallery', '/'));
 
+		$configService->load();
+		$twig->addGlobal('app_version', $configService->get('app.version') ?? $_ENV['APP_VERSION'] ?? 'unknown');
+
 		return $twig;
 	},
 
@@ -212,6 +221,15 @@ return [
 		->constructorParameter('logger', \DI\get('logger.admin')),
 
 	SynapseRepository::class => \DI\autowire(),
+
+	// ============================================
+	// 8.1. PAGE REPOSITORY — ОДИН ИСТОЧНИК ПРАВДЫ
+	// ============================================
+	// [Лорелея]: Теперь сборка $sections, $subPages и $title
+	// живёт здесь. И PageController — только зовёт buildPageData().
+	// Потому что «один источник правды» — это не «красиво».
+	// Это — правильно.
+	PageRepository::class => \DI\autowire(),
 
 	// ============================================
 	// 9. КОНТРОЛЛЕРЫ ПЛАГИНОВ
@@ -252,18 +270,12 @@ return [
 	RegisterController::class => \DI\autowire(),
 	ProfileController::class => \DI\autowire(),
 	ProfileEditController::class => \DI\autowire(),
+	PasswordHasher::class => \DI\autowire(PasswordHasher::class),
 
 	// --- Карта ---
 	MapController::class => \DI\autowire(),
 	MapInfoController::class => \DI\autowire(),
 	MapGeoJsonController::class => \DI\autowire(),
-
-	// --- Инструменты ---
-	ToolsController::class => \DI\autowire(),
-	SocialReportParser::class => \DI\autowire(),
-	SocialReportCalculator::class => \DI\autowire(),
-	SocialReportWordGenerator::class => \DI\autowire(),
-	ReportSocialHandler::class => \DI\autowire(),
 
 	// --- Ядро ---
 	ArgumentResolver::class => \DI\autowire(),
@@ -299,8 +311,9 @@ return [
 	// ============================================
 	// 11. VALIDATOR
 	// ============================================
-	Validator::class => \DI\autowire()
-		->constructorParameter('neuronRepo', \DI\get(NeuronRepository::class)),
+	RecordChecker::class => \DI\autowire(RecordChecker::class),
+
+	Validator::class => \DI\autowire(),
 
 	// ============================================
 	// 12. ГАЛЕРЕЯ — ПУТИ К ФАЙЛАМ
@@ -485,14 +498,18 @@ return [
 	// ============================================
 	// 21. TOOLS CONTROLLER
 	// ============================================
+	ToolsController::class => \DI\autowire(),
 	ReportSocialHandler::class => \DI\autowire(),
 	SocialReportParser::class => \DI\autowire(),
 	SocialReportCalculator::class => \DI\autowire(),
 	SocialReportWordGenerator::class => \DI\autowire(),
 
 	// ============================================
-	// 21. SPA CONTROLLERS
+	// 22. SPA CONTROLLERS
 	// ============================================
+	// [Лорелея]: PageController теперь получает PageRepository
+	// через конструктор. PHP-DI сам разберётся по типу.
+	// А PageRepository — уже зарегистрирован выше (п. 8.1).
 	PageController::class => \DI\autowire(),
 	PageEditorController::class => \DI\autowire(),
 	SpaController::class => \DI\autowire(),

@@ -38,20 +38,20 @@ trait BreadcrumbsTrait
 
 			$name = 'Без названия';
 
-			if ($current['text']) {
+			if ($current['text'] !== null && $current['text'] !== '') {
 				$text = $this->textRepo->findByKeyAndLang($current['text'], $lang);
 
-				if (!$text || !$text['name']) {
+				if (!$text || $text['name'] === null || $text['name'] === '') {
 					$allTexts = $this->textRepo->findAllByKey($current['text']);
 					foreach ($allTexts as $t) {
-						if (!empty($t['name'])) {
+						if ($t['name'] !== null && $t['name'] !== '') {
 							$text = $t;
 							break;
 						}
 					}
 				}
 
-				if ($text && $text['name']) {
+				if ($text && $text['name'] !== null && $text['name'] !== '') {
 					$name = $text['name'];
 				}
 			}

@@ -14,7 +14,6 @@ declare(strict_types=1);
 namespace Jan\Trinity\Core\Middleware;
 
 use Jan\Trinity\Core\ApiResponse;
-use Jan\Trinity\Core\Repository\SynapseRepository;
 use Jan\Trinity\Core\Exception\UnauthorizedException;
 use Jan\Trinity\Core\Exception\ForbiddenException;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -34,9 +33,8 @@ trait AuthMiddleware
 	 * Вызвать в конструкторе контроллера.
 	 *
 	 * @param Session $session — сессия
-	 * @param SynapseRepository|null $synapseRepo — репозиторий для ролей
 	 */
-	protected function initAuth(Session $session, ?SynapseRepository $synapseRepo = null): void
+	protected function initAuth(Session $session): void
 	{
 		$this->session = $session;
 	}
