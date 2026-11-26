@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS `neuron` (
 	`is_deleted` TINYINT(1) GENERATED ALWAYS AS (CASE WHEN JSON_EXTRACT(`data`, '$.deleted_at') IS NOT NULL THEN 1 ELSE 0 END) STORED,
 	`deleted_at` DATETIME GENERATED ALWAYS AS (JSON_EXTRACT(`data`, '$.deleted_at')) STORED,
 	`status` VARCHAR(20) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.status'))) STORED,
+	`has_geometry` TINYINT(1) GENERATED ALWAYS AS (JSON_EXTRACT(`data`, '$.geometry') IS NOT NULL) STORED,
 
 	`job_class` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.job_class'))) STORED,
 	`job_queue` VARCHAR(50) GENERATED ALWAYS AS (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.queue_name')), 'default')) STORED,
@@ -116,6 +117,7 @@ CREATE TABLE IF NOT EXISTS `neuron` (
 	INDEX `idx_text` (`text`),
 	INDEX `idx_date` (`date`),
 	INDEX `idx_status` (`status`),
+	INDEX `idx_has_geometry` (`has_geometry`),
 	INDEX `idx_pid_type` (`pid`, `type`),
 	INDEX `idx_pid_sort` (`pid`, `sort`),
 	INDEX `idx_tree_type` (`tree`, `type`),
@@ -291,7 +293,7 @@ INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 INSERT INTO `neuron` (`id`, `pid`, `type`, `data`) VALUES
 (34, 43, 'config', '{"key":"app.debug","value":true,"description":"Режим отладки"}'),
 (35, 43, 'config', '{"key":"app.name","value":"Trinity","description":"Название приложения"}'),
-(36, 43, 'config', '{"key":"app.version","value":"1.1.4","description":"Версия системы"}'),
+(36, 43, 'config', '{"key":"app.version","value":"1.0.17","description":"Версия системы"}'),
 (37, 43, 'config', '{"key":"cache.enabled","value":false,"description":"Кэширование данных"}'),
 (38, 43, 'config', '{"key":"monitor.enabled","value":true,"description":"Плагин Монитор"}'),
 (39, 43, 'config', '{"key":"guard.enabled","value":true,"description":"Плагин Страж"}');
